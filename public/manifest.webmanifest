@@ -1,6 +1,6 @@
 {
-  "name": "NEXA",
-  "short_name": "NEXA",
+  "name": "Nexa",
+  "short_name": "Nexa",
   "description": "Your personal performance coach",
   "start_url": "/?pwa=1",
   "scope": "/",

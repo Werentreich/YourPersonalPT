@@ -42,7 +42,7 @@ const rootText = (doc.getElementById("root")?.textContent || "").replace(/\s+/g,
 const checks = [
   ["exact één groot en één klein <script>-blok", (html.match(/<script>[\s\S]*?<\/script>/g) || []).length === 2],
   ["React heeft gemount (#root heeft inhoud)", (doc.getElementById("root")?.children.length || 0) > 0],
-  ["app-titel zichtbaar", /NEXA/.test(rootText)],
+  ["app-titel zichtbaar", /Nexa/.test(rootText)],
   ["tabbalk zichtbaar", /Vandaag/.test(rootText) && /Profiel/.test(rootText)],
   ["geen crash-melding", !/Er ging iets mis/.test(rootText)],
   ["ontwerpsysteem-CSS geladen (--accent aanwezig)", [...doc.querySelectorAll("style")].some((s) => s.textContent.includes("--accent"))],

@@ -47,15 +47,15 @@ let html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>NEXA</title>
-<meta name="description" content="NEXA · Your personal performance coach">
+<title>Nexa</title>
+<meta name="description" content="Nexa · Your personal performance coach">
 <meta name="theme-color" content="#EEF0F4" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#08090C" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="NEXA">
-<link rel="manifest" href="/manifest.webmanifest?v=nexa1">
+<meta name="apple-mobile-web-app-title" content="Nexa">
+<link rel="manifest" href="/manifest.webmanifest?v=nexa2">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=nexa1">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=nexa1">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=nexa1">

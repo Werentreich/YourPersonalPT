@@ -1,4 +1,4 @@
-# NEXA
+# Nexa
 
 *Your personal performance coach.*
 

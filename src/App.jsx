@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 
 /* =========================================================================
-   NEXA - Your personal performance coach
+   Nexa - Your personal performance coach
    Trainingsgerichte macro-, maaltijd- en trainingsplanner
    Rekenkern gebaseerd op openbaar gepubliceerde sportvoedingsliteratuur:
    - Mifflin-St Jeor (1990) / Katch-McArdle voor rustmetabolisme
@@ -1906,7 +1906,7 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 /* ----------------------------- primitieven ----------------------------- */
 
 const STORE_KEY = "macroverdeling:v1";
-const APP_VERSION = "25 september, NEXA";
+const APP_VERSION = "25 september, Nexa";
 const R = { card: 14, field: 10 };
 
 /* Het heropaneel is in beide modi donker, dus deze drie kleuren staan vast. */
@@ -2135,7 +2135,7 @@ const ICON_PATHS = {
   profiel: ["M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M4.5 20.5c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5"],
 };
 
-/* Beeldmerk van NEXA: drie staven in blauw, groen en oranje. */
+/* Beeldmerk van Nexa: drie staven in blauw, groen en oranje. */
 function NexaMark({ size = 14 }) {
   const bars = [
     { x: 0, h: 10, c: ["#4D86FF", "#1E48F5"] },
@@ -7139,7 +7139,7 @@ function MacroApp() {
 
   const makeText = () => {
     const lines = [
-      `NEXA - week van ${dateNL(new Date())}`,
+      `Nexa - week van ${dateNL(new Date())}`,
       `Weekgemiddelde ${Math.round(energy.avgTarget)} kcal · verwacht ${energy.realKgPerWeek > 0 ? "+" : ""}${energy.realKgPerWeek.toFixed(2)} kg per week`,
       "",
       ...DAYS.map(
@@ -7559,7 +7559,7 @@ function MacroApp() {
                     Gewichten van vlees, vis, rijst en pasta zijn bereid gewicht.
                   </div>
                   <div className="text-right shrink-0">
-                    NEXA
+                    Nexa
                     <br />
                     {dateNL(new Date())}
                   </div>
@@ -7915,8 +7915,8 @@ function MacroApp() {
         <header className="mb-5">
           <div className="text-xs leading-snug whitespace-nowrap overflow-hidden" style={{ textOverflow: "ellipsis" }}>
             <NexaMark size={13} />{" "}
-            <span className="font-bold" style={{ color: C.ink, letterSpacing: "0.14em" }}>
-              NEXA
+            <span className="font-bold" style={{ color: C.ink, letterSpacing: "0.01em" }}>
+              Nexa
             </span>
             <span style={{ color: C.muted }}> · Your personal performance coach</span>
           </div>

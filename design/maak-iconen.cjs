@@ -1,4 +1,4 @@
-/* Maakt de app-iconen van NEXA uit één vectorontwerp (nexa-icon.svg).
+/* Maakt de app-iconen van Nexa uit één vectorontwerp (nexa-icon.svg).
    Draaien: NODE_PATH=$(npm root -g) node design/maak-iconen.cjs
    Vereist Playwright met Chromium; dat is geen projectafhankelijkheid,
    omdat iconen zelden veranderen. */
