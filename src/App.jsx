@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 
 /* =========================================================================
-   MACROVERDELING - trainingsgerichte macro- en maaltijdplanner
+   NEXA - Your personal performance coach
+   Trainingsgerichte macro-, maaltijd- en trainingsplanner
    Rekenkern gebaseerd op openbaar gepubliceerde sportvoedingsliteratuur:
    - Mifflin-St Jeor (1990) / Katch-McArdle voor rustmetabolisme
    - ISSN position stand eiwit (Jager et al. 2017): 1,4-2,0 g/kg, hoger in deficit
@@ -1905,7 +1906,7 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 /* ----------------------------- primitieven ----------------------------- */
 
 const STORE_KEY = "macroverdeling:v1";
-const APP_VERSION = "25 september, training";
+const APP_VERSION = "25 september, NEXA";
 const R = { card: 14, field: 10 };
 
 /* Het heropaneel is in beide modi donker, dus deze drie kleuren staan vast. */
@@ -7114,7 +7115,7 @@ function MacroApp() {
 
   const makeText = () => {
     const lines = [
-      `Macroverdeling - week van ${dateNL(new Date())}`,
+      `NEXA - week van ${dateNL(new Date())}`,
       `Weekgemiddelde ${Math.round(energy.avgTarget)} kcal · verwacht ${energy.realKgPerWeek > 0 ? "+" : ""}${energy.realKgPerWeek.toFixed(2)} kg per week`,
       "",
       ...DAYS.map(
@@ -7534,7 +7535,7 @@ function MacroApp() {
                     Gewichten van vlees, vis, rijst en pasta zijn bereid gewicht.
                   </div>
                   <div className="text-right shrink-0">
-                    Macroverdeling
+                    NEXA
                     <br />
                     {dateNL(new Date())}
                   </div>
@@ -7887,22 +7888,25 @@ function MacroApp() {
         className="macroapp no-print mx-auto max-w-2xl px-4 pt-6"
         style={{ paddingBottom: trainingActive ? "calc(210px + env(safe-area-inset-bottom, 0px))" : "calc(96px + env(safe-area-inset-bottom, 0px))" }}
       >
-        <header className="mb-5 flex items-end justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold" style={{ color: C.accent, letterSpacing: "0.02em" }}>
-              Macroverdeling
-            </div>
-            <h1 className="disp text-4xl font-bold uppercase leading-none tracking-tight mt-0.5">
-              {TABS.find((t) => t.id === tab).title}
-            </h1>
+        <header className="mb-5">
+          <div className="text-xs leading-snug whitespace-nowrap overflow-hidden" style={{ textOverflow: "ellipsis" }}>
+            <span className="font-bold" style={{ color: C.accent, letterSpacing: "0.14em" }}>
+              NEXA
+            </span>
+            <span style={{ color: C.muted }}> · Your personal performance coach</span>
           </div>
+          <div className="flex items-end justify-between gap-3 mt-0.5">
+          <h1 className="disp text-4xl font-bold uppercase leading-none tracking-tight">
+            {TABS.find((t) => t.id === tab).title}
+          </h1>
           {tab === "vandaag" && (
             <div className="text-right text-xs leading-snug" style={{ color: C.muted }}>
               {DAY_FULL[selDay]}
               <br />
-              {TYPE_LABEL[dayType(selDay)].replace(/n$/, "")}
+              {dayType(selDay) === "training" ? "Trainingsdag" : "Rustdag"}
             </div>
           )}
+          </div>
         </header>
 
         {tab === "vandaag" && (

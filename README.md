@@ -1,4 +1,6 @@
-# Macroverdeling
+# NEXA
+
+*Your personal performance coach.*
 
 Trainingsgerichte macro- en voedingsschemaplanner, in het Nederlands, als
 installeerbare PWA. Berekent calorieën en macro's per dag op basis van
@@ -8,6 +10,9 @@ tabblad Training bevat trainingsschema's, live loggen met rusttimer,
 automatische progressie, periodisering met deload en analyses.
 
 **Live:** https://macroverdeling.netlify.app
+
+De opslagsleutels (`macroverdeling:v1` en `macroverdeling:training:v1`)
+behouden bewust hun oude naam, zodat bestaande gegevens bewaard blijven.
 
 ## Structuur
 

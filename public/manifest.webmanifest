@@ -1,7 +1,7 @@
 {
-  "name": "Macroverdeling",
-  "short_name": "Macro's",
-  "description": "Voedingsschema, macro's en porties, afgestemd op uw training.",
+  "name": "NEXA",
+  "short_name": "NEXA",
+  "description": "Your personal performance coach",
   "start_url": "/?pwa=1",
   "scope": "/",
   "display": "standalone",
