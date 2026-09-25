@@ -2,7 +2,7 @@
    logica) al inline. Alleen de lettertypen komen van Google Fonts en die
    laat de service worker gewoon los, met de systeemfont-fallback in de CSS
    als vangnet wanneer dat netwerkverzoek offline mislukt. */
-const CACHE = "nexa-shell-v8";
+const CACHE = "nexa-shell-v9";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/icon-512-maskable.png"];
 
 self.addEventListener("install", (event) => {
@@ -22,6 +22,7 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // lettertypen etc. met rust laten
+  if (url.pathname.startsWith("/.netlify/")) return; // serverfuncties nooit uit de cache
 
   if (req.mode === "navigate") {
     event.respondWith(

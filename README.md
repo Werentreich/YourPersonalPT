@@ -79,6 +79,24 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
 
+## Fotoanalyse van etiketten
+
+Binnen de Claude-weergave leest de app etiketten via de `sample`-capability.
+Als losse app (Netlify) loopt het via de serverfunctie
+`netlify/functions/etiket.mjs`: de app verkleint de foto tot maximaal
+1600 px en stuurt hem naar `/.netlify/functions/etiket`; de functie vraagt
+Claude de tabel te lezen en geeft gestructureerde JSON terug.
+
+- **API-sleutel**: zet `ANTHROPIC_API_KEY` als omgevingsvariabele in Netlify
+  (Site configuration, Environment variables; markeer hem als geheim, scope
+  Functions). De sleutel komt nooit in de app zelf.
+- **Alleen de eigen site** mag de functie aanroepen (controle op `Origin`).
+- **Deployen**: functies worden alleen meegenomen bij een deploy via Git of
+  de Netlify-CLI, niet bij het slepen van de map `dist/`. `netlify.toml`
+  bevat daarvoor het buildcommando, de publish-map en de functiemap.
+- **Controle**: `GET /.netlify/functions/etiket` geeft `{"ok":true}` als de
+  sleutel is ingesteld. Fouten verschijnen in het functielogboek van Netlify.
+
 ## Logo en iconen
 
 `design/nexa-logo-ontwerpen.png` is het huisstijlontwerp. Het app-icoon is

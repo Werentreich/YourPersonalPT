@@ -636,8 +636,39 @@ const blobToBase64 = (blob) =>
     r.readAsDataURL(blob);
   });
 
-/* Vraagt Claude om de foto te lezen. In de gepubliceerde app loopt dat via de
-   sample-capability van de viewer, binnen Claude zelf via de API. */
+/* Serverfunctie die de foto met Claude leest (netlify/functions/etiket.mjs).
+   De API-sleutel staat alleen op de server, nooit in de app. */
+const LABEL_ENDPOINT = "/.netlify/functions/etiket";
+
+/* Een telefoonfoto is al snel 3 tot 5 MB; verkleind tot 1600 px aan de lange
+   kant blijft de tabel scherp leesbaar en past het verzoek ruim binnen de
+   limiet van de server. */
+async function shrinkImage(file, max = 1600, quality = 0.85) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error("De foto kon niet worden geopend."));
+      i.src = url;
+    });
+    const k = Math.min(1, max / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", quality));
+    if (!blob) throw new Error("De foto kon niet worden verkleind.");
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+const labelError = (message, code) => Object.assign(new Error(message), { code });
+
+/* Vraagt Claude om de foto te lezen. Binnen de Claude-weergave via de
+   sample-capability, als losse app via de eigen serverfunctie. */
 async function readLabelWithClaude(file) {
   if (typeof window !== "undefined" && window.claude && typeof window.claude.use === "function") {
     const sample = await window.claude.use("sample");
@@ -646,31 +677,22 @@ async function readLabelWithClaude(file) {
     if (!lim || !lim.images) throw Object.assign(new Error("Foto's kunnen hier niet verstuurd worden."), { code: "images_unavailable" });
     return await sample.json(LABEL_PROMPT, { images: [file], modelTier: "default" });
   }
-  const data = await blobToBase64(file);
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: file.type || "image/jpeg", data } },
-            { type: "text", text: LABEL_PROMPT },
-          ],
-        },
-      ],
-    }),
-  });
-  if (!r.ok) throw new Error("Analyse mislukt (" + r.status + ").");
-  const d = await r.json();
-  const text = (d.content || [])
-    .filter((x) => x.type === "text")
-    .map((x) => x.text)
-    .join("\n");
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
+  const blob = await shrinkImage(file).catch(() => file);
+  const data = await blobToBase64(blob);
+  let r;
+  try {
+    r = await fetch(LABEL_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: data, mediaType: blob.type || "image/jpeg" }),
+    });
+  } catch (e) {
+    throw labelError("Geen verbinding met de server.", "offline");
+  }
+  const d = await r.json().catch(() => null);
+  if (!d) throw labelError(r.status === 404 ? "De serverfunctie is niet gevonden." : `Serverfout (${r.status}).`, r.status === 404 ? "geen_functie" : "server");
+  if (!d.ok) throw labelError(d.message || "Analyse mislukt.", d.code);
+  return d.result;
 }
 
 /* Ontleedt geplakte etikettekst zonder internet. Pakt per regel het eerste
@@ -6483,7 +6505,22 @@ function MacroApp() {
         if (alive) setAiPhoto({ ok: false, reden: (e && e.message) || "onbekende fout" });
         return;
       }
-      if (alive) setAiPhoto({ ok: true, reden: "via de Claude-weergave" });
+      /* Losse app: controleren of de serverfunctie klaarstaat. Zonder
+         verbinding proberen we het gewoon bij gebruik. */
+      try {
+        if (location.protocol === "file:") {
+          if (alive) setAiPhoto({ ok: false, reden: "alleen als de app online draait" });
+          return;
+        }
+        const r = await fetch(LABEL_ENDPOINT, { method: "GET", cache: "no-store" });
+        const d = await r.json().catch(() => null);
+        if (!alive) return;
+        if (d && d.ok) setAiPhoto({ ok: true, reden: "via de server" });
+        else if (d && d.code === "geen_sleutel") setAiPhoto({ ok: false, reden: "er is nog geen API-sleutel ingesteld op de server" });
+        else setAiPhoto({ ok: false, reden: "de serverfunctie is niet gevonden op deze site" });
+      } catch (e) {
+        if (alive) setAiPhoto({ ok: true, reden: "wordt bij gebruik gecontroleerd" });
+      }
     })();
     return () => {
       alive = false;
@@ -7279,6 +7316,16 @@ function MacroApp() {
             ? "Te veel aanvragen achter elkaar. Probeer het over een minuut opnieuw."
             : code === "images_unavailable"
             ? "Foto's kunnen in deze weergave niet verstuurd worden. Gebruik Tekst plakken."
+            : code === "offline"
+            ? "Geen internetverbinding. Probeer het opnieuw zodra u online bent, of gebruik Tekst plakken."
+            : code === "geen_sleutel" || code === "sleutel_ongeldig"
+            ? "De fotoanalyse is op de server nog niet ingesteld (API-sleutel ontbreekt of klopt niet). Gebruik tot die tijd Tekst plakken."
+            : code === "geen_functie"
+            ? "De fotoanalyse is op deze site nog niet geïnstalleerd. Gebruik tot die tijd Tekst plakken."
+            : code === "te_groot"
+            ? "De foto is te groot. Maak een foto van alleen de voedingswaardetabel."
+            : code === "geweigerd"
+            ? "Deze foto kon niet worden verwerkt. Probeer een andere foto of gebruik Tekst plakken."
             : `Analyse mislukt: ${(e && e.message) || "onbekende fout"}. Gebruik Tekst plakken of vul de waarden zelf in.`,
       });
     } finally {
