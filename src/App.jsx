@@ -6269,6 +6269,288 @@ class TrainingBoundary extends React.Component {
   }
 }
 
+/* ---------------- Nexa-account ----------------
+   Alleen in de losse app (Netlify) bestaat window.nexaSync; binnen de
+   Claude-weergave bewaart Claude de gegevens al en blijft dit weg. */
+
+function useNexaSync() {
+  const [s, setS] = useState(() => (typeof window !== "undefined" && window.nexaSync ? window.nexaSync.state : null));
+  useEffect(() => (typeof window !== "undefined" && window.nexaSync ? window.nexaSync.subscribe(setS) : undefined), []);
+  return s;
+}
+
+const syncTime = (ms) =>
+  ms ? new Date(ms).toLocaleString("nl-NL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "nog niet";
+
+function FormMsg({ msg }) {
+  if (!msg) return null;
+  const col = msg.tone === "fout" ? C.train : msg.tone === "goed" ? C.carb : C.muted;
+  return (
+    <p className="text-sm leading-relaxed" style={{ color: col }} role={msg.tone === "fout" ? "alert" : "status"}>
+      {msg.text}
+    </p>
+  );
+}
+
+function AccountForm({ initial = "login", onDone }) {
+  const [mode, setMode] = useState(initial);
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const sync = typeof window !== "undefined" ? window.nexaSync : null;
+  if (!sync) return null;
+  const submit = async (ev) => {
+    if (ev) ev.preventDefault();
+    const mail = email.trim();
+    if (!/^\S+@\S+\.\S+$/.test(mail)) return setMsg({ tone: "fout", text: "Vul een geldig e-mailadres in." });
+    if (mode !== "reset" && pw.length < 8) return setMsg({ tone: "fout", text: "Het wachtwoord moet minstens 8 tekens hebben." });
+    setBusy(true);
+    setMsg(null);
+    try {
+      if (mode === "login") {
+        await sync.signIn(mail, pw);
+        setMsg({ tone: "goed", text: "Ingelogd. Uw gegevens zijn bijgewerkt." });
+        if (onDone) onDone();
+      } else if (mode === "signup") {
+        const r = await sync.signUp(mail, pw);
+        if (r.confirmed) {
+          setMsg({ tone: "goed", text: "Account aangemaakt. Uw gegevens worden nu online bewaard." });
+          if (onDone) onDone();
+        } else {
+          setMode("login");
+          setMsg({
+            tone: "goed",
+            text: "Account aangemaakt. Open de bevestigingsmail en tik op de link. Kom daarna terug in deze app en log hier in met uw e-mailadres en wachtwoord.",
+          });
+        }
+      } else {
+        await sync.resetPassword(mail);
+        setMsg({ tone: "goed", text: "Als er een account bij dit adres hoort, heeft u nu een mail met een link om een nieuw wachtwoord in te stellen." });
+      }
+    } catch (err) {
+      setMsg({ tone: "fout", text: (err && err.message) || "Er ging iets mis." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-3" noValidate>
+      {mode !== "reset" && (
+        <Seg
+          value={mode}
+          onChange={(v) => {
+            setMode(v);
+            setMsg(null);
+          }}
+          options={[
+            { value: "login", label: "Inloggen" },
+            { value: "signup", label: "Account maken" },
+          ]}
+        />
+      )}
+      <label className="block">
+        <span className="text-xs" style={{ color: C.muted }}>
+          E-mailadres
+        </span>
+        <input
+          type="email"
+          name="email"
+          autoComplete="username"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="w-full px-3 py-2.5 text-sm mt-1"
+          style={inputStyle}
+        />
+      </label>
+      {mode !== "reset" && (
+        <label className="block">
+          <span className="text-xs" style={{ color: C.muted }}>
+            Wachtwoord{mode === "signup" ? " (minstens 8 tekens)" : ""}
+          </span>
+          <input
+            type="password"
+            name="password"
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            className="w-full px-3 py-2.5 text-sm mt-1"
+            style={inputStyle}
+          />
+        </label>
+      )}
+      <FormMsg msg={msg} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="submit"
+          disabled={busy}
+          className="tap px-4 py-2.5 text-sm"
+          style={{ background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600, opacity: busy ? 0.6 : 1 }}
+        >
+          {busy ? "Even geduld…" : mode === "login" ? "Inloggen" : mode === "signup" ? "Account maken" : "Herstelmail versturen"}
+        </button>
+        {mode === "login" && (
+          <button
+            type="button"
+            onClick={() => {
+              setMode("reset");
+              setMsg(null);
+            }}
+            className="tap text-sm underline"
+            style={{ color: C.muted }}
+          >
+            Wachtwoord vergeten?
+          </button>
+        )}
+        {mode === "reset" && (
+          <button
+            type="button"
+            onClick={() => {
+              setMode("login");
+              setMsg(null);
+            }}
+            className="tap text-sm underline"
+            style={{ color: C.muted }}
+          >
+            Terug naar inloggen
+          </button>
+        )}
+      </div>
+      {mode === "login" && (
+        <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+          Bij inloggen zet de app de gegevens uit uw account op dit apparaat.
+        </p>
+      )}
+    </form>
+  );
+}
+
+function AccountSection({ s }) {
+  const [confirmOut, setConfirmOut] = useState(false);
+  if (!s) return null;
+  const sync = window.nexaSync;
+  if (!s.user) {
+    return (
+      <Section
+        title="Account"
+        sub="Met een gratis Nexa-account bewaart de app uw gegevens ook online. Verwijdert u de app of krijgt u een nieuwe telefoon, dan logt u in en staat alles er weer."
+      >
+        <div className="px-4 py-4">
+          <AccountForm />
+        </div>
+      </Section>
+    );
+  }
+  const status =
+    s.status === "bezig"
+      ? { state: "oplet", value: "bezig", note: "Uw gegevens worden gesynchroniseerd." }
+      : s.status === "offline"
+      ? { state: "oplet", value: "offline", note: "Geen verbinding. Wijzigingen worden verstuurd zodra u weer online bent." }
+      : s.status === "fout"
+      ? { state: "risico", value: "mislukt", note: `Synchroniseren mislukt: ${s.error}` }
+      : { state: "goed", value: "bijgewerkt", note: `Laatst gesynchroniseerd: ${syncTime(s.lastSync)}. Wijzigingen gaan automatisch mee.` };
+  return (
+    <Section title="Account" sub="Uw gegevens staan op dit apparaat en in uw Nexa-account. Ze blijven bewaard als u de app verwijdert of van telefoon wisselt.">
+      <Row label="Ingelogd als" hint={s.user.email}>
+        <span />
+      </Row>
+      <Status label="Synchronisatie" value={status.value} state={status.state} note={status.note} />
+      <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
+        <TBtn small kind="secondary" disabled={s.status === "bezig"} onClick={() => sync.syncNow()}>
+          Nu synchroniseren
+        </TBtn>
+        {confirmOut ? (
+          <>
+            <TBtn
+              small
+              kind="danger"
+              onClick={() => {
+                sync.signOut();
+                setConfirmOut(false);
+              }}
+            >
+              Ja, uitloggen
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => setConfirmOut(false)}>
+              Annuleren
+            </TBtn>
+          </>
+        ) : (
+          <TBtn small kind="ghost" onClick={() => setConfirmOut(true)}>
+            Uitloggen
+          </TBtn>
+        )}
+      </div>
+      {confirmOut && (
+        <p className="px-4 pb-3 text-xs" style={{ color: C.muted }}>
+          Uw gegevens blijven op dit apparaat en in uw account staan; ze worden alleen niet meer gesynchroniseerd.
+        </p>
+      )}
+    </Section>
+  );
+}
+
+/* Meldingen die bij een link uit een mail horen. Die link opent vaak in de
+   browser in plaats van in de app op het beginscherm. */
+function SyncNotices({ s }) {
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  if (!s) return null;
+  const sync = window.nexaSync;
+  if (s.recovery) {
+    const save = async (ev) => {
+      ev.preventDefault();
+      if (pw.length < 8) return setMsg({ tone: "fout", text: "Het wachtwoord moet minstens 8 tekens hebben." });
+      setBusy(true);
+      try {
+        await sync.updatePassword(pw);
+      } catch (err) {
+        setMsg({ tone: "fout", text: err.message });
+      } finally {
+        setBusy(false);
+      }
+    };
+    return (
+      <Sheet title="Nieuw wachtwoord" onClose={() => {}}>
+        <form onSubmit={save} className="space-y-3">
+          <p className="text-sm" style={{ color: C.muted }}>
+            Kies een nieuw wachtwoord voor uw Nexa-account.
+          </p>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            placeholder="Minstens 8 tekens"
+            className="w-full px-3 py-2.5 text-sm"
+            style={inputStyle}
+            aria-label="Nieuw wachtwoord"
+          />
+          <FormMsg msg={msg} />
+          <button type="submit" disabled={busy} className="tap px-4 py-2.5 text-sm" style={{ background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600 }}>
+            {busy ? "Even geduld…" : "Wachtwoord opslaan"}
+          </button>
+        </form>
+      </Sheet>
+    );
+  }
+  if (!s.notice) return null;
+  const text =
+    s.notice === "bevestigd"
+      ? "Uw e-mailadres is bevestigd. Open Nexa vanaf uw beginscherm en log in met uw e-mailadres en wachtwoord."
+      : "Uw wachtwoord is gewijzigd. Open Nexa vanaf uw beginscherm en log in met het nieuwe wachtwoord.";
+  return (
+    <div className="mb-4 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `2px solid ${C.carb}`, borderRadius: R.card }} role="status">
+      <p className="text-sm leading-relaxed">{text}</p>
+      <button onClick={() => sync.dismissNotice()} className="tap text-xs underline mt-1" style={{ color: C.muted }}>
+        Sluiten
+      </button>
+    </div>
+  );
+}
+
 /* Vangnet: één fout in de weergave mag nooit een leeg scherm opleveren.
    De gebruiker krijgt de melding plus een knop om de opgeslagen instellingen
    te wissen, want een onverwachte fout komt vrijwel altijd uit oude opslag. */
@@ -6429,6 +6711,23 @@ function MacroApp() {
   const [loaded, setLoaded] = useState(false);
   const [storeMode, setStoreMode] = useState("claude");
   const [T, setT, tLoaded] = useTrainingStore();
+  const nx = useNexaSync();
+  const [accountOpen, setAccountOpen] = useState(null);
+  const [accountHint, setAccountHint] = useState(() => {
+    try {
+      return !window.localStorage.getItem("nexa:account-hint");
+    } catch (e) {
+      return true;
+    }
+  });
+  const hideAccountHint = () => {
+    setAccountHint(false);
+    try {
+      window.localStorage.setItem("nexa:account-hint", String(Date.now()));
+    } catch (e) {
+      /* alleen voor deze sessie verbergen */
+    }
+  };
   const [trainSummary, setTrainSummary] = useState(null);
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -7943,6 +8242,18 @@ function MacroApp() {
                 {onboarding < ONB.length - 1 ? "Volgende" : "Schema bouwen"}
               </button>
             </div>
+            {nx && !nx.user && (
+              <button
+                onClick={() => {
+                  setOnboarding(null);
+                  setAccountOpen("login");
+                }}
+                className="tap text-sm font-semibold mt-4 mx-auto"
+                style={{ color: "var(--accent)" }}
+              >
+                Al een account? Inloggen
+              </button>
+            )}
             <button
               onClick={() => setOnboarding(null)}
               className="tap text-xs underline mt-3 mx-auto"
@@ -8119,6 +8430,22 @@ function MacroApp() {
               </button>
             )}
 
+            <SyncNotices s={nx} />
+            {nx && !nx.user && !nx.notice && !nx.recovery && loaded && accountHint && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>Bewaar uw gegevens veilig.</strong> Met een gratis account raakt u niets kwijt als u de app verwijdert of van telefoon wisselt.
+                </span>
+                <div className="flex flex-col gap-1 shrink-0 items-end">
+                  <TBtn small onClick={() => setAccountOpen("signup")}>
+                    Account
+                  </TBtn>
+                  <button onClick={hideAccountHint} className="tap text-xs underline" style={{ color: C.muted }}>
+                    Later
+                  </button>
+                </div>
+              </div>
+            )}
             <TrainingBoundary quiet>
               <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
             </TrainingBoundary>
@@ -10446,6 +10773,7 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
+        <AccountSection s={nx} />
         {/* ---------------- invoer ---------------- */}
         <Section title="Weekschema" sub="Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen.">
           {week.map((d, i) => (
@@ -10866,7 +11194,7 @@ function MacroApp() {
 
         <footer className="text-xs leading-relaxed pt-4" style={{ color: C.muted, borderTop: `1px solid ${C.line}` }}>
           <p className="mb-2 tnum">
-            Versie {APP_VERSION} · opslag: {storeMode === "account" ? "account" : storeMode === "device" ? "apparaat" : storeMode === "memory" ? "geen" : "via Claude"} ·
+            Versie {APP_VERSION} · opslag: {nx && nx.user ? "apparaat en Nexa-account" : storeMode === "account" ? "account" : storeMode === "device" || storeMode === "nexa" ? "apparaat" : storeMode === "memory" ? "geen" : "via Claude"} ·
             fotoanalyse: {aiPhoto == null ? "wordt gecontroleerd" : aiPhoto.ok ? "beschikbaar" : "niet beschikbaar"}
           </p>
           <p className="mb-2">
@@ -10875,7 +11203,11 @@ function MacroApp() {
             </button>
           </p>
           <p className="mb-2">
-            {storeMode === "account"
+            {nx && nx.user
+              ? "Uw gegevens staan op dit apparaat en in uw Nexa-account. Ze blijven bewaard als u de app verwijdert of van telefoon wisselt."
+              : nx && (storeMode === "device" || storeMode === "nexa")
+              ? "Uw gegevens staan alleen op dit apparaat. Verwijdert u de app, dan zijn ze weg. Maak een gratis account op dit tabblad om ze online te bewaren."
+              : storeMode === "account"
               ? "Uw gegevens worden bewaard in uw Claude-account. Ze overleven herstarts en zijn op al uw apparaten hetzelfde."
               : storeMode === "device"
               ? "Uw gegevens worden op dit apparaat bewaard. Safari kan die opslag na een tijd niet gebruiken wissen."
@@ -10898,6 +11230,17 @@ function MacroApp() {
           </>
         )}
       </div>
+
+      {accountOpen && nx && !nx.user && (
+        <Sheet title={accountOpen === "signup" ? "Account maken" : "Inloggen"} onClose={() => setAccountOpen(null)}>
+          <p className="text-sm mb-3 leading-relaxed" style={{ color: C.muted }}>
+            {accountOpen === "signup"
+              ? "Met een account bewaart Nexa uw gegevens online. Verwijdert u de app of krijgt u een nieuwe telefoon, dan logt u in en staat alles er weer."
+              : "Log in om de gegevens uit uw account op dit apparaat te zetten."}
+          </p>
+          <AccountForm initial={accountOpen} onDone={() => setAccountOpen(null)} />
+        </Sheet>
+      )}
 
       <TrainingBoundary quiet>
         <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />

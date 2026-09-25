@@ -1,8 +1,13 @@
-/* Opslag voor een zelfstandige deploy (Netlify e.d.): probeert eerst het
-   account van de Claude-weergave (als die er is), anders localStorage op
-   het toestel, anders tijdelijk geheugen. Zie App.jsx voor hoe de app zelf
-   met window.storage.mode omgaat om dit aan de gebruiker te laten zien. */
-if (typeof window !== "undefined" && !window.storage) {
+/* Opslag voor een zelfstandige deploy (Netlify e.d.): localStorage op het
+   toestel, anders tijdelijk geheugen, en met een Nexa-account daarnaast
+   online in Supabase (zie src/sync.js). Binnen de Claude-weergave bestaat
+   window.storage al; dan blijft die ongemoeid. */
+import React from "react";
+import { createRoot } from "react-dom/client";
+import App from "./src/App.jsx";
+import { createSync } from "./src/sync.js";
+
+function localStore() {
   let LS = null;
   try {
     const t = "__macro_test";
@@ -13,31 +18,53 @@ if (typeof window !== "undefined" && !window.storage) {
     LS = null;
   }
   const mem = {};
-  window.storage = {
-    async get(k) {
-      const v = LS ? LS.getItem(k) : mem[k];
-      if (v == null) throw new Error("niet gevonden");
-      return { key: k, value: v };
-    },
-    async set(k, v) {
+  return {
+    persistent: !!LS,
+    get: (k) => (LS ? LS.getItem(k) : k in mem ? mem[k] : null),
+    set: (k, v) => {
       if (LS) LS.setItem(k, v);
       else mem[k] = v;
-      return { key: k, value: v };
     },
-    async delete(k) {
+    remove: (k) => {
       if (LS) LS.removeItem(k);
       else delete mem[k];
-      return { key: k, deleted: true };
     },
-    async list(prefix = "") {
-      const keys = (LS ? Object.keys(LS) : Object.keys(mem)).filter((x) => x.startsWith(prefix));
-      return { keys };
-    },
+    keys: () => (LS ? Object.keys(LS) : Object.keys(mem)),
   };
 }
 
-import React from "react";
-import { createRoot } from "react-dom/client";
-import App from "./src/App.jsx";
+async function boot() {
+  if (typeof window !== "undefined" && !window.storage) {
+    try {
+      const sync = createSync(localStore());
+      window.storage = sync.storage;
+      window.nexaSync = sync.api;
+      await sync.ready;
+    } catch (e) {
+      /* zonder account verder: alleen opslag op het apparaat */
+      const local = localStore();
+      window.storage = {
+        mode: local.persistent ? "device" : "memory",
+        async get(k) {
+          const v = local.get(k);
+          if (v == null) throw new Error("niet gevonden");
+          return { key: k, value: v };
+        },
+        async set(k, v) {
+          local.set(k, v);
+          return { key: k, value: v };
+        },
+        async delete(k) {
+          local.remove(k);
+          return { key: k, deleted: true };
+        },
+        async list(prefix = "") {
+          return { keys: local.keys().filter((x) => x.startsWith(prefix)) };
+        },
+      };
+    }
+  }
+  createRoot(document.getElementById("root")).render(React.createElement(App));
+}
 
-createRoot(document.getElementById("root")).render(React.createElement(App));
+boot();

@@ -59,3 +59,5 @@ if (!ok) {
   process.exit(1);
 }
 console.log("\nAlles gecontroleerd, de build werkt.");
+// timers van de inlogbibliotheek (sessieverversing) houden anders het proces open
+process.exit(0);

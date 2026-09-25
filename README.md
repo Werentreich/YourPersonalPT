@@ -79,6 +79,37 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
 
+## Nexa-account en synchronisatie
+
+In de losse app (Netlify) kan de gebruiker een account maken; de gegevens
+staan dan op het apparaat én online in Supabase (project `nexa`, tabel
+`public.nexa_data`: een rij per opslagsleutel, beveiligd met row level
+security zodat iedere gebruiker alleen zijn eigen rijen ziet). Code in
+`src/sync.js`, aangesloten in `build-entry.jsx`; `src/App.jsx` toont de
+schermen alleen als `window.nexaSync` bestaat, dus de Claude-weergave
+blijft ongewijzigd.
+
+- **Werking**: het apparaat is de eerste opslag (werkt offline). Na elke
+  wijziging gaat de sleutel binnen 1,5 s naar Supabase, en direct als de
+  app naar de achtergrond gaat. Bij opstarten en bij terugkeren naar de app
+  worden nieuwere gegevens opgehaald; per sleutel wint de laatste wijziging.
+- **Inloggen** zet de gegevens uit het account op het apparaat (een verse
+  installatie heeft alleen standaardwaarden). Een nieuw account neemt de
+  gegevens van het apparaat over.
+- **E-mail en wachtwoord**, geen inloglink: een link uit de mail opent op
+  de iPhone in Safari en niet in de app op het beginscherm, die eigen
+  opslag heeft. Bevestigings- en herstellinks worden daarom apart
+  afgehandeld en synchroniseren nooit.
+- **Supabase-instellingen** (Authentication, URL Configuration): Site URL
+  `https://macroverdeling.netlify.app` en dezelfde URL met `/**` als
+  toegestane redirect, anders wijzen de links in de mails naar localhost.
+- **E-mail**: de ingebouwde maildienst van Supabase mailt alleen naar leden
+  van het Supabase-team en maar enkele berichten per uur. Voor andere
+  gebruikers is een eigen SMTP-dienst nodig.
+- **Gratis abonnement**: Supabase pauzeert een project na een week zonder
+  gebruik. De app blijft dan lokaal werken; synchronisatie hervat na
+  herstarten van het project in het dashboard.
+
 ## Fotoanalyse van etiketten
 
 Binnen de Claude-weergave leest de app etiketten via de `sample`-capability.
