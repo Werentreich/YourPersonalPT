@@ -2279,17 +2279,36 @@ function Seg({ options, value, onChange }) {
   );
 }
 
+/* Tijdens het typen blijft de tekst staan zoals ingetypt; alleen een
+   waarde binnen het bereik gaat meteen door. Pas bij het verlaten van het
+   veld wordt begrensd. Anders wordt de 2 van "20" direct het minimum. */
 function Num({ value, onChange, step = 1, min, max, suffix }) {
+  const [draft, setDraft] = useState(null);
+  const inRange = (n) => Number.isFinite(n) && (min == null || n >= min) && (max == null || n <= max);
   return (
     <div className="flex items-center gap-1">
       <input
         type="number"
         inputMode="decimal"
-        value={value ?? ""}
+        value={draft ?? value ?? ""}
         step={step}
         min={min}
         max={max}
-        onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+        onChange={(e) => {
+          const t = e.target.value;
+          setDraft(t);
+          if (t !== "" && inRange(Number(t))) onChange(Number(t));
+        }}
+        onBlur={() => {
+          if (draft == null) return;
+          const t = draft;
+          setDraft(null);
+          if (t === "") return onChange("");
+          const n = Number(t);
+          if (!Number.isFinite(n)) return;
+          const c = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
+          if (c !== num(value, NaN)) onChange(c);
+        }}
         className="w-20 px-2 py-1.5 text-sm text-right tnum"
         style={{ border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink, background: C.surface2 }}
       />
