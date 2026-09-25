@@ -6302,7 +6302,7 @@ function AccountForm({ initial = "login", onDone }) {
   if (!sync) return null;
   const submit = async (ev) => {
     if (ev) ev.preventDefault();
-    const mail = email.trim();
+    const mail = email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(mail)) return setMsg({ tone: "fout", text: "Vul een geldig e-mailadres in." });
     if (mode !== "reset" && pw.length < 8) return setMsg({ tone: "fout", text: "Het wachtwoord moet minstens 8 tekens hebben." });
     setBusy(true);

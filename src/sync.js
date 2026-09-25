@@ -21,7 +21,8 @@ const PUSH_DELAY = 1500;
 const BOOT_TIMEOUT = 3500;
 
 const FRIENDLY = {
-  invalid_credentials: "E-mailadres of wachtwoord klopt niet.",
+  invalid_credentials:
+    "E-mailadres of wachtwoord klopt niet. Weet u het wachtwoord niet meer, of bewaarde uw telefoon het bij een ander webadres? Gebruik dan Wachtwoord vergeten.",
   email_not_confirmed: "Bevestig eerst uw e-mailadres via de link in de mail die u heeft gekregen.",
   user_already_exists: "Er bestaat al een account met dit e-mailadres. Log in.",
   email_exists: "Er bestaat al een account met dit e-mailadres. Log in.",
@@ -66,8 +67,9 @@ export function createSync(local) {
      wachtwoord herstellen)? Die opent vaak in de browser in plaats van in de
      app op het beginscherm; daar mag nooit gesynchroniseerd worden, anders
      overschrijven lege standaardgegevens het account. */
-  const hash = typeof location !== "undefined" ? location.hash || "" : "";
-  const linkType = /access_token=/.test(hash) ? (hash.match(/type=([a-z_]+)/) || [])[1] || "link" : null;
+  const params = new URLSearchParams(typeof location !== "undefined" ? (location.hash || "").replace(/^#/, "") : "");
+  // let op: de link bevat ook token_type=bearer; alleen de parameter "type" zegt wat voor link het is
+  const linkType = params.get("access_token") ? params.get("type") || "link" : null;
 
   const auth = new AuthClient({
     url: `${SB_URL}/auth/v1`,
