@@ -3581,8 +3581,48 @@ function ExBadges({ ex }) {
   );
 }
 
-function CustomExForm({ initialName = "", onSave, onCancel }) {
-  const [x, setX] = useState({ name: initialName, equip: "machine", kind: "isolation", pri: "borst", sec: "", repMin: 10, repMax: 15, lengthened: false, unilateral: false });
+/* Past een eigen oefening aan. Schema's die nog de oude standaard-repsrange
+   van die oefening gebruikten, krijgen de nieuwe range; een range die u per
+   training zelf had gewijzigd blijft staan. */
+function updateCustomEx(t, ex) {
+  const old = t.customEx.find((x) => x.id === ex.id);
+  if (!old) return t;
+  return {
+    ...t,
+    customEx: t.customEx.map((x) => (x.id === ex.id ? ex : x)),
+    programs: t.programs.map((p) => ({
+      ...p,
+      days: p.days.map((d) => ({
+        ...d,
+        slots: d.slots.map((sl) =>
+          sl.exId === ex.id && num(sl.repMin, 0) === num(old.repMin, 0) && num(sl.repMax, 0) === num(old.repMax, 0)
+            ? { ...sl, repMin: ex.repMin, repMax: ex.repMax }
+            : sl
+        ),
+      })),
+    })),
+  };
+}
+
+const exUsage = (programs, id) => sum(programs.map((p) => sum(p.days.map((d) => d.slots.filter((sl) => sl.exId === id).length))));
+
+function CustomExForm({ initialName = "", initial = null, onSave, onCancel }) {
+  const [x, setX] = useState(() =>
+    initial
+      ? {
+          name: initial.name,
+          equip: initial.equip,
+          kind: initial.kind,
+          pri: (initial.pri && initial.pri[0]) || "borst",
+          sec: (initial.sec && initial.sec[0]) || "",
+          repMin: initial.repMin,
+          repMax: initial.repMax,
+          lengthened: !!initial.lengthened,
+          unilateral: !!initial.unilateral,
+          bwPct: Math.round(num(initial.bw, 1) * 100),
+        }
+      : { name: initialName, equip: "machine", kind: "isolation", pri: "borst", sec: "", repMin: 10, repMax: 15, lengthened: false, unilateral: false, bwPct: 100 }
+  );
   const s = (k, v) => setX((o) => ({ ...o, [k]: v }));
   const ok = x.name.trim().length >= 2 && num(x.repMin, 0) > 0 && num(x.repMax, 0) >= num(x.repMin, 0);
   const muscleOpts = MUSCLE_IDS.map((k) => ({ id: k, label: MUSCLES[k].label }));
@@ -3633,6 +3673,12 @@ function CustomExForm({ initialName = "", onSave, onCancel }) {
         <span style={{ color: C.muted }}>tot</span>
         <Num value={x.repMax} onChange={(v) => s("repMax", v)} min={1} max={50} />
       </div>
+      {x.equip === "lichaam" && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-sm">Lichaamsgewicht telt mee voor</span>
+          <Num value={x.bwPct} onChange={(v) => s("bwPct", v)} min={0} max={100} suffix="%" />
+        </div>
+      )}
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={x.lengthened} onChange={(e) => s("lengthened", e.target.checked)} style={{ accentColor: "var(--accent)" }} />
         Zwaarst in de gerekte positie (lengthened-bias)
@@ -3647,7 +3693,7 @@ function CustomExForm({ initialName = "", onSave, onCancel }) {
           onClick={() =>
             ok &&
             onSave({
-              id: "eigen_" + uid(),
+              id: initial ? initial.id : "eigen_" + uid(),
               name: x.name.trim(),
               equip: x.equip,
               kind: x.kind,
@@ -3657,12 +3703,12 @@ function CustomExForm({ initialName = "", onSave, onCancel }) {
               unilateral: x.unilateral,
               repMin: num(x.repMin, 8),
               repMax: Math.max(num(x.repMin, 8), num(x.repMax, 12)),
-              bw: 1,
+              bw: x.equip === "lichaam" ? clamp(num(x.bwPct, 100), 0, 100) / 100 : 1,
               custom: true,
             })
           }
         >
-          Oefening opslaan
+          {initial ? "Wijzigingen opslaan" : "Oefening opslaan"}
         </TBtn>
         <TBtn kind="ghost" onClick={onCancel}>
           Annuleren
@@ -3672,17 +3718,27 @@ function CustomExForm({ initialName = "", onSave, onCancel }) {
   );
 }
 
-function ExercisePicker({ exIndex, onPick, onClose, onCreate, title = "Oefening kiezen", muscle = null }) {
+function ExercisePicker({ exIndex, onPick, onClose, onCreate, onUpdate, title = "Oefening kiezen", muscle = null }) {
   const [q, setQ] = useState("");
   const [mus, setMus] = useState(muscle);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
   const ql = q.trim().toLowerCase();
   const list = Object.values(exIndex)
-    .filter((e) => !e.missing && (!mus || e.pri.includes(mus) || e.sec.includes(mus)) && (!ql || e.name.toLowerCase().includes(ql)))
+    .filter((e) => !e.missing && !e.hidden && (!mus || e.pri.includes(mus) || e.sec.includes(mus)) && (!ql || e.name.toLowerCase().includes(ql)))
     .sort((a, b) => (mus ? Number(b.pri.includes(mus)) - Number(a.pri.includes(mus)) : 0) || a.name.localeCompare(b.name, "nl"));
   return (
-    <Sheet title={creating ? "Eigen oefening" : title} onClose={onClose}>
-      {creating ? (
+    <Sheet title={editing ? "Oefening bewerken" : creating ? "Eigen oefening" : title} onClose={onClose}>
+      {editing ? (
+        <CustomExForm
+          initial={editing}
+          onCancel={() => setEditing(null)}
+          onSave={(ex) => {
+            onUpdate(ex);
+            setEditing(null);
+          }}
+        />
+      ) : creating ? (
         <CustomExForm
           initialName={q}
           onCancel={() => setCreating(false)}
@@ -3718,20 +3774,22 @@ function ExercisePicker({ exIndex, onPick, onClose, onCreate, title = "Oefening 
           </div>
           <div>
             {list.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => onPick(e)}
-                className="tap w-full text-left py-2.5 flex items-center justify-between gap-2"
-                style={{ borderBottom: `1px solid ${C.lineSoft}` }}
-              >
-                <span className="min-w-0">
-                  <span className="text-sm font-semibold block">{e.name}</span>
-                  <span className="text-xs block" style={{ color: C.muted }}>
-                    {exMeta(e)}
+              <div key={e.id} className="flex items-center gap-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                <button onClick={() => onPick(e)} className="tap flex-1 min-w-0 text-left py-2.5 flex items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="text-sm font-semibold block">{e.name}</span>
+                    <span className="text-xs block" style={{ color: C.muted }}>
+                      {exMeta(e)}
+                    </span>
                   </span>
-                </span>
-                <ExBadges ex={e} />
-              </button>
+                  <ExBadges ex={e} />
+                </button>
+                {e.custom && onUpdate && (
+                  <button onClick={() => setEditing(e)} className="tap text-xs shrink-0 px-2 py-2" style={{ color: C.accent }} aria-label={`${e.name} bewerken`}>
+                    Wijzig
+                  </button>
+                )}
+              </div>
             ))}
             {!list.length && (
               <p className="text-sm py-4" style={{ color: C.muted }}>
@@ -4472,6 +4530,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
           muscle={picker.muscle || null}
           onClose={() => setPicker(null)}
           onCreate={(ex) => setT((t) => ({ ...t, customEx: [...t.customEx, ex] }))}
+          onUpdate={(ex) => setT((t) => updateCustomEx(t, ex))}
           onPick={(ex) => {
             if (picker.mode === "swap") swapEx(picker.i, ex);
             else addEx(ex);
@@ -5020,7 +5079,7 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
   );
 }
 
-function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap }) {
+function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap, onEditEx }) {
   const [open, setOpen] = useState(false);
   const hasHist = historyFor(D.sessions, slot).length > 0;
   const edit = (T.exEdits && T.exEdits[ex.id]) || {};
@@ -5128,6 +5187,11 @@ function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap
             <TBtn small kind="secondary" onClick={onSwap}>
               Andere oefening
             </TBtn>
+            {ex.custom && (
+              <TBtn small kind="secondary" onClick={onEditEx}>
+                Oefening bewerken
+              </TBtn>
+            )}
             <TBtn small kind="ghost" onClick={() => move(-1)} disabled={idx === 0} label="Omhoog">
               ↑
             </TBtn>
@@ -5146,6 +5210,7 @@ function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap
 
 function TrainSchema({ T, setT, D, week, setWeek }) {
   const [picker, setPicker] = useState(null);
+  const [editEx, setEditEx] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [newTpl, setNewTpl] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState(null);
@@ -5370,6 +5435,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
                     updSlot={updSlot}
                     updDay={updDay}
                     onSwap={() => setPicker({ mode: "swap", dayId: day.id, slotId: slot.id, muscle: exOf(D.exIndex, slot.exId).pri[0] || null })}
+                    onEditEx={() => setEditEx(exOf(D.exIndex, slot.exId))}
                   />
                 ))}
                 <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
@@ -5566,37 +5632,89 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
         <p className="px-4 text-xs" style={{ color: C.muted }}>
           Hiermee verhoogt de app het gewicht. Per oefening kunt u dit overschrijven.
         </p>
-        <div className="px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-2">
+        <div className="px-4 py-3 grid grid-cols-3 gap-x-3 gap-y-2">
           {Object.entries(EQUIP).map(([k, v]) => (
-            <label key={k} className="flex items-center justify-between gap-2 text-sm">
-              {v.label}
+            <label key={k} className="block">
+              <span className="text-xs block mb-1 truncate" style={{ color: C.muted }}>
+                {v.label}
+              </span>
               <Num value={s.inc[k]} step={0.5} onChange={(val) => setT((t) => ({ ...t, settings: { ...t.settings, inc: { ...t.settings.inc, [k]: Math.max(0.25, num(val, v.inc)) } } }))} min={0.25} max={20} />
             </label>
           ))}
         </div>
       </Section>
 
-      <Section title="Eigen oefeningen" sub="Oefeningen die u zelf heeft toegevoegd.">
-        {T.customEx.length ? (
-          T.customEx.map((e) => (
-            <div key={e.id} className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
-              <span className="min-w-0">
-                <span className="text-sm font-semibold block">{e.name}</span>
-                <span className="text-xs" style={{ color: C.muted }}>
-                  {exMeta(e)}
-                </span>
-              </span>
-              {confirm === e.id ? (
-                <TBtn small kind="danger" onClick={() => setT((t) => ({ ...t, customEx: t.customEx.filter((x) => x.id !== e.id) }))}>
-                  Zeker?
-                </TBtn>
-              ) : (
-                <TBtn small kind="ghost" onClick={() => setConfirm(e.id)}>
-                  Verwijderen
-                </TBtn>
-              )}
-            </div>
-          ))
+      {editEx && (
+        <Sheet title="Oefening bewerken" onClose={() => setEditEx(null)}>
+          <CustomExForm
+            initial={editEx}
+            onCancel={() => setEditEx(null)}
+            onSave={(ex) => {
+              setT((t) => updateCustomEx(t, ex));
+              setEditEx(null);
+            }}
+          />
+        </Sheet>
+      )}
+
+      <Section title="Eigen oefeningen" sub="Oefeningen die u zelf heeft toegevoegd. Tik op Wijzigen om naam, spieren, materiaal of repsrange aan te passen.">
+        {T.customEx.some((e) => !e.hidden) ? (
+          T.customEx.filter((e) => !e.hidden).map((e) => {
+            const used = exUsage(T.programs, e.id);
+            return (
+              <div key={e.id} className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="text-sm font-semibold block">
+                      {e.name} <ExBadges ex={{ ...e, custom: false }} />
+                    </span>
+                    <span className="text-xs block" style={{ color: C.muted }}>
+                      {exMeta(e)} · {e.repMin}–{e.repMax} reps
+                      {used ? ` · in ${used} ${used === 1 ? "training" : "trainingen"}` : ""}
+                    </span>
+                  </span>
+                  <div className="flex gap-1.5 shrink-0">
+                    <TBtn small kind="secondary" onClick={() => setEditEx(e)}>
+                      Wijzigen
+                    </TBtn>
+                    {confirm !== e.id && (
+                      <TBtn small kind="ghost" onClick={() => setConfirm(e.id)}>
+                        Verwijderen
+                      </TBtn>
+                    )}
+                  </div>
+                </div>
+                {confirm === e.id && (
+                  <div className="mt-2 px-3 py-2" style={{ background: C.warnBg, borderRadius: R.field }}>
+                    <p className="text-xs mb-2" style={{ color: C.warn }}>
+                      {used
+                        ? `Deze oefening staat in ${used} ${used === 1 ? "training" : "trainingen"} van uw schema's en wordt daar ook verwijderd. Uw logboek blijft bewaard.`
+                        : "Oefening verwijderen? Uw logboek blijft bewaard."}
+                    </p>
+                    <div className="flex gap-2">
+                      <TBtn
+                        small
+                        kind="danger"
+                        onClick={() => {
+                          setT((t) => ({
+                            ...t,
+                            customEx: t.customEx.map((x) => (x.id === e.id ? { ...x, hidden: true } : x)),
+                            programs: t.programs.map((p) => ({ ...p, days: p.days.map((d) => ({ ...d, slots: d.slots.filter((sl) => sl.exId !== e.id) })) })),
+                          }));
+                          setConfirm(null);
+                        }}
+                      >
+                        Ja, verwijderen
+                      </TBtn>
+                      <TBtn small kind="ghost" onClick={() => setConfirm(null)}>
+                        Annuleren
+                      </TBtn>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
         ) : (
           <p className="px-4 py-3 text-xs" style={{ color: C.muted }}>
             Nog geen eigen oefeningen. Voeg ze toe via "+ Oefening" bij een training.
@@ -5611,6 +5729,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
           muscle={picker.muscle || null}
           onClose={() => setPicker(null)}
           onCreate={(ex) => setT((t) => ({ ...t, customEx: [...t.customEx, ex] }))}
+          onUpdate={(ex) => setT((t) => updateCustomEx(t, ex))}
           onPick={(ex) => {
             if (picker.mode === "swap") updSlot(picker.dayId, picker.slotId, { exId: ex.id, repMin: ex.repMin, repMax: ex.repMax, startWeight: null });
             else {
