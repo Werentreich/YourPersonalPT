@@ -9,7 +9,7 @@ en ondersteunt meerwekenplannen voor cutten, bulken en minicuts. Het
 tabblad Training bevat trainingsschema's, live loggen met rusttimer,
 automatische progressie, periodisering met deload en analyses.
 
-**Live:** https://macroverdeling.netlify.app
+**Live:** https://yourpersonalpt.netlify.app
 
 De opslagsleutels (`macroverdeling:v1` en `macroverdeling:training:v1`)
 behouden bewust hun oude naam, zodat bestaande gegevens bewaard blijven.
@@ -101,7 +101,7 @@ blijft ongewijzigd.
   opslag heeft. Bevestigings- en herstellinks worden daarom apart
   afgehandeld en synchroniseren nooit.
 - **Supabase-instellingen** (Authentication, URL Configuration): Site URL
-  `https://macroverdeling.netlify.app` en dezelfde URL met `/**` als
+  `https://yourpersonalpt.netlify.app` en dezelfde URL met `/**` als
   toegestane redirect, anders wijzen de links in de mails naar localhost.
 - **E-mail**: de ingebouwde maildienst van Supabase mailt alleen naar leden
   van het Supabase-team en maar enkele berichten per uur. Voor andere
@@ -163,6 +163,8 @@ Twee routes:
   etiketherkenning via foto (via de `sample`-capability). Dat pad gebruikt
   niet dit build-script maar een los samengestelde versie met die
   capabilities erbij.
+- **Productie**: de Netlify-site `yourpersonalpt` is gekoppeld aan GitHub en bouwt
+  automatisch bij elke push naar de branch `feature/uitbreiding`.
 - **Als PWA op Netlify**: `npm run build`, daarna de map `dist/` (plus de
   bestanden uit `public/` en `netlify.toml`) naar Netlify. Bij een site die
   aan deze git-repo is gekoppeld kan Netlify dat automatisch doen met

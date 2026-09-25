@@ -23,7 +23,7 @@ const errors = [];
 const dom = new JSDOM(html, {
   runScripts: "dangerously",
   pretendToBeVisual: true,
-  url: "https://macroverdeling.netlify.app/",
+  url: "https://yourpersonalpt.netlify.app/",
   beforeParse(w) {
     w.scrollTo = () => {};
     w.matchMedia = w.matchMedia || (() => ({ matches: false, addListener() {}, removeListener() {} }));
