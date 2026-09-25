@@ -97,6 +97,27 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
 
+## Gemiste of verplaatste training
+
+Op Vandaag staat "Vandaag niet trainen?" (op een trainingsdag) of "Vandaag
+toch trainen?" (op een rustdag met later deze week nog een training). De
+keuze geldt alleen voor deze week; het vaste weekschema blijft ongemoeid.
+Opslag: `weekAdj` (`{ weekStart, list }`) in `macroverdeling:v1`; een
+lijst van een vorige week wordt genegeerd.
+
+- `adjustWeek` speelt de aanpassingen op volgorde af. Voorbije dagen
+  blijven gelijk; de resterende dagen krijgen de rest van het weektotaal in
+  de verhouding die de nieuwe indeling (met cycling) zou geven, nooit onder
+  1,05 × rustmetabolisme.
+- Verplaatsen ruilt twee dagen: weektotaal gelijk. Overslaan haalt alleen
+  het verbruik van de training van het weektotaal af; de cyclingopslag gaat
+  terug naar de rest van de week. Is er al gegeten: spreiden over de
+  resterende dagen (hoogstens 150 kcal per dag) of zo laten; de bijsturing
+  op de gewichtstrend vangt de rest op.
+- Bij een trainingsschema op vaste weekdagen gaat de training mee
+  (`weekMapAdjusted`); een rotatie schuift vanzelf op. Vanaf twee gemiste
+  trainingen per week stelt de app een schema met een dag minder voor.
+
 ## Lichaamssamenstelling
 
 De weegschaal ziet het verschil tussen vet en spier niet. Daarom meet de

@@ -99,6 +99,66 @@ function weekEnergy(i) {
   return { bmr, rest, sess, tdeeAvg, avgTarget, delta, kcals, capped, realKgPerWeek, weekTDEE, unmetFlex };
 }
 
+/* Een gemiste of verplaatste training geldt alleen voor deze week en laat
+   het vaste schema ongemoeid. Aanpassingen (adj.list) worden op volgorde
+   afgespeeld; bij elke stap blijven de dagen die al voorbij zijn gelijk en
+   krijgen de resterende dagen de rest van het weektotaal, in de verhouding
+   die de nieuwe weekindeling (met cycling) zou geven.
+   - skip "dag": vandaag wordt een rustdag; het weektotaal daalt met het
+     verbruik van de training, de cyclingopslag gaat terug naar de week.
+   - skip "spreiden": vandaag is al gegeten; het verschil gaat over de
+     resterende dagen, hoogstens 150 kcal per dag, de rest vangt de
+     gewichtstrend op.
+   - skip "laten": alleen het dagtype verandert, de calorieën niet.
+   - move: twee dagen ruilen van dagtype; het weektotaal blijft gelijk. */
+const SPREAD_MAX = 150;
+function applyAdjStep(wk, a) {
+  const out = wk.map((d) => ({ ...d }));
+  if (a.kind === "skip") out[a.day] = { ...out[a.day], session: null };
+  else if (a.kind === "move") {
+    const x = out[a.from].session;
+    out[a.from] = { ...out[a.from], session: out[a.to].session };
+    out[a.to] = { ...out[a.to], session: x };
+  }
+  return out;
+}
+function adjustWeek(input, adj) {
+  const base = weekEnergy(input);
+  const list = (adj && adj.list) || [];
+  if (!list.length) return { week: input.week, energy: base, base, list };
+  let wk = input.week;
+  let kc = [...base.kcals];
+  let eff = base;
+  list.forEach((a) => {
+    wk = applyAdjStep(wk, a);
+    eff = weekEnergy({ ...input, week: wk });
+    if (a.kind === "skip" && a.mode === "laten") return;
+    const frozen = a.kind === "skip" && a.mode === "spreiden" ? a.at : a.at - 1;
+    const rem = [0, 1, 2, 3, 4, 5, 6].filter((k) => k > frozen);
+    if (!rem.length) return;
+    const R = sum(eff.kcals) - sum(kc.filter((_, k) => k <= frozen));
+    const S = sum(rem.map((k) => eff.kcals[k]));
+    const floorK = 1.05 * eff.bmr;
+    rem.forEach((k) => {
+      const target = S > 0 ? (eff.kcals[k] * R) / S : eff.kcals[k];
+      const v = a.kind === "skip" && a.mode === "spreiden" ? kc[k] + clamp(target - kc[k], -SPREAD_MAX, SPREAD_MAX) : target;
+      kc[k] = Math.max(floorK, v);
+    });
+  });
+  return { week: wk, energy: { ...base, kcals: kc, sess: eff.sess }, base, list };
+}
+
+/* Overslaan of verplaatsen, toegepast op de weekdagen van een trainings-
+   schema met vaste dagen (weekMap). */
+function weekMapAdjusted(weekMap, list) {
+  let m = [...(weekMap || [])];
+  (list || []).forEach((a) => {
+    if (a.kind === "skip") m[a.day] = null;
+    else if (a.kind === "move") [m[a.from], m[a.to]] = [m[a.to] ?? null, m[a.from] ?? null];
+  });
+  return m;
+}
+
 /* Aandeel van de gewichtstoename dat als vet wordt opgeslagen.
    Neemt toe met het tempo van de bulk en met het vetpercentage zelf. */
 function fatFractionGain(ratePctPerWeek, bodyFat, window) {
@@ -3791,11 +3851,11 @@ function programCheck(program, exIndex) {
 
 /* ---------------- dagplanning ---------------- */
 
-function todayPlan(program, sessions, today) {
+function todayPlan(program, sessions, today, adjList = null) {
   if (!program || !program.days.length) return null;
   const t = dayNum(today);
   if (program.mode === "week") {
-    const dayId = program.weekMap[wdOfNum(t)];
+    const dayId = weekMapAdjusted(program.weekMap, adjList)[wdOfNum(t)];
     const day = program.days.find((d) => d.id === dayId) || null;
     const doneToday = sessions.some((s) => s.date === today && s.programId === program.id && s.dayId === dayId && s.end);
     return { day, rest: !day, doneToday, rotPos: null };
@@ -3963,9 +4023,9 @@ function trainDerive(T, ctx, today) {
   const tp = TRAIN_PHASE[phase];
   const phaseOn = tp.vf === 1 && tp.load ? true : T.settings.autoProgress || T.phaseAccept === phase;
   const sessions = T.sessions;
-  const plan = todayPlan(program, sessions, today);
+  const plan = todayPlan(program, sessions, today, ctx.adjList);
   const fatigue = fatigueCheck({ sessions, pos, today, tp, block: T.block });
-  return { exIndex, program, pos, phase, tp, phaseOn, sessions, plan, fatigue, today };
+  return { exIndex, program, pos, phase, tp, phaseOn, sessions, plan, fatigue, today, adjList: ctx.adjList || [] };
 }
 
 /* ---------------- geluid, trilling en melding bij einde rust ---------------- */
@@ -5474,7 +5534,7 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
     const n = mon + k;
     const iso = isoOfNum(n);
     const done = D.sessions.filter((s) => s.date === iso && s.end);
-    const plannedDay = program.mode === "week" ? program.days.find((d) => d.id === program.weekMap[k]) : null;
+    const plannedDay = program.mode === "week" ? program.days.find((d) => d.id === weekMapAdjusted(program.weekMap, D.adjList)[k]) : null;
     return { n, iso, done, plannedDay };
   });
   const doneWeek = weekDays.reduce((a, d) => a + d.done.length, 0);
@@ -7598,6 +7658,142 @@ function CompositionSection({ comp, checkins, sex, waistTrend, strength, bodyFat
   );
 }
 
+/* Vandaag niet trainen (mode "skip") of vandaag toch trainen ("pull").
+   Elke keuze toont vooraf wat er met de calorieën van deze week gebeurt. */
+function SkipSheet({ mode, input, list, todayIdx, onApply, onClose, programMode, skipsThisWeek }) {
+  const cur = adjustWeek(input, { list });
+  const wk = cur.week;
+  const late = new Date().getHours() >= 15;
+  const remaining = [0, 1, 2, 3, 4, 5, 6].filter((k) => k > todayIdx);
+  const [skipMode, setSkipMode] = useState(null);
+  const preview = (a) => {
+    const nx = adjustWeek(input, { list: [...list, { ...a, at: todayIdx }] });
+    return { k: nx.energy.kcals, d: nx.energy.kcals.map((v, i) => v - cur.energy.kcals[i]) };
+  };
+  const kc = (v) => `${Math.round(v)} kcal`;
+  const sgn = (v) => `${v > 0 ? "+" : v < 0 ? "−" : "±"}${Math.abs(Math.round(v))}`;
+  const optBox = (on) => ({ border: `1px solid ${on ? C.accent : C.line}`, borderRadius: R.field, background: on ? C.surface2 : "transparent" });
+
+  if (mode === "pull") {
+    const later = remaining.filter((k) => wk[k].session);
+    return (
+      <Sheet title="Vandaag toch trainen" onClose={onClose}>
+        <div className="space-y-3">
+          <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+            Vandaag en de gekozen dag ruilen, alleen deze week. Het weektotaal blijft gelijk; vandaag krijgt de calorieën van een trainingsdag.
+          </p>
+          {later.map((k) => {
+            const p = preview({ kind: "move", from: k, to: todayIdx });
+            return (
+              <button key={k} onClick={() => onApply({ kind: "move", from: k, to: todayIdx })} className="tap w-full text-left px-3 py-2.5" style={optBox(false)}>
+                <span className="text-sm font-semibold block">In plaats van {DAY_FULL[k].toLowerCase()}</span>
+                <span className="text-xs block tnum" style={{ color: C.muted }}>
+                  Vandaag {kc(p.k[todayIdx])} ({sgn(p.d[todayIdx])}) · {DAY_FULL[k].toLowerCase()} {kc(p.k[k])} ({sgn(p.d[k])})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </Sheet>
+    );
+  }
+
+  const free = remaining.filter((k) => !wk[k].session);
+  const sessKcal = cur.energy.sess[todayIdx] || 0;
+  const pDag = preview({ kind: "skip", day: todayIdx, mode: "dag" });
+  const pSpread = preview({ kind: "skip", day: todayIdx, mode: "spreiden" });
+  const restDays = remaining.filter((k) => !wk[k].session);
+  const spreadDays = remaining.filter((k) => Math.round(pSpread.d[k]) !== 0);
+  const avgSpread = spreadDays.length ? sum(spreadDays.map((k) => pSpread.d[k])) / spreadDays.length : 0;
+  const leftOver = sessKcal + sum(pSpread.d);
+  const chosen = skipMode || (late ? (spreadDays.length ? "spreiden" : "laten") : "dag");
+  return (
+    <Sheet title="Vandaag niet trainen" onClose={onClose}>
+      <div className="space-y-4">
+        {free.length > 0 && (
+          <div>
+            <div className="text-sm font-semibold mb-1">Verplaatsen (aanbevolen)</div>
+            <p className="text-xs leading-relaxed mb-2" style={{ color: C.muted }}>
+              Voor spieropbouw telt het aantal trainingen per week, niet de dag. Het weektotaal blijft gelijk, alleen deze week.
+            </p>
+            <div className="space-y-1.5">
+              {free.map((k) => {
+                const p = preview({ kind: "move", from: todayIdx, to: k });
+                return (
+                  <button key={k} onClick={() => onApply({ kind: "move", from: todayIdx, to: k })} className="tap w-full text-left px-3 py-2.5" style={optBox(false)}>
+                    <span className="text-sm font-semibold block">Naar {DAY_FULL[k].toLowerCase()}</span>
+                    <span className="text-xs block tnum" style={{ color: C.muted }}>
+                      Vandaag {kc(p.k[todayIdx])} ({sgn(p.d[todayIdx])}) · {DAY_FULL[k].toLowerCase()} {kc(p.k[k])} ({sgn(p.d[k])})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div>
+          <div className="text-sm font-semibold mb-1">Overslaan</div>
+          <p className="text-xs leading-relaxed mb-2" style={{ color: C.muted }}>
+            U verbrandt vandaag ongeveer {kc(sessKcal)} minder. Alleen dat gaat van uw weektotaal af.
+          </p>
+          <div className="space-y-1.5">
+            <button onClick={() => setSkipMode("dag")} className="tap w-full text-left px-3 py-2.5" style={optBox(chosen === "dag")} aria-pressed={chosen === "dag"}>
+              <span className="text-sm font-semibold block">Vandaag aanpassen</span>
+              <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+                Vandaag wordt een rustdag: {kc(pDag.k[todayIdx])} ({sgn(pDag.d[todayIdx])}), vooral minder koolhydraten.
+                {restDays.length > 0 && Math.round(pDag.d[restDays[0]]) > 0
+                  ? ` De extra ruimte van trainingsdagen gaat terug naar de week: ${sgn(pDag.d[restDays[0]])} kcal per resterende rustdag.`
+                  : ""}
+              </span>
+            </button>
+            {spreadDays.length > 0 && (
+              <button onClick={() => setSkipMode("spreiden")} className="tap w-full text-left px-3 py-2.5" style={optBox(chosen === "spreiden")} aria-pressed={chosen === "spreiden"}>
+                <span className="text-sm font-semibold block">Al gegeten: over de week spreiden</span>
+                <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+                  {`De komende ${spreadDays.length === 1 ? "dag" : `${spreadDays.length} dagen`} gemiddeld ${sgn(avgSpread)} kcal (hoogstens ${SPREAD_MAX} per dag, nooit onder uw bodem).`}
+                  {leftOver > 25 ? ` Ongeveer ${kc(leftOver)} vangt de bijsturing op uw gewichtstrend op.` : ""}
+                </span>
+              </button>
+            )}
+            <button onClick={() => setSkipMode("laten")} className="tap w-full text-left px-3 py-2.5" style={optBox(chosen === "laten")} aria-pressed={chosen === "laten"}>
+              <span className="text-sm font-semibold block">Al gegeten: zo laten</span>
+              <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+                De calorieën blijven gelijk. {kc(sessKcal)} is ongeveer {nlNum(sessKcal / 7700, 2)} kg vet; de bijsturing op uw gewichtstrend vangt dat
+                vanzelf op.
+              </span>
+            </button>
+          </div>
+          {programMode && (
+            <p className="text-xs leading-relaxed mt-2" style={{ color: C.muted }}>
+              {programMode === "week"
+                ? "De training van vandaag vervalt deze week. Uw progressie en blokindeling blijven gelijk."
+                : "Uw trainingsrotatie schuift vanzelf op: de volgende keer staat dezelfde training klaar."}
+            </p>
+          )}
+          {skipsThisWeek >= 1 && (
+            <p className="text-xs leading-relaxed mt-2" style={{ color: C.warn }}>
+              Dit is de tweede gemiste training deze week. Gebeurt dat vaker, kies dan een schema met een dag minder of een rotatie; dan schuift een
+              gemiste dag vanzelf op.
+            </p>
+          )}
+          <div className="mt-3">
+            <TBtn full onClick={() => onApply({ kind: "skip", day: todayIdx, mode: chosen })}>
+              Overslaan
+            </TBtn>
+          </div>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+const adjText = (a) =>
+  a.kind === "skip"
+    ? `training overgeslagen${a.mode === "spreiden" ? ", verschil over de week gespreid" : a.mode === "laten" ? ", calorieën ongewijzigd" : ", vandaag rustdag"}`
+    : a.to === a.at
+    ? `training van ${DAY_FULL[a.from].toLowerCase()} naar vandaag gehaald`
+    : `training verplaatst naar ${DAY_FULL[a.to].toLowerCase()}`;
+
 /* Vangnet: één fout in de weergave mag nooit een leeg scherm opleveren.
    De gebruiker krijgt de melding plus een knop om de opgeslagen instellingen
    te wissen, want een onverwachte fout komt vrijwel altijd uit oude opslag. */
@@ -7730,6 +7926,8 @@ function MacroApp() {
   const [editMeal, setEditMeal] = useState(null);
   const [log, setLog] = useState([]);
   const [checkins, setCheckins] = useState([]);
+  const [weekAdj, setWeekAdj] = useState(null);
+  const [skipOpen, setSkipOpen] = useState(false);
   const [compAnchor, setCompAnchor] = useState(null);
   const [checkinOpen, setCheckinOpen] = useState(false);
   const [overrideAdvice, setOverrideAdvice] = useState(false);
@@ -7804,7 +8002,8 @@ function MacroApp() {
      (trainingsdag of rustdag) en als uitzondering een losse dag.
      Wie iets wijzigt, wijzigt standaard het profiel van dat dagtype;
      twee ingevulde dagen vullen daarmee de hele week. */
-  const dayType = (d) => (week[d].session ? "training" : "rust");
+  /* dagtype van deze week: met een overgeslagen of verplaatste training */
+  const dayType = (d) => (wk[d].session ? "training" : "rust");
   const TYPE_LABEL = { training: "trainingsdagen", rust: "rustdagen" };
 
   const itemsFor = (day, i, label) => {
@@ -7903,6 +8102,7 @@ function MacroApp() {
           if (d.autopilot && Array.isArray(d.autopilot.rows)) setAutopilot(d.autopilot);
           if (d.lastSeen) setLastSeen(d.lastSeen);
           if (Array.isArray(d.checkins)) setCheckins(d.checkins);
+          if (d.weekAdj && Array.isArray(d.weekAdj.list)) setWeekAdj(d.weekAdj);
           if (d.compAnchor) setCompAnchor(d.compAnchor);
           if (d.mealPlans) {
             const v = Object.values(d.mealPlans);
@@ -7950,18 +8150,23 @@ function MacroApp() {
       try {
         window.storage.set(
           STORE_KEY,
-          JSON.stringify({ f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, onboarded: true })
+          JSON.stringify({ f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
         );
       } catch (e) {
         setStorage("uit");
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, loaded, storage]);
+  }, [f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
 
   /* ---------------- rekenwerk ---------------- */
 
   const foodIndex = useMemo(() => buildIndex(customFoods), [customFoods]);
+
+  /* Deze week: welke dag is het vandaag (ma = 0) en welke maandag hoort erbij. */
+  const todayNum = dayNum(localISO());
+  const todayIdx = wdOfNum(todayNum);
+  const thisMonday = isoOfNum(todayNum - todayIdx);
 
   const planNow = useMemo(() => planPosition(autopilot), [autopilot]);
   const effGoal = planNow.active ? goalFromRate(planNow.row.rate) : f.goal;
@@ -7983,15 +8188,39 @@ function MacroApp() {
       kcalAdjust: num(kcalAdjust, 0),
       week,
     };
-    return { input, energy: weekEnergy(input), weight };
-  }, [f, week, kcalAdjust, effGoal, effRate]);
+    const adj = adjustWeek(input, weekAdj && weekAdj.weekStart === thisMonday ? weekAdj : null);
+    return { input, energy: adj.energy, base: adj.base, wk: adj.week, adjList: adj.list, weight };
+  }, [f, week, kcalAdjust, effGoal, effRate, weekAdj, thisMonday]);
 
-  const { input, energy, weight } = core;
+  const { input, energy, weight, wk, adjList } = core;
+
+  /* gemiste of verplaatste training van vandaag */
+  const adjToday = adjList.filter((a) => a.at === todayIdx);
+  const skipsThisWeek = adjList.filter((a) => a.kind === "skip").length;
+  const addAdj = (a) => {
+    setWeekAdj((cur) => ({
+      weekStart: thisMonday,
+      list: [...(cur && cur.weekStart === thisMonday ? cur.list : []), { ...a, at: todayIdx, t: Date.now() }],
+    }));
+    setSkipOpen(false);
+  };
+  const dayAdjNote = (k) => {
+    const a = [...adjList].reverse().find((x) => (x.kind === "skip" && x.day === k) || (x.kind === "move" && (x.from === k || x.to === k)));
+    if (!a) return "";
+    if (a.kind === "skip") return " · training overgeslagen";
+    return a.from === k ? ` · training verplaatst naar ${DAY_FULL[a.to].toLowerCase()}` : ` · verplaatst van ${DAY_FULL[a.from].toLowerCase()}`;
+  };
+  const undoAdj = () =>
+    setWeekAdj((cur) => {
+      if (!cur || cur.weekStart !== thisMonday) return cur;
+      const k = cur.list.map((a) => a.at).lastIndexOf(todayIdx);
+      return k < 0 ? cur : { ...cur, list: cur.list.filter((_, i) => i !== k) };
+    });
 
   /* ---------------- training ---------------- */
   const trainToday = localISO();
   const trainPhase = planNow.active ? planNow.row.phase : effGoal;
-  const D = useMemo(() => trainDerive(T, { phase: trainPhase }, trainToday), [T, trainPhase, trainToday]);
+  const D = useMemo(() => trainDerive(T, { phase: trainPhase, adjList }, trainToday), [T, trainPhase, trainToday, adjList]);
 
   const startTraining = (day, rotPos = null) => {
     primeAudio();
@@ -8054,7 +8283,7 @@ function MacroApp() {
     const build = (i) => {
       const kcal = energy.kcals[i];
       const macros = calcMacros({ weight, kcal, proteinPerKg, fatPercent: f.fatPercent, fatGrams: fixedFat });
-      const s = week[i].session;
+      const s = wk[i].session;
       const cfg = {
         meals: num(week[i].meals ?? f.meals, 4),
         wake: week[i].wake || f.wake || "07:00",
@@ -8375,7 +8604,7 @@ function MacroApp() {
         if (dp.plan.train) rows.push({ kind: "train", time: dp.plan.train.start, end: dp.plan.train.end });
         rows.sort((a, b) => a.time - b.time);
         const fib = rows.reduce((a, r) => a + (r.fib || 0), 0);
-        return { type: t, days, kcal: dp.kcal, macros: dp.macros, rows, session: week[d].session, fib };
+        return { type: t, days, kcal: dp.kcal, macros: dp.macros, rows, session: wk[d].session, fib };
       })
       .filter(Boolean);
   }, [printView, dayPlan, mealPlans, vegGrams, foodIndex, week, showAlts]);
@@ -8465,7 +8694,7 @@ function MacroApp() {
     const days = DAYS.map((_, i) => {
       const dp = dayPlan.all[i];
       const hours = (1440 - (dp.sleepM - dp.wakeM)) / 60;
-      const s = week[i].session;
+      const s = wk[i].session;
       let trainGap = null;
       let preConflict = false;
       const cutoff = caf.hours ? dp.sleepM - caf.hours * 60 : null;
@@ -8578,7 +8807,7 @@ function MacroApp() {
       ? "Laatste maaltijd"
       : `Maaltijd ${i + 1}`;
 
-  const session = week[selDay].session;
+  const session = wk[selDay].session;
   /* Richtlijn Gezondheidsraad: 3,4 g vezels per megajoule, ongeveer 14 g per 1000 kcal. */
   const fibre = Math.round((dayPlan.today.kcal / 1000) * 14);
   const fibreDay = portionPlan ? portionPlan.reduce((a, m) => a + (m.actual.fib || 0), 0) : null;
@@ -8591,7 +8820,7 @@ function MacroApp() {
       "",
       ...DAYS.map(
         (d, i) =>
-          `${DAY_FULL[i]}: ${Math.round(energy.kcals[i])} kcal${week[i].session ? ` (${SESSIONS.find((s) => s.id === week[i].session.type).label}, ${week[i].session.minutes} min vanaf ${week[i].session.start})` : ""}`
+          `${DAY_FULL[i]}: ${Math.round(energy.kcals[i])} kcal${wk[i].session ? ` (${SESSIONS.find((s) => s.id === wk[i].session.type).label}, ${wk[i].session.minutes} min vanaf ${wk[i].session.start})` : ""}`
       ),
       "",
       `${DAY_FULL[selDay]} in detail`,
@@ -9578,6 +9807,31 @@ function MacroApp() {
             <TrainingBoundary quiet>
               <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
             </TrainingBoundary>
+            {loaded && !T.active && (() => {
+              const trainedToday = T.sessions.some((x) => x.date === localISO() && x.end);
+              const isTrain = !!wk[todayIdx].session;
+              const canPull = !isTrain && wk.some((d, k) => k > todayIdx && d.session);
+              if (adjToday.length)
+                return (
+                  <div className="mb-3 px-3 py-2 flex items-center gap-3 text-xs" style={{ background: C.surface2, border: `1px solid ${C.lineSoft}`, borderRadius: R.field }}>
+                    <span className="flex-1 leading-snug" style={{ color: C.muted }}>
+                      <strong style={{ color: C.ink }}>Deze week aangepast:</strong> {adjText(adjToday[adjToday.length - 1])}.
+                      {skipsThisWeek >= 2 ? " Al twee gemiste trainingen deze week; overweeg een schema met een dag minder." : ""}
+                    </span>
+                    <button onClick={undoAdj} className="tap underline shrink-0" style={{ color: C.muted }}>
+                      Ongedaan maken
+                    </button>
+                  </div>
+                );
+              if (trainedToday || (!isTrain && !canPull)) return null;
+              return (
+                <div className="mb-3 -mt-1.5 flex justify-end">
+                  <button onClick={() => setSkipOpen(isTrain ? "skip" : "pull")} className="tap text-xs underline px-1 py-1" style={{ color: C.muted }}>
+                    {isTrain ? "Vandaag niet trainen?" : "Vandaag toch trainen?"}
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Kleeft bovenaan tijdens het scrollen met position: sticky.
                 Geen scrollmeting nodig, dus het werkt in elke webweergave. */}
@@ -9600,7 +9854,7 @@ function MacroApp() {
                       className="tap flex-1 py-1 rounded-full disp text-sm uppercase"
                       style={{
                         background: on ? C.accent : "transparent",
-                        color: on ? C.onAccent : week[i].session ? C.ink : C.muted,
+                        color: on ? C.onAccent : wk[i].session ? C.ink : C.muted,
                         fontWeight: on ? 700 : 500,
                         border: `1px solid ${on ? C.accent : C.lineSoft}`,
                       }}
@@ -9670,7 +9924,7 @@ function MacroApp() {
                         borderRadius: 6,
                         background: on
                           ? "var(--accent)"
-                          : week[i].session
+                          : wk[i].session
                           ? "rgba(255,255,255,.34)"
                           : "rgba(255,255,255,.14)",
                       }}
@@ -9690,7 +9944,7 @@ function MacroApp() {
                   </div>
                   <div
                     className="w-1 h-1 rounded-full mx-auto mt-1"
-                    style={{ background: week[i].session ? (selDay === i ? "var(--accent)" : C.darkMuted) : "transparent" }}
+                    style={{ background: wk[i].session ? (selDay === i ? "var(--accent)" : C.darkMuted) : "transparent" }}
                   />
                 </div>
               ))}
@@ -9705,7 +9959,8 @@ function MacroApp() {
                 </div>
                 <div className="text-sm mt-1" style={{ color: C.darkMuted }}>
                   kcal op {DAY_FULL[selDay].toLowerCase()}
-                  {week[selDay].session ? " · trainingsdag" : ""}
+                  {wk[selDay].session ? " · trainingsdag" : ""}
+                  {dayAdjNote(selDay)}
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -12408,6 +12663,18 @@ function MacroApp() {
         </Sheet>
       )}
 
+      {skipOpen && (
+        <SkipSheet
+          mode={skipOpen}
+          input={input}
+          list={adjList}
+          todayIdx={todayIdx}
+          programMode={D.program ? D.program.mode : null}
+          skipsThisWeek={skipsThisWeek}
+          onApply={addAdj}
+          onClose={() => setSkipOpen(false)}
+        />
+      )}
       {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} />}
 
       <TrainingBoundary quiet>
