@@ -1,0 +1,22 @@
+{
+  "name": "macroverdeling",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Trainingsgerichte macro- en voedingsschemaplanner (Nederlands), als installeerbare PWA.",
+  "scripts": {
+    "build": "node build.mjs",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "tailwindcss": "^3.4.17",
+    "jsdom": "^25.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED"
+}
