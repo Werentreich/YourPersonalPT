@@ -3,7 +3,9 @@
 Trainingsgerichte macro- en voedingsschemaplanner, in het Nederlands, als
 installeerbare PWA. Berekent calorieën en macro's per dag op basis van
 lichaamsgegevens, training en doel; verdeelt die over maaltijden en porties;
-en ondersteunt meerwekenplannen voor cutten, bulken en minicuts.
+en ondersteunt meerwekenplannen voor cutten, bulken en minicuts. Het
+tabblad Training bevat trainingsschema's, live loggen met rusttimer,
+automatische progressie, periodisering met deload en analyses.
 
 **Live:** https://macroverdeling.netlify.app
 
@@ -22,7 +24,7 @@ netlify.toml       Netlify-configuratie (headers, SPA-redirect)
 kunstwerk binnen Claude (als Artifact), waar geen modulebundeling
 beschikbaar is. Wie eraan werkt via Claude Code kan gewoon in dat ene
 bestand editen; `npm run build` zet het om naar een zelfstandige
-`dist/index.html` van ongeveer 350 kB, met alles inline (React, stijlen,
+`dist/index.html` van ongeveer 460 kB, met alles inline (React, stijlen,
 logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
 
 ## Ontwikkelen
@@ -37,6 +39,40 @@ draaien en `dist/index.html` rechtstreeks in de browser openen (geen server
 nodig, het is één zelfstandig bestand). Voor PWA-gedrag (service worker,
 manifest) moet het bestand wel vanaf een echte host of `netlify dev`
 draaien, want service workers werken niet vanaf `file://`.
+
+## Trainingsmodule
+
+Staat in `src/App.jsx` tussen het kopcommentaar `TRAINING` en de
+`ErrorBoundary`. Methodiek naar de principes van Kuba Cielen: twee werksets
+tot RIR 0-1 na een opbouwende warming-up, voorkeur voor lengthened-bias en
+unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
+
+- **Opslag**: eigen sleutel `macroverdeling:training:v1`, los van de
+  voedingsdata, zodat het loggen van elke set niet de hele voedingsblob
+  herschrijft. Een lopende training overleeft herladen.
+- **Schema's**: op vaste weekdagen of als rotatie (gemiste dagen schuiven
+  op). Drie sjablonen: Upper/Lower, Push/Pull/Legs, Full body. Ruim 60
+  oefeningen met spiergroep, materiaal en lengthened/unilateraal-vlag, plus
+  eigen oefeningen.
+- **Progressie** (`progressFor`): reps-first. Binnen de range een rep erbij;
+  twee sessies op rij de bovenkant: gewicht omhoog met de stap van het
+  materiaal; bovenkant met ruim reps over: direct omhoog; twee keer onder de
+  onderkant: omlaag. Instelbaar als voorstel (standaard) of automatisch.
+- **Periodisering** (`blockPosition`): blokken van opbouw (standaard 4
+  weken, RIR 2 naar 1), intensivering (2 weken, RIR 1 naar 0) en een
+  deloadweek (halve werksets, RIR 4).
+- **Deload-detectie** (`fatigueCheck`): e1RM-daling bij minstens 30 procent
+  van de vergelijkingen in twee weken, of drie keer een lage herstelscore
+  met dalende prestaties.
+- **Koppeling met voeding** (`TRAIN_PHASE`): in een minicut gaat het volume
+  ongeveer een derde omlaag en blijven de gewichten gelijk; in een cut
+  telt stilstand niet als vermoeidheid. Schema's op weekdagen kunnen de
+  trainingsdagen van de voedingsweek gelijktrekken.
+- **Analyses**: werksets per spiergroep tegen MEV/MAV/MRV (Renaissance
+  Periodization), volume per week, e1RM-verloop, records en therapietrouw.
+- **Rusttimer**: geluid, trillen (Android) en een melding als de app op de
+  achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
+  de melding pas bij terugkeer.
 
 ## Belangrijke valkuil bij het bouwen
 

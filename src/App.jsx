@@ -1905,7 +1905,7 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 /* ----------------------------- primitieven ----------------------------- */
 
 const STORE_KEY = "macroverdeling:v1";
-const APP_VERSION = "24 september, vast vet";
+const APP_VERSION = "25 september, training";
 const R = { card: 14, field: 10 };
 
 /* Het heropaneel is in beide modi donker, dus deze drie kleuren staan vast. */
@@ -2128,6 +2128,7 @@ function Status({ label, value, state, note }) {
 const ICON_PATHS = {
   vandaag: ["M4 6.5h16v13H4z", "M4 10.5h16", "M8.5 4v4", "M15.5 4v4", "M8 14h3v3H8z"],
   plan: ["M4 19h16", "M5 15.5l4.5-4.5 3.5 3 6-6.5", "M15 7.5h4v4"],
+  training: ["M7 7v10", "M4 9.5v5", "M17 7v10", "M20 9.5v5", "M7 12h10"],
   eten: ["M7 3.5v17", "M4.5 3.5v5a2.5 2.5 0 0 0 5 0v-5", "M16.5 20.5v-17c-2 1.5-3 4-3 7.5h3"],
   gezondheid: ["M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z", "M7.5 12h2.5l1.5-2.5 2 4.5 1.5-2h1.5"],
   profiel: ["M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M4.5 20.5c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5"],
@@ -2146,6 +2147,7 @@ function Icon({ name, size = 22 }) {
 const TABS = [
   { id: "vandaag", label: "Vandaag", title: "Vandaag" },
   { id: "plan", label: "Plan", title: "Plan en voortgang" },
+  { id: "training", label: "Training", title: "Training" },
   { id: "eten", label: "Eten", title: "Eten" },
   { id: "gezondheid", label: "Gezondheid", title: "Gezondheid" },
   { id: "profiel", label: "Profiel", title: "Profiel" },
@@ -2429,6 +2431,3678 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDays = (n) => new Date(Date.now() + n * 86400000);
 const dateNL = (d) => d.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
 
+/* =========================================================================
+   TRAINING - schema's, live logging, progressie en periodisering
+   Methodiek naar de principes van Kuba Cielen (IFBB Pro, MK Coaching):
+   twee werksets per oefening tot RIR 0-1 na een opbouwende warming-up,
+   voorkeur voor lengthened-bias en unilaterale oefeningen, ongeveer 40/60
+   compound/isolatie, reps-first progressie (gewicht omhoog na twee sessies
+   op de bovenkant van de range) en blokken van opbouw en intensivering met
+   een deload. Volumerichtwaarden per spiergroep (MEV/MAV/MRV) volgen
+   Israetel, Hoffmann en Smith, Scientific Principles of Hypertrophy
+   Training (Renaissance Periodization). e1RM volgens Epley (1985), met de
+   reps in reserve opgeteld bij de gehaalde reps.
+   ========================================================================= */
+
+const TRAIN_KEY = "macroverdeling:training:v1";
+
+const localISO = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const isoOfNum = (n) => new Date(n * DAY_MS).toISOString().slice(0, 10);
+// 1 januari 1970 was een donderdag; maandag = 0
+const wdOfNum = (n) => (((n + 3) % 7) + 7) % 7;
+const mondayOf = (iso) => {
+  const n = dayNum(iso);
+  return isoOfNum(n - wdOfNum(n));
+};
+const uid = () => Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-5);
+const roundTo = (v, step) => (step > 0 ? Math.round(v / step) * step : v);
+const kgTxt = (v) =>
+  v == null || v === "" || !Number.isFinite(Number(v))
+    ? "–"
+    : (Math.round(Number(v) * 100) / 100).toLocaleString("nl-NL", { maximumFractionDigits: 2 });
+const expand = (arr, n, fallback = null) =>
+  Array.from({ length: Math.max(0, n) }, (_, i) => (arr && arr.length ? arr[Math.min(i, arr.length - 1)] : fallback));
+
+const e1rm = (load, reps, rir) => (load > 0 && reps > 0 ? load * (1 + (reps + Math.max(0, num(rir, 0))) / 30) : 0);
+
+const MUSCLES = {
+  borst: { label: "Borst", mev: 8, mav: [12, 20], mrv: 22 },
+  rug: { label: "Rug", mev: 10, mav: [14, 22], mrv: 25 },
+  schouder_voor: { label: "Schouder voor", mev: 0, mav: [6, 8], mrv: 12 },
+  schouder_zij: { label: "Schouder zij", mev: 8, mav: [16, 22], mrv: 26 },
+  schouder_achter: { label: "Schouder achter", mev: 6, mav: [12, 18], mrv: 22 },
+  trapezius: { label: "Trapezius", mev: 0, mav: [12, 20], mrv: 26 },
+  biceps: { label: "Biceps", mev: 8, mav: [14, 20], mrv: 26 },
+  triceps: { label: "Triceps", mev: 6, mav: [10, 14], mrv: 18 },
+  onderarmen: { label: "Onderarmen", mev: 2, mav: [6, 12], mrv: 20 },
+  quadriceps: { label: "Quadriceps", mev: 8, mav: [12, 18], mrv: 20 },
+  hamstrings: { label: "Hamstrings", mev: 6, mav: [10, 16], mrv: 20 },
+  bilspieren: { label: "Bilspieren", mev: 0, mav: [4, 12], mrv: 16 },
+  kuiten: { label: "Kuiten", mev: 8, mav: [12, 16], mrv: 20 },
+  buik: { label: "Buik", mev: 0, mav: [16, 20], mrv: 25 },
+};
+const MUSCLE_IDS = Object.keys(MUSCLES);
+
+const EQUIP = {
+  stang: { label: "Stang", inc: 2.5 },
+  dumbbell: { label: "Dumbbells", inc: 2 },
+  machine: { label: "Machine", inc: 5 },
+  kabel: { label: "Kabel", inc: 2.5 },
+  smith: { label: "Smith machine", inc: 2.5 },
+  lichaam: { label: "Lichaamsgewicht", inc: 2.5 },
+};
+
+/* id, naam, materiaal, c(ompound)/i(solatie), primaire en secundaire
+   spieren, vlaggen (L = lengthened-bias, U = unilateraal), repsrange en bij
+   lichaamsgewicht het deel van het lichaamsgewicht dat u verplaatst. */
+const EX = (id, name, equip, kind, pri, sec, flags, lo, hi, bw) => ({
+  id,
+  name,
+  equip,
+  kind: kind === "c" ? "compound" : "isolation",
+  pri,
+  sec,
+  lengthened: flags.includes("L"),
+  unilateral: flags.includes("U"),
+  repMin: lo,
+  repMax: hi,
+  bw: bw ?? 1,
+});
+
+const EXERCISES = [
+  EX("bankdrukken", "Bankdrukken", "stang", "c", ["borst"], ["triceps", "schouder_voor"], "", 6, 10),
+  EX("schuin_bankdrukken", "Schuin bankdrukken", "stang", "c", ["borst"], ["schouder_voor", "triceps"], "", 6, 10),
+  EX("db_bankdrukken", "Dumbbell bankdrukken", "dumbbell", "c", ["borst"], ["triceps", "schouder_voor"], "L", 8, 12),
+  EX("schuin_db", "Schuine dumbbell press", "dumbbell", "c", ["borst"], ["schouder_voor", "triceps"], "L", 8, 12),
+  EX("smith_schuin", "Schuin drukken in de Smith", "smith", "c", ["borst"], ["schouder_voor", "triceps"], "", 6, 10),
+  EX("chest_press", "Chest press machine", "machine", "c", ["borst"], ["triceps", "schouder_voor"], "", 8, 12),
+  EX("dips", "Dips", "lichaam", "c", ["borst", "triceps"], ["schouder_voor"], "L", 6, 12, 0.95),
+  EX("push_ups", "Push-ups", "lichaam", "c", ["borst"], ["triceps", "schouder_voor"], "", 8, 20, 0.65),
+  EX("cable_fly", "Cable fly", "kabel", "i", ["borst"], [], "L", 10, 15),
+  EX("pec_deck", "Pec deck", "machine", "i", ["borst"], [], "L", 10, 15),
+  EX("db_flyes", "Dumbbell flyes", "dumbbell", "i", ["borst"], [], "L", 10, 15),
+
+  EX("optrekken", "Optrekken (pull-up)", "lichaam", "c", ["rug"], ["biceps"], "L", 6, 10, 0.95),
+  EX("lat_pulldown", "Lat pulldown", "kabel", "c", ["rug"], ["biceps"], "L", 8, 12),
+  EX("pulldown_1arm", "Eenarmige lat pulldown", "kabel", "c", ["rug"], ["biceps"], "LU", 10, 15),
+  EX("barbell_row", "Barbell row", "stang", "c", ["rug"], ["biceps", "schouder_achter"], "", 6, 10),
+  EX("db_row", "Eenarmige dumbbell row", "dumbbell", "c", ["rug"], ["biceps", "schouder_achter"], "LU", 8, 12),
+  EX("chest_supported_row", "Chest-supported row", "machine", "c", ["rug"], ["biceps", "schouder_achter"], "", 8, 12),
+  EX("cable_row", "Seated cable row", "kabel", "c", ["rug"], ["biceps", "schouder_achter"], "L", 8, 12),
+  EX("tbar_row", "T-bar row", "stang", "c", ["rug"], ["biceps", "schouder_achter"], "", 6, 10),
+  EX("pullover", "Cable pullover", "kabel", "i", ["rug"], [], "L", 10, 15),
+  EX("deadlift", "Deadlift", "stang", "c", ["hamstrings", "bilspieren", "rug"], ["trapezius", "onderarmen"], "", 4, 8),
+  EX("shrugs", "Shrugs", "dumbbell", "i", ["trapezius"], ["onderarmen"], "", 10, 15),
+  EX("hyperextension", "Hyperextension", "lichaam", "c", ["bilspieren", "hamstrings"], [], "", 10, 15, 0.5),
+
+  EX("overhead_press", "Overhead press", "stang", "c", ["schouder_voor"], ["triceps", "schouder_zij"], "", 6, 10),
+  EX("db_shoulder_press", "Dumbbell shoulder press", "dumbbell", "c", ["schouder_voor"], ["triceps", "schouder_zij"], "", 8, 12),
+  EX("machine_shoulder_press", "Shoulder press machine", "machine", "c", ["schouder_voor"], ["triceps", "schouder_zij"], "", 8, 12),
+  EX("lateral_raise", "Lateral raise", "dumbbell", "i", ["schouder_zij"], [], "", 12, 20),
+  EX("cable_lateral", "Cable lateral raise, eenarmig", "kabel", "i", ["schouder_zij"], [], "LU", 12, 20),
+  EX("machine_lateral", "Lateral raise machine", "machine", "i", ["schouder_zij"], [], "", 12, 20),
+  EX("reverse_pec_deck", "Reverse pec deck", "machine", "i", ["schouder_achter"], ["trapezius"], "", 12, 20),
+  EX("face_pull", "Face pull", "kabel", "i", ["schouder_achter"], ["trapezius"], "", 12, 20),
+
+  EX("barbell_curl", "Barbell curl", "stang", "i", ["biceps"], ["onderarmen"], "", 8, 12),
+  EX("db_curl", "Dumbbell curl", "dumbbell", "i", ["biceps"], ["onderarmen"], "", 8, 12),
+  EX("incline_curl", "Incline dumbbell curl", "dumbbell", "i", ["biceps"], [], "L", 8, 12),
+  EX("preacher_curl", "Preacher curl", "machine", "i", ["biceps"], [], "L", 8, 12),
+  EX("bayesian_curl", "Bayesian cable curl", "kabel", "i", ["biceps"], [], "LU", 10, 15),
+  EX("hammer_curl", "Hammer curl", "dumbbell", "i", ["biceps", "onderarmen"], [], "", 8, 12),
+  EX("cable_curl", "Cable curl", "kabel", "i", ["biceps"], [], "", 10, 15),
+
+  EX("pushdown", "Triceps pushdown", "kabel", "i", ["triceps"], [], "", 10, 15),
+  EX("overhead_ext", "Overhead triceps extension, kabel", "kabel", "i", ["triceps"], [], "L", 10, 15),
+  EX("skullcrusher", "Skullcrusher", "stang", "i", ["triceps"], [], "L", 8, 12),
+  EX("db_overhead_ext", "Dumbbell overhead extension", "dumbbell", "i", ["triceps"], [], "L", 10, 15),
+  EX("close_grip_bench", "Close-grip bankdrukken", "stang", "c", ["triceps"], ["borst", "schouder_voor"], "", 6, 10),
+
+  EX("squat", "Squat", "stang", "c", ["quadriceps", "bilspieren"], ["hamstrings"], "L", 5, 8),
+  EX("front_squat", "Front squat", "stang", "c", ["quadriceps"], ["bilspieren"], "L", 5, 8),
+  EX("hack_squat", "Hack squat", "machine", "c", ["quadriceps"], ["bilspieren"], "L", 6, 10),
+  EX("leg_press", "Leg press", "machine", "c", ["quadriceps"], ["bilspieren"], "", 8, 12),
+  EX("bulgarian_split_squat", "Bulgaarse split squat", "dumbbell", "c", ["quadriceps", "bilspieren"], [], "LU", 8, 12),
+  EX("walking_lunge", "Walking lunges", "dumbbell", "c", ["quadriceps", "bilspieren"], [], "LU", 8, 12),
+  EX("leg_extension", "Leg extension", "machine", "i", ["quadriceps"], [], "", 10, 15),
+  EX("rdl", "Roemeense deadlift", "stang", "c", ["hamstrings", "bilspieren"], ["rug"], "L", 6, 10),
+  EX("seated_leg_curl", "Zittende leg curl", "machine", "i", ["hamstrings"], [], "L", 10, 15),
+  EX("lying_leg_curl", "Liggende leg curl", "machine", "i", ["hamstrings"], [], "", 10, 15),
+  EX("hip_thrust", "Hip thrust", "stang", "c", ["bilspieren"], ["hamstrings"], "", 8, 12),
+  EX("cable_kickback", "Cable kickback", "kabel", "i", ["bilspieren"], [], "U", 12, 15),
+  EX("abductor", "Abductor machine", "machine", "i", ["bilspieren"], [], "", 12, 20),
+  EX("standing_calf", "Staande kuitraise", "machine", "i", ["kuiten"], [], "L", 10, 15),
+  EX("seated_calf", "Zittende kuitraise", "machine", "i", ["kuiten"], [], "", 12, 20),
+  EX("leg_press_calf", "Kuitraise in de leg press", "machine", "i", ["kuiten"], [], "L", 10, 15),
+
+  EX("cable_crunch", "Cable crunch", "kabel", "i", ["buik"], [], "", 10, 15),
+  EX("hanging_leg_raise", "Hanging leg raise", "lichaam", "i", ["buik"], [], "", 10, 15, 0.3),
+  EX("ab_wheel", "Ab wheel", "lichaam", "i", ["buik"], [], "L", 8, 15, 0.5),
+  EX("crunch_machine", "Crunch machine", "machine", "i", ["buik"], [], "", 10, 15),
+  EX("wrist_curl", "Wrist curl", "dumbbell", "i", ["onderarmen"], [], "", 12, 20),
+];
+
+function buildExIndex(customEx = [], exEdits = {}) {
+  const idx = {};
+  [...EXERCISES, ...(customEx || [])].forEach((e) => {
+    idx[e.id] = { ...e, ...((exEdits && exEdits[e.id]) || {}) };
+  });
+  return idx;
+}
+const exOf = (idx, id) =>
+  idx[id] || { id, name: "Verwijderde oefening", equip: "machine", kind: "isolation", pri: [], sec: [], repMin: 8, repMax: 12, bw: 1, missing: true };
+
+/* Sjablonen volgen de Kuba-principes: per dag ongeveer 40/60
+   compound/isolatie, veel lengthened-bias en unilaterale keuzes. */
+const TEMPLATES = [
+  {
+    id: "ul",
+    name: "Upper / Lower",
+    sub: "4 dagen, elke spiergroep twee keer per week. Past op het standaardschema ma, di, do, vr.",
+    days: [
+      ["Upper A", ["bankdrukken", "db_row", "db_shoulder_press", "cable_fly", "lateral_raise", "bayesian_curl", "overhead_ext"]],
+      ["Lower A", ["squat", "rdl", "leg_extension", "seated_leg_curl", "standing_calf"]],
+      ["Upper B", ["schuin_db", "lat_pulldown", "chest_supported_row", "pec_deck", "cable_lateral", "incline_curl", "pushdown"]],
+      ["Lower B", ["hack_squat", "bulgarian_split_squat", "lying_leg_curl", "leg_extension", "seated_calf", "hanging_leg_raise"]],
+    ],
+    week: [0, 1, null, 2, 3, null, null],
+    rotation: [0, 1, "rust", 2, 3, "rust"],
+  },
+  {
+    id: "ppl",
+    name: "Push / Pull / Legs",
+    sub: "Zes dagen per week, of als rotatie van drie trainingen en een rustdag.",
+    days: [
+      ["Push", ["schuin_db", "machine_shoulder_press", "cable_fly", "cable_lateral", "overhead_ext", "pushdown"]],
+      ["Pull", ["pulldown_1arm", "chest_supported_row", "pullover", "reverse_pec_deck", "incline_curl", "hammer_curl"]],
+      ["Legs", ["hack_squat", "rdl", "seated_leg_curl", "leg_extension", "standing_calf", "cable_crunch"]],
+    ],
+    week: [0, 1, 2, null, 0, 1, 2],
+    rotation: [0, 1, 2, "rust"],
+  },
+  {
+    id: "fb",
+    name: "Full body",
+    sub: "3 dagen, drie verschillende trainingen. Veel frequentie met weinig tijd.",
+    days: [
+      ["Full body A", ["squat", "bankdrukken", "lat_pulldown", "seated_leg_curl", "lateral_raise", "incline_curl"]],
+      ["Full body B", ["rdl", "schuin_db", "cable_row", "leg_extension", "cable_fly", "overhead_ext", "standing_calf"]],
+      ["Full body C", ["hack_squat", "machine_shoulder_press", "pulldown_1arm", "lying_leg_curl", "reverse_pec_deck", "pushdown", "cable_crunch"]],
+    ],
+    week: [0, null, 1, null, 2, null, null],
+    rotation: [0, "rust", 1, "rust", 2, "rust"],
+  },
+];
+
+function makeSlot(ex, opts = {}) {
+  const c = ex.kind === "compound";
+  return {
+    id: uid(),
+    exId: ex.id,
+    sets: opts.sets ?? 2,
+    warmups: opts.warmups ?? (c ? 2 : 1),
+    repMin: ex.repMin,
+    repMax: ex.repMax,
+    rest: c ? 180 : 120,
+    rir: null,
+    note: "",
+  };
+}
+
+function programFromTemplate(tpl, { mode = "week", sets = 2, exIndex }) {
+  const days = tpl.days.map(([name, ids]) => {
+    const seen = new Set();
+    const slots = ids
+      .map((id) => exIndex[id])
+      .filter(Boolean)
+      .map((ex) => {
+        const first = !ex.pri.some((m) => seen.has(m));
+        ex.pri.forEach((m) => seen.add(m));
+        const warm = ex.kind === "compound" ? (first ? 2 : 1) : first ? 1 : 0;
+        return makeSlot(ex, { sets, warmups: warm });
+      });
+    return { id: uid(), name, slots };
+  });
+  return {
+    id: uid(),
+    name: tpl.name,
+    mode,
+    days,
+    weekMap: tpl.week.map((k) => (k == null ? null : days[k].id)),
+    rotation: tpl.rotation.map((k) => (k === "rust" ? "rust" : days[k].id)),
+    created: localISO(),
+  };
+}
+
+function emptyProgram(name = "Eigen schema") {
+  const day = { id: uid(), name: "Training A", slots: [] };
+  return { id: uid(), name, mode: "week", days: [day], weekMap: [day.id, null, null, null, null, null, null], rotation: [day.id, "rust"], created: localISO() };
+}
+
+/* ---------------- periodisering ---------------- */
+
+const INTENSITY = {
+  kuba: { label: "Kuba: RIR 2 naar 0", acc: [2, 1], int: [1, 0] },
+  gematigd: { label: "Gematigd: RIR 3 naar 1", acc: [3, 2], int: [2, 1] },
+};
+const BLOCK_LABEL = { opbouw: "Opbouw", intensivering: "Intensivering", deload: "Deload" };
+const BLOCK_COLOR = { opbouw: "var(--accent)", intensivering: "var(--danger)", deload: "var(--carb-fill)" };
+
+function rirFor(profile, phase, i, n) {
+  if (phase === "deload") return 4;
+  const p = INTENSITY[profile] || INTENSITY.kuba;
+  if (phase === "opbouw") return i < Math.ceil(n / 2) ? p.acc[0] : p.acc[1];
+  return i < n - 1 ? p.int[0] : p.int[1];
+}
+
+function blockPosition(block, today, profile) {
+  const acc = clamp(Math.round(num(block.acc, 4)), 1, 8);
+  const int = clamp(Math.round(num(block.int, 2)), 0, 4);
+  const dl = block.deload === false ? 0 : 1;
+  const len = acc + int + dl;
+  const t = dayNum(today);
+  const base = { acc, int, dl, len };
+  if (block.deloadFrom) {
+    const d0 = dayNum(block.deloadFrom);
+    if (t >= d0 && t < d0 + 7) {
+      const before = blockPosition({ ...block, deloadFrom: null }, isoOfNum(d0), profile);
+      return { ...base, phase: "deload", week: -1, number: before.number, rir: 4, forced: true, cycleStart: d0, daysLeft: d0 + 7 - t };
+    }
+  }
+  const s = dayNum(block.start || today);
+  const wAll = Math.max(0, Math.floor((t - s) / 7));
+  const w = wAll % len;
+  const number = (block.number || 1) + Math.floor(wAll / len);
+  const phase = w < acc ? "opbouw" : w < acc + int ? "intensivering" : "deload";
+  const i = phase === "opbouw" ? w : phase === "intensivering" ? w - acc : 0;
+  const n = phase === "opbouw" ? acc : int;
+  return {
+    ...base,
+    phase,
+    week: w,
+    number,
+    rir: rirFor(profile, phase, i, n),
+    forced: false,
+    cycleStart: s + (wAll - w) * 7,
+    daysLeft: 7 - (Math.max(0, t - s) % 7),
+  };
+}
+
+/* Voedingsfase naar trainingsinstelling. De minicut volgt het advies dat
+   de app al gaf: gewichten gelijk houden, volume ongeveer een derde omlaag. */
+const TRAIN_PHASE = {
+  bulk: {
+    label: "Opbouw",
+    vf: 1,
+    load: true,
+    tol: 0.03,
+    note: "Surplus: de beste fase om te progressen. Gewicht en reps gaan hier het snelst omhoog.",
+  },
+  onderhoud: { label: "Onderhoud", vf: 1, load: true, tol: 0.03, note: "Onderhoud: normaal progressen, met iets tragere vooruitgang dan in een surplus." },
+  reverse: { label: "Opbouw calorieën", vf: 1, load: true, tol: 0.03, note: "Calorieën lopen op: normaal progressen." },
+  cut: {
+    label: "Cut",
+    vf: 1,
+    load: true,
+    tol: 0.05,
+    note: "Tekort: kracht behouden is het doel. Stilstand is normaal; alleen een duidelijke terugval over meerdere oefeningen telt als vermoeidheid.",
+  },
+  slotcut: { label: "Slotcut", vf: 1, load: true, tol: 0.05, note: "Slotcut: kracht vasthouden, stilstand is normaal." },
+  minicut: {
+    label: "Minicut",
+    vf: 2 / 3,
+    load: false,
+    tol: 0.06,
+    note: "Minicut: gewichten op de stang gelijk houden en het volume met ongeveer een derde verlagen. Zo behoudt u de prikkel zonder het herstel te overvragen.",
+  },
+};
+
+/* ---------------- sets, e1RM en historie ---------------- */
+
+const workSets = (e) => ((e && e.sets) || []).filter((s) => s.type === "work" && s.done && num(s.reps, 0) > 0);
+const setLoad = (e, s) => num(s.weight, 0) + ((e && e.bwLoad) || 0);
+const bestE1rm = (e) => Math.max(0, ...workSets(e).map((s) => e1rm(setLoad(e, s), num(s.reps, 0), s.rir)));
+const readinessScore = (r) => (r && !r.skipped ? num(r.sleep, 2) + num(r.energy, 2) + num(r.soreness, 2) : null);
+const lowReadiness = (r) => {
+  const v = readinessScore(r);
+  return v != null && v <= 5;
+};
+
+function historyFor(sessions, slot) {
+  const pick = (pred) => {
+    const out = [];
+    sessions.forEach((s) => {
+      if (s.deload || !s.end) return;
+      const e = s.exercises.find(pred);
+      if (e && workSets(e).length) out.push({ s, e });
+    });
+    return out;
+  };
+  const bySlot = pick((e) => e.slotId === slot.id);
+  return bySlot.length ? bySlot : pick((e) => e.exId === slot.exId);
+}
+
+function incFor(ex, settings, weight = 0) {
+  const own = ex && ex.inc != null && ex.inc !== "" ? num(ex.inc, 0) : 0;
+  const base = own > 0 ? own : num(settings && settings.inc && settings.inc[ex.equip], (EQUIP[ex.equip] || {}).inc || 2.5) || 2.5;
+  if ((ex.equip === "stang" || ex.equip === "smith") && weight * 0.025 > base * 1.5) return roundTo(weight * 0.025, base);
+  return base;
+}
+
+/* Reps-first progressie. Binnen de range komt er per set een rep bij op
+   hetzelfde gewicht. Twee sessies op rij op de bovenkant: gewicht omhoog.
+   Bovenkant met ruim reps over: te licht, direct omhoog. Twee keer onder
+   de onderkant: gewicht omlaag. */
+function progressFor({ slot, ex, hist, targetRir, load, settings }) {
+  const lo = Math.max(1, num(slot.repMin, 8));
+  const hi = Math.max(lo, num(slot.repMax, 12));
+  if (!hist.length) {
+    const sw = slot.startWeight != null && slot.startWeight !== "" ? num(slot.startWeight, null) : null;
+    return {
+      change: "nieuw",
+      weight: sw,
+      reps: [hi],
+      last: null,
+      why: `Eerste keer: kies een gewicht waarmee u ${lo} tot ${hi} reps haalt met nog ${targetRir} ${targetRir === 1 ? "rep" : "reps"} in reserve.`,
+    };
+  }
+  const lastE = hist[hist.length - 1].e;
+  const ws = workSets(lastE);
+  const w = num(ws[0].weight, 0);
+  const bw = lastE.bwLoad || 0;
+  const inc = incFor(ex, settings, w);
+  const repsL = ws.map((s) => num(s.reps, 0));
+  const rirs = ws.map((s) => (s.rir == null || s.rir === "" ? targetRir : num(s.rir, targetRir)));
+  const minRir = Math.min(...rirs);
+  const sameW = ws.every((s) => num(s.weight, 0) === w);
+  const top = sameW && repsL.every((r) => r >= hi);
+  const miss = repsL[0] < lo;
+  const prevE = hist.length > 1 ? hist[hist.length - 2].e : null;
+  const prevWs = prevE ? workSets(prevE) : [];
+  const prevTop = prevWs.length > 0 && prevWs.every((s) => num(s.weight, 0) === w && num(s.reps, 0) >= hi);
+  const prevMiss = prevWs.length > 0 && num(prevWs[0].weight, 0) === w && num(prevWs[0].reps, 0) < lo;
+  const e1 = bestE1rm(lastE);
+  const repsAt = (nw) => (e1 > 0 && nw + bw > 0 ? clamp(Math.floor(30 * (e1 / (nw + bw) - 1) - targetRir), lo, hi) : lo);
+  const base = { last: { weight: w, reps: repsL, rir: rirs }, inc, lo, hi };
+  const r2 = (v) => Math.round(v * 100) / 100;
+
+  if (!load) {
+    return { ...base, change: "behoud", weight: w, reps: repsL, why: "Minicut: gewicht en reps vasthouden. Behoud is in deze fase de winst." };
+  }
+  if (top && minRir >= targetRir + 2) {
+    const nw = r2(w + (minRir >= targetRir + 4 ? inc * 2 : inc));
+    return {
+      ...base,
+      change: "omhoog",
+      weight: nw,
+      reps: repsL.map(() => repsAt(nw)),
+      why: `Bovenkant (${hi}) gehaald met nog ${minRir} reps over: te licht. Gewicht direct omhoog naar ${kgTxt(nw)} kg.`,
+    };
+  }
+  if (top && prevTop) {
+    const nw = r2(w + inc);
+    return {
+      ...base,
+      change: "omhoog",
+      weight: nw,
+      reps: repsL.map(() => repsAt(nw)),
+      why: `Twee sessies op rij ${hi} reps gehaald: gewicht omhoog met ${kgTxt(inc)} kg naar ${kgTxt(nw)} kg. De reps zakken daardoor terug in de range.`,
+    };
+  }
+  if (top) {
+    return { ...base, change: "bevestigen", weight: w, reps: repsL.map(() => hi), why: `Bovenkant van de range gehaald. Nog één keer ${hi} reps op ${kgTxt(w)} kg, dan gaat het gewicht omhoog.` };
+  }
+  if (miss && prevMiss) {
+    const nw = r2(Math.max(0, w - Math.max(inc, roundTo(w * 0.05, inc))));
+    if (nw < w) {
+      return { ...base, change: "omlaag", weight: nw, reps: repsL.map(() => repsAt(nw)), why: `Twee keer onder de ${lo} reps: gewicht omlaag naar ${kgTxt(nw)} kg om weer binnen de range te werken.` };
+    }
+    return { ...base, change: "vasthouden", weight: w, reps: repsL.map(() => lo), why: `Twee keer onder de ${lo} reps zonder extra gewicht. Kies een lichtere variant of gebruik ondersteuning.` };
+  }
+  if (miss) {
+    return { ...base, change: "vasthouden", weight: w, reps: repsL.map(() => lo), why: `Onder de ${lo} reps gebleven. Zelfde gewicht; lukt het de volgende keer weer niet, dan gaat het omlaag.` };
+  }
+  return { ...base, change: "reps", weight: w, reps: repsL.map((r) => Math.min(hi, r + 1)), why: "Binnen de range: zelfde gewicht, een rep meer per set. Eerst reps, dan gewicht." };
+}
+
+const CHANGE_LABEL = {
+  nieuw: "nieuw",
+  omhoog: "gewicht omhoog",
+  bevestigen: "bevestigen",
+  reps: "+1 rep",
+  vasthouden: "vasthouden",
+  omlaag: "gewicht omlaag",
+  behoud: "behoud",
+  deload: "deload",
+  handmatig: "handmatig",
+  vorige: "als vorige keer",
+};
+const CHANGE_COLOR = {
+  omhoog: "var(--carb)",
+  reps: "var(--accent)",
+  bevestigen: "var(--accent)",
+  omlaag: "var(--danger)",
+  vasthouden: "var(--warn)",
+  behoud: "var(--fat)",
+  deload: "var(--carb)",
+  nieuw: "var(--muted)",
+  handmatig: "var(--muted)",
+  vorige: "var(--muted)",
+};
+
+function targetFor(slot, D, T) {
+  const ex = exOf(D.exIndex, slot.exId);
+  const hist = historyFor(D.sessions, slot);
+  const rir = D.pos.phase === "deload" ? 4 : slot.rir != null && slot.rir !== "" ? num(slot.rir, D.pos.rir) : D.pos.rir;
+  const load = D.phaseOn ? D.tp.load : true;
+  const prop = progressFor({ slot, ex, hist, targetRir: rir, load, settings: T.settings });
+  const lastId = hist.length ? hist[hist.length - 1].s.id : null;
+  const ov = T.overrides && T.overrides[slot.id];
+  let use;
+  let source;
+  if (D.pos.phase === "deload" && prop.last) {
+    use = { weight: prop.last.weight, reps: prop.last.reps.map(() => prop.lo) };
+    source = "deload";
+  } else if (ov && ov.basis === lastId) {
+    use = ov;
+    source = "handmatig";
+  } else if (T.settings.autoProgress || !prop.last) {
+    use = prop;
+    source = "auto";
+  } else {
+    use = { weight: prop.last.weight, reps: prop.last.reps };
+    source = "vorige";
+  }
+  const differs = prop.last && (prop.weight !== use.weight || (prop.reps || []).join() !== (use.reps || []).join());
+  const pending = source === "vorige" && differs;
+  return { ex, hist, prop, use, source, rir, pending, lastId, change: source === "auto" ? prop.change : source };
+}
+
+/* Werksets per oefening voor een geplande sessie: deload halveert, een
+   minicut haalt ongeveer een derde weg, eerst bij de laatste oefeningen
+   (meestal isolatie), en elke oefening houdt minstens één werkset. */
+function plannedSetsFor(day, D, light = false) {
+  let out = day.slots.map((s) => Math.max(1, Math.round(num(s.sets, 2))));
+  if (D.pos.phase === "deload") out = out.map((c) => Math.max(1, Math.ceil(c / 2)));
+  else if (D.phaseOn && D.tp.vf < 1) {
+    const total = sum(out);
+    const goal = Math.max(out.length, Math.round(total * D.tp.vf));
+    let cur = total;
+    let guard = 50;
+    while (cur > goal && out.some((c) => c > 1) && guard-- > 0) {
+      for (let k = out.length - 1; k >= 0 && cur > goal; k--) {
+        if (out[k] > 1) {
+          out[k]--;
+          cur--;
+        }
+      }
+    }
+  }
+  if (light) out = out.map((c) => Math.max(1, c - 1));
+  return out;
+}
+
+const WARM = { 1: [[0.6, 6]], 2: [[0.5, 8], [0.75, 4]], 3: [[0.4, 10], [0.6, 6], [0.8, 3]] };
+function warmupSets(n, work, inc) {
+  const k = clamp(Math.round(num(n, 0)), 0, 3);
+  if (!k) return [];
+  return WARM[k].map(([p, r]) => ({
+    type: "warmup",
+    weight: work > 0 ? Math.max(0, roundTo(work * p, inc || 2.5)) : null,
+    reps: r,
+    rir: null,
+    done: false,
+    pct: p,
+  }));
+}
+
+function entryFromSlot(slot, count, D, T, bw) {
+  const tg = targetFor(slot, D, T);
+  const ex = tg.ex;
+  const w = tg.use.weight != null && tg.use.weight !== "" ? num(tg.use.weight, null) : null;
+  const inc = incFor(ex, T.settings, w || 0);
+  const lo = num(slot.repMin, ex.repMin);
+  const hi = num(slot.repMax, ex.repMax);
+  const reps = tg.prop.last || tg.source === "handmatig" ? expand(tg.use.reps, count) : expand([], count, null);
+  return {
+    id: uid(),
+    slotId: slot.id,
+    exId: slot.exId,
+    repMin: lo,
+    repMax: hi,
+    rest: num(slot.rest, 120),
+    rir: tg.rir,
+    note: "",
+    slotNote: slot.note || "",
+    bwLoad: ex.equip === "lichaam" ? Math.round(num(bw, 0) * num(ex.bw, 1) * 10) / 10 : 0,
+    target: {
+      weight: w,
+      reps,
+      change: tg.change,
+      why:
+        tg.source === "deload"
+          ? "Deload: zelfde gewicht, minder sets en reps, ver van falen."
+          : tg.source === "vorige"
+          ? tg.pending
+            ? "Zelfde als de vorige keer. Het voorstel hieronder kunt u overnemen."
+            : tg.prop.why
+          : tg.source === "handmatig"
+          ? "Door u overgenomen voorstel."
+          : tg.prop.why,
+    },
+    proposal: tg.pending ? { weight: tg.prop.weight, reps: expand(tg.prop.reps, count), why: tg.prop.why, change: tg.prop.change } : null,
+    sets: [
+      ...warmupSets(slot.warmups, w || 0, inc),
+      ...Array.from({ length: count }, (_, i) => ({ type: "work", weight: w, reps: reps[i] ?? null, rir: null, done: false })),
+    ],
+  };
+}
+
+function buildSession({ program, day, D, T, rotPos = null, bw }) {
+  const counts = day ? plannedSetsFor(day, D) : [];
+  return {
+    id: uid(),
+    date: localISO(),
+    start: Date.now(),
+    end: null,
+    programId: program ? program.id : null,
+    dayId: day ? day.id : null,
+    name: day ? day.name : "Vrije training",
+    rotPos,
+    deload: D.pos.phase === "deload",
+    blockPhase: D.pos.phase,
+    blockNumber: D.pos.number,
+    blockWeek: D.pos.week,
+    nutritionPhase: D.phase,
+    volumeCut: D.pos.phase !== "deload" && D.phaseOn && D.tp.vf < 1,
+    readiness: null,
+    light: false,
+    note: "",
+    exercises: day ? day.slots.map((slot, k) => entryFromSlot(slot, counts[k], D, T, bw)) : [],
+    rest: null,
+  };
+}
+
+function finishSession(a) {
+  const exercises = a.exercises
+    .map((e) => {
+      const { proposal, ...rest } = e;
+      return { ...rest, sets: e.sets.filter((s) => s.done) };
+    })
+    .filter((e) => e.sets.length);
+  const { rest, ...clean } = a;
+  return { ...clean, end: Date.now(), exercises };
+}
+
+function sessionStats(s) {
+  let ton = 0;
+  let sets = 0;
+  let reps = 0;
+  s.exercises.forEach((e) =>
+    workSets(e).forEach((x) => {
+      ton += setLoad(e, x) * num(x.reps, 0);
+      sets++;
+      reps += num(x.reps, 0);
+    })
+  );
+  return { ton, sets, reps, min: s.end ? Math.max(1, Math.round((s.end - s.start) / 60000)) : null };
+}
+
+function bestBefore(sessions, exId, beforeStart) {
+  let best = 0;
+  sessions.forEach((p) => {
+    if (p.start >= beforeStart) return;
+    p.exercises.forEach((x) => {
+      if (x.exId === exId) best = Math.max(best, bestE1rm(x));
+    });
+  });
+  return best;
+}
+
+function sessionPRs(s, sessions) {
+  const out = [];
+  s.exercises.forEach((e) => {
+    const cur = bestE1rm(e);
+    if (!cur) return;
+    const prev = bestBefore(sessions, e.exId, s.start);
+    if (prev > 0 && cur > prev + 0.05) out.push({ exId: e.exId, e1: cur, prev });
+  });
+  return out;
+}
+
+/* ---------------- volume per spiergroep ---------------- */
+
+function muscleSets(sessions, exIndex, fromNum, toNum) {
+  const m = Object.fromEntries(MUSCLE_IDS.map((k) => [k, 0]));
+  sessions.forEach((s) => {
+    const n = dayNum(s.date);
+    if (n < fromNum || n > toNum || !s.end) return;
+    s.exercises.forEach((e) => {
+      const ex = exIndex[e.exId];
+      if (!ex) return;
+      const k = workSets(e).length;
+      ex.pri.forEach((p) => {
+        if (m[p] != null) m[p] += k;
+      });
+      ex.sec.forEach((p) => {
+        if (m[p] != null) m[p] += k / 2;
+      });
+    });
+  });
+  return m;
+}
+
+function daysPerWeek(program) {
+  if (!program) return [];
+  const known = (id) => program.days.find((d) => d.id === id);
+  if (program.mode === "week") return program.weekMap.map(known).filter(Boolean).map((d) => ({ day: d, weight: 1 }));
+  const rot = program.rotation || [];
+  if (!rot.length) return [];
+  return rot.map(known).filter(Boolean).map((d) => ({ day: d, weight: 7 / rot.length }));
+}
+
+function plannedMuscleSets(program, exIndex) {
+  const m = Object.fromEntries(MUSCLE_IDS.map((k) => [k, 0]));
+  daysPerWeek(program).forEach(({ day, weight }) =>
+    day.slots.forEach((s) => {
+      const ex = exIndex[s.exId];
+      if (!ex) return;
+      const k = num(s.sets, 2) * weight;
+      ex.pri.forEach((p) => {
+        if (m[p] != null) m[p] += k;
+      });
+      ex.sec.forEach((p) => {
+        if (m[p] != null) m[p] += k / 2;
+      });
+    })
+  );
+  return m;
+}
+
+const sessionsPerWeek = (program) => sum(daysPerWeek(program).map((d) => d.weight));
+
+function estMinutes(day) {
+  if (!day) return 0;
+  const sec = sum(day.slots.map((s) => num(s.warmups, 0) * 100 + num(s.sets, 2) * (45 + num(s.rest, 120))));
+  return Math.max(15, Math.round(sec / 60 / 5) * 5);
+}
+
+function programCheck(program, exIndex) {
+  const slots = program.days.flatMap((d) => d.slots);
+  const exs = slots.map((s) => exIndex[s.exId]).filter(Boolean);
+  if (!exs.length) return [];
+  const comp = exs.filter((e) => e.kind === "compound").length / exs.length;
+  const len = exs.filter((e) => e.lengthened).length / exs.length;
+  const uni = exs.filter((e) => e.unilateral).length;
+  const avgSets = sum(slots.map((s) => num(s.sets, 2))) / slots.length;
+  const planned = plannedMuscleSets(program, exIndex);
+  const under = MUSCLE_IDS.filter((k) => MUSCLES[k].mev > 0 && planned[k] < MUSCLES[k].mev);
+  const over = MUSCLE_IDS.filter((k) => planned[k] > MUSCLES[k].mrv);
+  const pc = Math.round(comp * 100);
+  return [
+    {
+      label: "Compound / isolatie",
+      value: `${pc} / ${100 - pc}`,
+      state: comp >= 0.3 && comp <= 0.5 ? "goed" : "oplet",
+      note:
+        comp > 0.5
+          ? "Veel compound. Kuba mikt op ongeveer 40/60: isolatie laat u dichter bij falen trainen met minder vermoeidheid per set."
+          : comp < 0.3
+          ? "Weinig compound. Een paar zware basisoefeningen per week houden de totale belasting en kracht op peil."
+          : "Rond de 40/60 die Kuba aanhoudt.",
+    },
+    {
+      label: "Lengthened-bias",
+      value: `${Math.round(len * 100)}%`,
+      state: len >= 0.4 ? "goed" : len >= 0.25 ? "oplet" : "risico",
+      note: "Oefeningen die de spier in de gerekte positie het zwaarst belasten, zoals incline curls, overhead extensions en zittende leg curls, geven per set meer groeiprikkel.",
+    },
+    {
+      label: "Unilateraal werk",
+      value: uni ? `${uni} ${uni === 1 ? "oefening" : "oefeningen"}` : "geen",
+      state: uni ? "goed" : "oplet",
+      note: "Eenzijdige oefeningen corrigeren disbalans en laten u per kant dichter bij falen komen.",
+    },
+    {
+      label: "Werksets per oefening",
+      value: avgSets.toFixed(1).replace(".", ","),
+      state: avgSets <= 3 ? "goed" : "oplet",
+      note: "Kuba: twee kwaliteitssets tot RIR 0-1. Meer sets per oefening kan, maar dan daalt de kwaliteit per set vaak.",
+    },
+    {
+      label: "Onder het minimum (MEV)",
+      value: under.length ? `${under.length} ${under.length === 1 ? "groep" : "groepen"}` : "geen",
+      state: under.length ? "oplet" : "goed",
+      note: under.length
+        ? `Weinig sets voor ${under.map((k) => MUSCLES[k].label.toLowerCase()).join(", ")}. Bij sets tot (bijna) falen ligt het echte minimum vaak lager dan deze richtwaarde; kijk vooral naar uw voortgang.`
+        : "Elke spiergroep krijgt minstens het minimale effectieve volume.",
+    },
+    ...(over.length
+      ? [
+          {
+            label: "Boven het maximum (MRV)",
+            value: `${over.length}`,
+            state: "risico",
+            note: `Meer sets dan u waarschijnlijk kunt herstellen voor ${over.map((k) => MUSCLES[k].label.toLowerCase()).join(", ")}.`,
+          },
+        ]
+      : []),
+  ];
+}
+
+/* ---------------- dagplanning ---------------- */
+
+function todayPlan(program, sessions, today) {
+  if (!program || !program.days.length) return null;
+  const t = dayNum(today);
+  if (program.mode === "week") {
+    const dayId = program.weekMap[wdOfNum(t)];
+    const day = program.days.find((d) => d.id === dayId) || null;
+    const doneToday = sessions.some((s) => s.date === today && s.programId === program.id && s.dayId === dayId && s.end);
+    return { day, rest: !day, doneToday, rotPos: null };
+  }
+  const rot = program.rotation || [];
+  if (!rot.length) return null;
+  const last = [...sessions].reverse().find((s) => s.programId === program.id && s.rotPos != null && s.end);
+  let p = last ? (last.rotPos + 1) % rot.length : 0;
+  let rests = 0;
+  while (rot[p] === "rust" && rests < rot.length) {
+    rests++;
+    p = (p + 1) % rot.length;
+  }
+  const day = program.days.find((d) => d.id === rot[p]) || null;
+  if (!day) return { day: null, rest: true, rotPos: null };
+  if (last && last.date === today) return { day: null, rest: true, doneToday: true, next: day, rotPos: p };
+  const since = last ? t - dayNum(last.date) : Infinity;
+  if (since <= rests) return { day: null, rest: true, next: day, rotPos: p };
+  return { day, rest: false, rotPos: p };
+}
+
+function rotPosFor(program, dayId, from = 0) {
+  const rot = program.rotation || [];
+  for (let k = 0; k < rot.length; k++) {
+    const p = (from + k) % rot.length;
+    if (rot[p] === dayId) return p;
+  }
+  return null;
+}
+
+/* ---------------- vermoeidheid en deload ----------------
+   Een deload wordt voorgesteld als de prestaties over de laatste twee weken
+   bij minstens 30 procent van de vergelijkbare oefeningen dalen (e1RM,
+   gecorrigeerd voor reps in reserve), of als de herstelscore voor de
+   training drie keer laag was en er ook prestaties dalen. */
+function fatigueCheck({ sessions, pos, today, tp, block }) {
+  if (pos.phase === "deload") return null;
+  const t = dayNum(today);
+  if (t - pos.cycleStart < 7) return null;
+  if (block.dismissedAt && t - dayNum(block.dismissedAt) < 7) return null;
+  const done = sessions.filter((s) => !s.deload && s.end);
+  const recent = done.filter((s) => dayNum(s.date) >= Math.max(pos.cycleStart, t - 14) && dayNum(s.date) <= t);
+  if (recent.length < 3) return null;
+  const tol = tp.tol ?? 0.03;
+  let comps = 0;
+  let drops = 0;
+  const dropped = [];
+  recent.forEach((s) =>
+    s.exercises.forEach((e) => {
+      const cur = bestE1rm(e);
+      if (!cur) return;
+      let prev = 0;
+      for (let k = done.length - 1; k >= 0; k--) {
+        const p = done[k];
+        if (p.start >= s.start) continue;
+        const x = p.exercises.find((y) => y.exId === e.exId && bestE1rm(y) > 0);
+        if (x) {
+          prev = bestE1rm(x);
+          break;
+        }
+      }
+      if (!prev) return;
+      comps++;
+      if (cur < prev * (1 - tol)) {
+        drops++;
+        dropped.push(e.exId);
+      }
+    })
+  );
+  const lowReady = recent.filter((s) => lowReadiness(s.readiness)).length;
+  const ratio = comps ? drops / comps : 0;
+  const perf = comps >= 4 && ratio >= 0.3;
+  const ready = lowReady >= 3 && drops >= 1;
+  if (!perf && !ready) return null;
+  const reasons = [];
+  if (drops) reasons.push(`Prestatie gedaald bij ${drops} van ${comps} vergelijkingen met de vorige keer (laatste twee weken).`);
+  if (lowReady >= 3) reasons.push(`${lowReady} keer een lage herstelscore voor de training (slaap, energie, spierpijn).`);
+  return { reasons, drops, comps, dropped: [...new Set(dropped)] };
+}
+
+/* ---------------- opslag ---------------- */
+
+const TRAIN_DEFAULT = () => ({
+  v: 1,
+  settings: {
+    effort: "rir",
+    autoProgress: false,
+    intensity: "kuba",
+    sound: true,
+    vibrate: true,
+    notify: false,
+    wakeLock: true,
+    readiness: true,
+    inc: Object.fromEntries(Object.entries(EQUIP).map(([k, v]) => [k, v.inc])),
+  },
+  customEx: [],
+  exEdits: {},
+  programs: [],
+  activeProgramId: null,
+  sessions: [],
+  active: null,
+  overrides: {},
+  phaseAccept: null,
+  block: { start: mondayOf(localISO()), acc: 4, int: 2, deload: true, number: 1, deloadFrom: null, dismissedAt: null, auto: null },
+});
+
+function normalizeTraining(d) {
+  const def = TRAIN_DEFAULT();
+  if (!d || typeof d !== "object") return def;
+  return {
+    ...def,
+    ...d,
+    settings: { ...def.settings, ...(d.settings || {}), inc: { ...def.settings.inc, ...((d.settings && d.settings.inc) || {}) } },
+    block: { ...def.block, ...(d.block || {}) },
+    customEx: Array.isArray(d.customEx) ? d.customEx : [],
+    exEdits: d.exEdits && typeof d.exEdits === "object" ? d.exEdits : {},
+    programs: Array.isArray(d.programs) ? d.programs : [],
+    sessions: Array.isArray(d.sessions) ? [...d.sessions].sort((a, b) => a.start - b.start) : [],
+    overrides: d.overrides && typeof d.overrides === "object" ? d.overrides : {},
+    active: d.active && Array.isArray(d.active.exercises) ? d.active : null,
+  };
+}
+
+function useTrainingStore() {
+  const [T, setT] = useState(TRAIN_DEFAULT);
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        if (!window.storage) return;
+        const r = await window.storage.get(TRAIN_KEY);
+        const d = r && r.value ? JSON.parse(r.value) : null;
+        if (alive && d) setT(normalizeTraining(d));
+      } catch (e) {
+        /* nog niets opgeslagen */
+      } finally {
+        if (alive) setOk(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!ok || !window.storage) return;
+    const t = setTimeout(() => {
+      try {
+        const p = window.storage.set(TRAIN_KEY, JSON.stringify(T));
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) {
+        /* opslag vol of niet beschikbaar */
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [T, ok]);
+  return [T, setT, ok];
+}
+
+function trainDerive(T, ctx, today) {
+  const exIndex = buildExIndex(T.customEx, T.exEdits);
+  const program = T.programs.find((p) => p.id === T.activeProgramId) || null;
+  const pos = blockPosition(T.block, today, T.settings.intensity);
+  const phase = TRAIN_PHASE[ctx.phase] ? ctx.phase : "onderhoud";
+  const tp = TRAIN_PHASE[phase];
+  const phaseOn = tp.vf === 1 && tp.load ? true : T.settings.autoProgress || T.phaseAccept === phase;
+  const sessions = T.sessions;
+  const plan = todayPlan(program, sessions, today);
+  const fatigue = fatigueCheck({ sessions, pos, today, tp, block: T.block });
+  return { exIndex, program, pos, phase, tp, phaseOn, sessions, plan, fatigue, today };
+}
+
+/* ---------------- geluid, trilling en melding bij einde rust ---------------- */
+
+let audioCtx = null;
+function primeAudio() {
+  try {
+    const AC = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+    if (!AC) return;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) {
+    /* geen geluid beschikbaar */
+  }
+}
+function beep() {
+  try {
+    if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    [0, 0.22, 0.44].forEach((d, i) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = "sine";
+      o.frequency.value = i === 2 ? 1320 : 880;
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.35, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.18);
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.start(t0 + d);
+      o.stop(t0 + d + 0.2);
+    });
+  } catch (e) {
+    /* geen geluid beschikbaar */
+  }
+}
+function restAlert(settings, next) {
+  if (settings.sound) beep();
+  try {
+    if (settings.vibrate && navigator.vibrate) navigator.vibrate([220, 120, 220]);
+  } catch (e) {
+    /* trillen niet ondersteund */
+  }
+  try {
+    if (settings.notify && document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const body = next ? `Volgende: ${next}` : "Tijd voor de volgende set.";
+      const plain = () => new Notification("Rust voorbij", { body, tag: "rust" });
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+        navigator.serviceWorker
+          .getRegistration()
+          .then((r) => (r ? r.showNotification("Rust voorbij", { body, tag: "rust", renotify: true }) : plain()))
+          .catch(() => {});
+      } else plain();
+    }
+  } catch (e) {
+    /* meldingen niet ondersteund */
+  }
+}
+
+function useNow(ms = 1000, on = true) {
+  const [n, setN] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setN(Date.now());
+    const id = setInterval(() => setN(Date.now()), ms);
+    return () => clearInterval(id);
+  }, [ms, on]);
+  return n;
+}
+const mmss = (sec) => {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${m}:${String(r).padStart(2, "0")}`;
+};
+function Elapsed({ start }) {
+  const now = useNow(1000);
+  return <span className="tnum">{mmss((now - start) / 1000)}</span>;
+}
+
+/* ---------------- kleine bouwstenen ---------------- */
+
+function TBtn({ children, onClick, kind = "primary", small, full, disabled, className = "", label }) {
+  const st =
+    kind === "primary"
+      ? { background: C.accent, color: C.onAccent, border: `1px solid ${C.accent}` }
+      : kind === "danger"
+      ? { background: C.train, color: C.onTrain, border: `1px solid ${C.train}` }
+      : kind === "ghost"
+      ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` }
+      : { background: C.surface2, color: C.ink, border: `1px solid ${C.line}` };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={`tap ${small ? "px-2.5 py-1.5 text-xs" : "px-3.5 py-2.5 text-sm"} ${full ? "w-full" : ""} ${className}`}
+      style={{ ...st, borderRadius: R.field, fontWeight: 600, opacity: disabled ? 0.45 : 1 }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Chip({ children, color, title }) {
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center px-1.5 text-xs font-semibold whitespace-nowrap"
+      style={{ color: color || C.muted, background: C.surface2, borderRadius: 6, border: `1px solid ${C.lineSoft}`, lineHeight: "18px" }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Sheet({ title, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 flex items-end justify-center"
+      style={{ background: "rgba(8,9,12,.55)", zIndex: 60 }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div
+        className="macroapp w-full max-w-2xl hero-in flex flex-col"
+        style={{
+          background: C.panel,
+          color: C.ink,
+          borderTopLeftRadius: 18,
+          borderTopRightRadius: 18,
+          maxHeight: "88vh",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+          <h3 className="disp text-xl font-bold uppercase leading-none">{title}</h3>
+          <button onClick={onClose} className="tap text-sm px-2 py-1" style={{ color: C.muted }}>
+            Sluiten
+          </button>
+        </div>
+        <div className="overflow-y-auto px-4 py-3" style={{ WebkitOverflowScrolling: "touch" }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle = { border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink, background: C.surface2 };
+
+const RPE_OPTS = [10, 9.5, 9, 8.5, 8, 7, 6];
+const effortLabel = (rir, scale) =>
+  rir == null || rir === "" ? "–" : scale === "rpe" ? `RPE ${String(10 - num(rir, 0)).replace(".", ",")}` : `RIR ${rir}`;
+
+function EffortSelect({ value, onChange, scale }) {
+  return (
+    <select
+      value={value == null ? "" : String(value)}
+      onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      className="w-full px-1 py-2 text-sm tnum"
+      style={inputStyle}
+      aria-label={scale === "rpe" ? "RPE van deze set" : "Reps in reserve van deze set"}
+    >
+      <option value="">{scale === "rpe" ? "RPE" : "RIR"}</option>
+      {scale === "rpe"
+        ? RPE_OPTS.map((r) => (
+            <option key={r} value={10 - r}>
+              {String(r).replace(".", ",")}
+            </option>
+          ))
+        : [0, 1, 2, 3, 4, 5].map((r) => (
+            <option key={r} value={r}>
+              {r === 0 ? "0 falen" : r === 5 ? "5+" : r}
+            </option>
+          ))}
+    </select>
+  );
+}
+
+function exMeta(ex) {
+  return [EQUIP[ex.equip] ? EQUIP[ex.equip].label : ex.equip, ex.kind === "compound" ? "compound" : "isolatie", ex.pri.map((m) => (MUSCLES[m] ? MUSCLES[m].label : m)).join(", ")]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function ExBadges({ ex }) {
+  return (
+    <span className="inline-flex gap-1 align-middle">
+      {ex.lengthened && (
+        <Chip color={C.carb} title="Lengthened-bias: zwaarst belast in de gerekte positie">
+          rek
+        </Chip>
+      )}
+      {ex.unilateral && (
+        <Chip color={C.pro} title="Unilateraal: per kant">
+          1 kant
+        </Chip>
+      )}
+      {ex.custom && <Chip>eigen</Chip>}
+    </span>
+  );
+}
+
+function CustomExForm({ initialName = "", onSave, onCancel }) {
+  const [x, setX] = useState({ name: initialName, equip: "machine", kind: "isolation", pri: "borst", sec: "", repMin: 10, repMax: 15, lengthened: false, unilateral: false });
+  const s = (k, v) => setX((o) => ({ ...o, [k]: v }));
+  const ok = x.name.trim().length >= 2 && num(x.repMin, 0) > 0 && num(x.repMax, 0) >= num(x.repMin, 0);
+  const muscleOpts = MUSCLE_IDS.map((k) => ({ id: k, label: MUSCLES[k].label }));
+  return (
+    <div className="space-y-3">
+      <label className="block">
+        <span className="text-xs" style={{ color: C.muted }}>
+          Naam
+        </span>
+        <input value={x.name} onChange={(e) => s("name", e.target.value)} className="w-full px-3 py-2 text-sm mt-1" style={inputStyle} placeholder="Bijvoorbeeld: Pendulum squat" />
+      </label>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-xs" style={{ color: C.muted }}>
+            Materiaal
+          </span>
+          <Pick value={x.equip} onChange={(v) => s("equip", v)} options={Object.entries(EQUIP).map(([id, v]) => ({ id, label: v.label }))} />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: C.muted }}>
+            Soort
+          </span>
+          <Pick
+            value={x.kind}
+            onChange={(v) => s("kind", v)}
+            options={[
+              { id: "compound", label: "Compound" },
+              { id: "isolation", label: "Isolatie" },
+            ]}
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: C.muted }}>
+            Hoofdspier
+          </span>
+          <Pick value={x.pri} onChange={(v) => s("pri", v)} options={muscleOpts} />
+        </label>
+        <label className="block">
+          <span className="text-xs" style={{ color: C.muted }}>
+            Hulpspier
+          </span>
+          <Pick value={x.sec} onChange={(v) => s("sec", v)} options={[{ id: "", label: "Geen" }, ...muscleOpts.filter((m) => m.id !== x.pri)]} />
+        </label>
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-sm">Repsrange</span>
+        <Num value={x.repMin} onChange={(v) => s("repMin", v)} min={1} max={50} />
+        <span style={{ color: C.muted }}>tot</span>
+        <Num value={x.repMax} onChange={(v) => s("repMax", v)} min={1} max={50} />
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={x.lengthened} onChange={(e) => s("lengthened", e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+        Zwaarst in de gerekte positie (lengthened-bias)
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={x.unilateral} onChange={(e) => s("unilateral", e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+        Per kant (unilateraal)
+      </label>
+      <div className="flex gap-2 pt-1">
+        <TBtn
+          disabled={!ok}
+          onClick={() =>
+            ok &&
+            onSave({
+              id: "eigen_" + uid(),
+              name: x.name.trim(),
+              equip: x.equip,
+              kind: x.kind,
+              pri: [x.pri],
+              sec: x.sec ? [x.sec] : [],
+              lengthened: x.lengthened,
+              unilateral: x.unilateral,
+              repMin: num(x.repMin, 8),
+              repMax: Math.max(num(x.repMin, 8), num(x.repMax, 12)),
+              bw: 1,
+              custom: true,
+            })
+          }
+        >
+          Oefening opslaan
+        </TBtn>
+        <TBtn kind="ghost" onClick={onCancel}>
+          Annuleren
+        </TBtn>
+      </div>
+    </div>
+  );
+}
+
+function ExercisePicker({ exIndex, onPick, onClose, onCreate, title = "Oefening kiezen", muscle = null }) {
+  const [q, setQ] = useState("");
+  const [mus, setMus] = useState(muscle);
+  const [creating, setCreating] = useState(false);
+  const ql = q.trim().toLowerCase();
+  const list = Object.values(exIndex)
+    .filter((e) => !e.missing && (!mus || e.pri.includes(mus) || e.sec.includes(mus)) && (!ql || e.name.toLowerCase().includes(ql)))
+    .sort((a, b) => (mus ? Number(b.pri.includes(mus)) - Number(a.pri.includes(mus)) : 0) || a.name.localeCompare(b.name, "nl"));
+  return (
+    <Sheet title={creating ? "Eigen oefening" : title} onClose={onClose}>
+      {creating ? (
+        <CustomExForm
+          initialName={q}
+          onCancel={() => setCreating(false)}
+          onSave={(ex) => {
+            onCreate(ex);
+            onPick(ex);
+          }}
+        />
+      ) : (
+        <>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Zoeken"
+            className="w-full px-3 py-2 text-sm mb-2"
+            style={inputStyle}
+            aria-label="Oefening zoeken"
+          />
+          <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1">
+            {[{ id: null, label: "Alles" }, ...MUSCLE_IDS.map((k) => ({ id: k, label: MUSCLES[k].label }))].map((m) => {
+              const on = mus === m.id;
+              return (
+                <button
+                  key={String(m.id)}
+                  onClick={() => setMus(m.id)}
+                  className="tap shrink-0 px-2.5 py-1 text-xs rounded-full"
+                  style={{ background: on ? C.accent : C.surface2, color: on ? C.onAccent : C.ink, border: `1px solid ${on ? C.accent : C.line}`, fontWeight: 600 }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+          <div>
+            {list.map((e) => (
+              <button
+                key={e.id}
+                onClick={() => onPick(e)}
+                className="tap w-full text-left py-2.5 flex items-center justify-between gap-2"
+                style={{ borderBottom: `1px solid ${C.lineSoft}` }}
+              >
+                <span className="min-w-0">
+                  <span className="text-sm font-semibold block">{e.name}</span>
+                  <span className="text-xs block" style={{ color: C.muted }}>
+                    {exMeta(e)}
+                  </span>
+                </span>
+                <ExBadges ex={e} />
+              </button>
+            ))}
+            {!list.length && (
+              <p className="text-sm py-4" style={{ color: C.muted }}>
+                Niets gevonden. Voeg de oefening zelf toe.
+              </p>
+            )}
+          </div>
+          <div className="pt-3">
+            <TBtn kind="secondary" full onClick={() => setCreating(true)}>
+              + Eigen oefening toevoegen
+            </TBtn>
+          </div>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+/* ---------------- grafieken ---------------- */
+
+function LineMini({ pts, fmt = kgTxt, unit = "kg", color = "var(--accent)" }) {
+  if (!pts || pts.length < 2) return null;
+  const W = 340;
+  const H = 160;
+  const padL = 40;
+  const padR = 10;
+  const padT = 12;
+  const padB = 22;
+  const t0 = pts[0].t;
+  const t1 = Math.max(pts[pts.length - 1].t, t0 + 1);
+  let lo = Math.min(...pts.map((p) => p.v));
+  let hi = Math.max(...pts.map((p) => p.v));
+  const span = Math.max(1, hi - lo);
+  lo = Math.max(0, lo - span * 0.15);
+  hi = hi + span * 0.15;
+  const x = (t) => padL + ((t - t0) / (t1 - t0)) * (W - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const ticks = [lo, (lo + hi) / 2, hi];
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label={`Verloop, laatste waarde ${fmt(pts[pts.length - 1].v)} ${unit}`}>
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--line-soft)" />
+          <text x={padL - 6} y={y(v) + 3.5} fontSize="10" textAnchor="end" fill="var(--muted)">
+            {fmt(Math.round(v))}
+          </text>
+        </g>
+      ))}
+      <text x={padL} y={H - 6} fontSize="10" fill="var(--muted)">
+        {fmtDay(t0)}
+      </text>
+      <text x={W - padR} y={H - 6} fontSize="10" textAnchor="end" fill="var(--muted)">
+        {fmtDay(t1)}
+      </text>
+      <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      {pts.map((p, i) => (
+        <circle key={i} cx={x(p.t)} cy={y(p.v)} r={p.pr ? 4.5 : 2.8} fill={p.pr ? "var(--carb-fill)" : color} stroke="var(--surface)" strokeWidth="1.5" />
+      ))}
+    </svg>
+  );
+}
+
+function BarsMini({ bars, fmt = (v) => Math.round(v).toLocaleString("nl-NL"), color = "var(--accent)", target }) {
+  if (!bars.length) return null;
+  const max = Math.max(1, ...bars.map((b) => b.v), target || 0);
+  return (
+    <div>
+      <div className="flex items-end gap-1.5 relative" style={{ height: 110 }}>
+        {target != null && (
+          <span
+            className="absolute left-0 right-0"
+            style={{ bottom: `${(target / max) * 100}%`, borderTop: "2px dashed var(--carb-fill)", opacity: 0.8 }}
+            aria-hidden="true"
+          />
+        )}
+        {bars.map((b, i) => (
+          <div key={i} className="flex-1 flex flex-col justify-end items-center h-full">
+            <span className="text-xs tnum mb-0.5" style={{ color: C.muted, fontSize: 10 }}>
+              {b.v ? fmt(b.v) : ""}
+            </span>
+            <span
+              className="w-full block wk-bar"
+              style={{ height: `${Math.max(2, (b.v / max) * 100)}%`, background: b.hi ? color : "var(--line)", borderRadius: 5, animationDelay: `${i * 35}ms` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-1.5 mt-1">
+        {bars.map((b, i) => (
+          <span key={i} className="flex-1 text-center tnum" style={{ color: C.muted, fontSize: 10 }}>
+            {b.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VolumeRow({ m, done, planned }) {
+  const L = MUSCLES[m];
+  const max = Math.max(L.mrv + 4, done, planned);
+  const pct = (v) => `${Math.min(100, (v / max) * 100)}%`;
+  const state = done >= L.mrv ? C.train : done >= L.mav[0] ? C.carb : done >= L.mev ? C.accent : C.muted;
+  return (
+    <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{L.label}</span>
+        <span className="text-sm tnum shrink-0">
+          <strong style={{ color: state }}>{String(Math.round(done * 2) / 2).replace(".", ",")}</strong>
+          <span style={{ color: C.muted }}>{planned > 0 ? ` / ${String(Math.round(planned * 2) / 2).replace(".", ",")} gepland` : " sets"}</span>
+        </span>
+      </div>
+      <div className="text-xs tnum mb-1.5" style={{ color: C.muted }}>
+        MEV {L.mev} · MAV {L.mav[0]}–{L.mav[1]} · MRV {L.mrv}
+      </div>
+      <div className="relative" style={{ height: 10, background: C.lineSoft, borderRadius: 5 }}>
+        <span className="absolute top-0 bottom-0" style={{ left: pct(L.mav[0]), width: `calc(${pct(L.mav[1])} - ${pct(L.mav[0])})`, background: "rgba(0,195,137,.18)" }} />
+        <span className="absolute top-0 bottom-0 bar-fill" style={{ left: 0, width: pct(done), background: state, borderRadius: 5, opacity: 0.9 }} />
+        <span className="absolute" style={{ left: pct(L.mev), top: -2, bottom: -2, width: 2, background: "var(--muted)" }} title="MEV" />
+        <span className="absolute" style={{ left: pct(L.mrv), top: -2, bottom: -2, width: 2, background: "var(--danger)" }} title="MRV" />
+        {planned > 0 && <span className="absolute" style={{ left: pct(planned), top: -4, bottom: -4, width: 3, background: C.ink, borderRadius: 2 }} title="Gepland" />}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- dock: lopende training en rusttimer ---------------- */
+
+function WorkoutDock({ T, setT, showOpen, onOpen }) {
+  const a = T.active;
+  const rest = a && a.rest;
+  const now = useNow(250, !!rest);
+  const left = rest ? (rest.endsAt - now) / 1000 : 0;
+  const fired = useRef(null);
+  useEffect(() => {
+    if (!rest) return;
+    if (left <= 0 && fired.current !== rest.endsAt) {
+      fired.current = rest.endsAt;
+      // een rust die al lang voorbij was (bijv. na herladen) niet alsnog laten piepen
+      if (left > -10) restAlert(T.settings, rest.next);
+    }
+  }, [left <= 0, rest && rest.endsAt]);
+  if (!a || (!rest && !showOpen)) return null;
+  const adj = (d) =>
+    setT((t) =>
+      t.active && t.active.rest
+        ? { ...t, active: { ...t.active, rest: { ...t.active.rest, endsAt: Math.max(Date.now() + 1000, t.active.rest.endsAt + d * 1000), total: Math.max(5, t.active.rest.total + d) } } }
+        : t
+    );
+  const stop = () => setT((t) => (t.active ? { ...t, active: { ...t.active, rest: null } } : t));
+  const over = rest && left <= 0;
+  const pct = rest ? Math.max(0, Math.min(100, (left / Math.max(1, rest.total)) * 100)) : 0;
+  return (
+    <div className="no-print fixed left-0 right-0 px-3" style={{ bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", zIndex: 45 }}>
+      <div
+        className="macroapp mx-auto max-w-2xl hero-in overflow-hidden"
+        style={{ background: C.dark, color: C.darkInk, borderRadius: 14, boxShadow: "0 12px 30px -12px rgba(0,0,0,.6)", border: `1px solid ${C.darkLine}` }}
+        role="status"
+        aria-live="polite"
+      >
+        {showOpen && (
+          <button onClick={onOpen} className="tap w-full text-left px-3 py-2 flex items-center gap-2" style={{ borderBottom: rest ? `1px solid ${C.darkLine}` : "none" }}>
+            <span className="rounded-full shrink-0" style={{ width: 8, height: 8, background: "var(--carb-fill)" }} />
+            <span className="text-xs flex-1 truncate">
+              <strong>Training bezig</strong> · {a.name} · <Elapsed start={a.start} />
+            </span>
+            <span className="text-xs font-semibold" style={{ color: "var(--accent)" }}>
+              Verder
+            </span>
+          </button>
+        )}
+        {rest && (
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-xs truncate" style={{ color: over ? "var(--carb-fill)" : C.darkMuted }}>
+                  {over ? "Rust voorbij" : "Rust"}
+                  {rest.next ? ` · ${rest.next}` : ""}
+                </div>
+                <div className="disp text-3xl font-bold tnum leading-none" style={{ color: over ? "var(--carb-fill)" : C.darkInk }}>
+                  {over ? "Go" : mmss(left)}
+                </div>
+              </div>
+              {!over && (
+                <>
+                  <button onClick={() => adj(-15)} className="tap px-2.5 py-2 text-xs font-semibold" style={{ border: `1px solid ${C.darkLine}`, borderRadius: R.field }} aria-label="15 seconden korter">
+                    −15
+                  </button>
+                  <button onClick={() => adj(15)} className="tap px-2.5 py-2 text-xs font-semibold" style={{ border: `1px solid ${C.darkLine}`, borderRadius: R.field }} aria-label="15 seconden langer">
+                    +15
+                  </button>
+                </>
+              )}
+              <button onClick={stop} className="tap px-3 py-2 text-xs font-semibold" style={{ background: "var(--accent)", color: "var(--on-accent)", borderRadius: R.field }}>
+                {over ? "Sluiten" : "Overslaan"}
+              </button>
+            </div>
+            <div className="mt-2" style={{ height: 4, background: "rgba(255,255,255,.12)", borderRadius: 2 }}>
+              <div style={{ height: 4, width: `${pct}%`, background: over ? "var(--carb-fill)" : "var(--accent)", borderRadius: 2, transition: "width .25s linear" }} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- live training ---------------- */
+
+function ReadinessCard({ onSave, onSkip }) {
+  const [r, setR] = useState({ sleep: null, energy: null, soreness: null });
+  const rows = [
+    ["sleep", "Slaap afgelopen nacht", ["Slecht", "Matig", "Goed"]],
+    ["energy", "Energie", ["Laag", "Normaal", "Hoog"]],
+    ["soreness", "Spierpijn", ["Veel", "Wat", "Geen"]],
+  ];
+  const ok = r.sleep && r.energy && r.soreness;
+  return (
+    <div className="mb-4 px-4 py-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card, boxShadow: C.shadow }}>
+      <div className="disp text-lg font-bold uppercase leading-none mb-1">Hoe staat u ervoor?</div>
+      <p className="text-xs mb-3" style={{ color: C.muted }}>
+        Tien seconden. De app gebruikt dit om vermoeidheid te herkennen en stelt zo nodig een lichtere dag of een deload voor.
+      </p>
+      {rows.map(([k, label, opts]) => (
+        <div key={k} className="mb-2.5">
+          <div className="text-xs mb-1 font-medium">{label}</div>
+          <div className="flex gap-1.5">
+            {opts.map((o, i) => {
+              const on = r[k] === i + 1;
+              return (
+                <button
+                  key={o}
+                  onClick={() => setR((x) => ({ ...x, [k]: i + 1 }))}
+                  className="tap flex-1 py-2 text-sm"
+                  style={{ background: on ? C.accent : C.surface2, color: on ? C.onAccent : C.ink, border: `1px solid ${on ? C.accent : C.line}`, borderRadius: R.field, fontWeight: 600 }}
+                >
+                  {o}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="flex gap-2 mt-3">
+        <TBtn disabled={!ok} onClick={() => ok && onSave(r)}>
+          Opslaan
+        </TBtn>
+        <TBtn kind="ghost" onClick={onSkip}>
+          Overslaan
+        </TBtn>
+      </div>
+    </div>
+  );
+}
+
+function lastSummary(D, e) {
+  const slot = { id: e.slotId, exId: e.exId };
+  const h = historyFor(D.sessions, slot);
+  if (!h.length) return null;
+  const { s, e: x } = h[h.length - 1];
+  const ws = workSets(x);
+  const w = ws.length ? ws[0].weight : null;
+  return {
+    date: s.date,
+    text: `${kgTxt(w)} kg × ${ws.map((y) => y.reps).join(", ")}`,
+    rir: ws.map((y) => y.rir).filter((v) => v != null),
+  };
+}
+
+function LiveWorkout({ T, setT, D, bw, onFinish }) {
+  const a = T.active;
+  const scale = T.settings.effort;
+  const [picker, setPicker] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [open, setOpen] = useState(() => {
+    const k = a.exercises.findIndex((e) => e.sets.some((s) => !s.done));
+    return k < 0 ? 0 : k;
+  });
+  const [toast, setToast] = useState(null);
+  const [noteOpen, setNoteOpen] = useState(null);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), toast.long ? 4200 : 2600);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  const upd = (fn) => setT((t) => (t.active ? { ...t, active: fn(t.active) } : t));
+  const updEx = (i, fn) => upd((x) => ({ ...x, exercises: x.exercises.map((e, k) => (k === i ? fn(e) : e)) }));
+  const setField = (i, j, key, val) =>
+    updEx(i, (e) => {
+      const cur = e.sets[j];
+      const firstWork = e.sets.findIndex((s) => s.type === "work");
+      const inc = incFor(exOf(D.exIndex, e.exId), T.settings, num(val, 0));
+      return {
+        ...e,
+        sets: e.sets.map((s, k) => {
+          if (k === j) return { ...s, [key]: val, ...(key === "weight" && s.type === "warmup" ? { pct: null } : {}) };
+          // warming-ups rekenen mee met het eerste werkgewicht, tot u ze zelf aanpast
+          if (key === "weight" && j === firstWork && s.type === "warmup" && !s.done && s.pct && num(val, 0) > 0)
+            return { ...s, weight: Math.max(0, roundTo(num(val, 0) * s.pct, inc)) };
+          // een nieuw gewicht op een werkset geldt ook voor de volgende werksets
+          if (key === "weight" && k > j && !s.done && s.type === "work" && cur.type === "work" && s.weight === cur.weight) return { ...s, weight: val };
+          return s;
+        }),
+      };
+    });
+
+  const toggleDone = (i, j) => {
+    primeAudio();
+    const e = a.exercises[i];
+    const s = e.sets[j];
+    if (s.done) {
+      updEx(i, (x) => ({ ...x, sets: x.sets.map((y, k) => (k === j ? { ...y, done: false } : y)) }));
+      return;
+    }
+    const reps = num(s.reps, NaN);
+    if (!(reps > 0)) {
+      setToast({ text: "Vul eerst het aantal reps in." });
+      return;
+    }
+    const name = exOf(D.exIndex, e.exId).name;
+    if (s.type === "work") {
+      const cur = e1rm(num(s.weight, 0) + (e.bwLoad || 0), reps, s.rir);
+      const prev = Math.max(bestBefore(D.sessions, e.exId, Infinity), ...a.exercises.filter((x) => x.exId === e.exId).map((x) => bestE1rm(x)));
+      if (prev > 0 && cur > prev + 0.05) setToast({ text: `Nieuw record: ${name}, e1RM ${kgTxt(Math.round(cur * 10) / 10)} kg`, pr: true, long: true });
+    }
+    const restSec = s.type === "warmup" ? 60 : num(e.rest, 120);
+    const nextSet = e.sets.findIndex((y, k) => k !== j && !y.done);
+    const ni = a.exercises.findIndex((x, k) => k > i && x.sets.some((y) => !y.done));
+    let next = null;
+    if (nextSet >= 0) next = `${name}, ${e.sets[nextSet].type === "warmup" ? "warming-up" : "werkset"}`;
+    else if (ni >= 0) next = exOf(D.exIndex, a.exercises[ni].exId).name;
+    const allDone = nextSet < 0 && !a.exercises.some((x, k) => k !== i && x.sets.some((y) => !y.done));
+    upd((x) => ({
+      ...x,
+      exercises: x.exercises.map((y, k) => (k === i ? { ...y, sets: y.sets.map((z, m) => (m === j ? { ...z, done: true, t: Date.now() } : z)) } : y)),
+      rest: allDone ? null : { endsAt: Date.now() + restSec * 1000, total: restSec, next },
+    }));
+    if (nextSet < 0 && ni >= 0) setOpen(ni);
+    if (allDone) setToast({ text: "Alle sets gedaan. Rond de training af om hem op te slaan." });
+  };
+
+  const addSet = (i) =>
+    updEx(i, (e) => {
+      const lastWork = [...e.sets].reverse().find((s) => s.type === "work");
+      return { ...e, sets: [...e.sets, { type: "work", weight: lastWork ? lastWork.weight : null, reps: lastWork ? lastWork.reps : null, rir: null, done: false }] };
+    });
+  const removeSet = (i) =>
+    updEx(i, (e) => {
+      const k = e.sets.length - 1;
+      if (k < 0 || e.sets[k].done) return e;
+      return { ...e, sets: e.sets.slice(0, k) };
+    });
+  const freeSlot = (ex, sets, warmups, rest) => ({
+    id: "vrij_" + uid(),
+    exId: ex.id,
+    sets,
+    warmups,
+    repMin: ex.repMin,
+    repMax: ex.repMax,
+    rest: rest ?? (ex.kind === "compound" ? 180 : 120),
+    rir: null,
+  });
+  const addEx = (ex) => {
+    const n = D.pos.phase === "deload" ? 1 : 2;
+    const entry = { ...entryFromSlot(freeSlot(ex, n, ex.kind === "compound" ? 2 : 1), n, D, T, bw), slotId: null };
+    upd((x) => ({ ...x, exercises: [...x.exercises, entry] }));
+    setOpen(a.exercises.length);
+  };
+  const swapEx = (i, ex) => {
+    const e = a.exercises[i];
+    const n = Math.max(1, e.sets.filter((s) => s.type === "work").length);
+    const w = e.sets.filter((s) => s.type === "warmup").length;
+    const entry = { ...entryFromSlot(freeSlot(ex, n, w, e.rest), n, D, T, bw), slotId: null, swappedFrom: e.exId };
+    updEx(i, () => entry);
+  };
+  const moveEx = (i, d) =>
+    upd((x) => {
+      const j = i + d;
+      if (j < 0 || j >= x.exercises.length) return x;
+      const list = [...x.exercises];
+      [list[i], list[j]] = [list[j], list[i]];
+      return { ...x, exercises: list };
+    });
+  const acceptProposal = (i) =>
+    updEx(i, (e) => {
+      if (!e.proposal) return e;
+      let k = -1;
+      return {
+        ...e,
+        target: { ...e.target, weight: e.proposal.weight, reps: e.proposal.reps, change: e.proposal.change, why: e.proposal.why },
+        proposal: null,
+        sets: e.sets.map((s) => {
+          if (s.type !== "work")
+            return s.done || !(num(e.target.weight, 0) > 0) || !(num(s.weight, 0) > 0)
+              ? s
+              : { ...s, weight: roundTo(e.proposal.weight * (s.weight / e.target.weight), 0.5) };
+          k++;
+          return s.done ? s : { ...s, weight: e.proposal.weight, reps: e.proposal.reps[Math.min(k, e.proposal.reps.length - 1)] };
+        }),
+      };
+    });
+  const lightDay = () =>
+    upd((x) => ({
+      ...x,
+      light: true,
+      lightAsked: true,
+      exercises: x.exercises.map((e) => {
+        const work = e.sets.filter((s) => s.type === "work");
+        if (work.length <= 1) return e;
+        const idx = e.sets.map((s, k) => (s.type === "work" && !s.done ? k : -1)).filter((k) => k >= 0);
+        const drop = idx[idx.length - 1];
+        return drop == null ? e : { ...e, sets: e.sets.filter((_, k) => k !== drop) };
+      }),
+    }));
+
+  const finish = () => {
+    if (!a.exercises.some((e) => e.sets.some((s) => s.done))) {
+      setConfirm("leeg");
+      return;
+    }
+    const s = finishSession(a);
+    setT((t) => ({ ...t, active: null, sessions: [...t.sessions, s].sort((x, y) => x.start - y.start) }));
+    onFinish(s);
+  };
+  const discard = () => setT((t) => ({ ...t, active: null }));
+
+  const totalWork = sum(a.exercises.map((e) => e.sets.filter((s) => s.type === "work").length));
+  const doneWork = sum(a.exercises.map((e) => e.sets.filter((s) => s.type === "work" && s.done).length));
+  const anyDone = a.exercises.some((e) => e.sets.some((s) => s.done));
+  const cols = { gridTemplateColumns: "30px minmax(0,1fr) minmax(0,.8fr) minmax(0,.95fr) 42px" };
+
+  return (
+    <div>
+      {toast && (
+        <div className="fixed left-0 right-0 flex justify-center px-4" style={{ top: "calc(env(safe-area-inset-top, 0px) + 12px)", zIndex: 70 }} role="status">
+          <div
+            className="hero-in px-4 py-2.5 text-sm font-semibold"
+            style={{ background: toast.pr ? "var(--carb-fill)" : C.dark, color: toast.pr ? "#04140E" : C.darkInk, borderRadius: 12, boxShadow: C.shadow, maxWidth: 420 }}
+          >
+            {toast.text}
+          </div>
+        </div>
+      )}
+
+      <div className="hero-in relative overflow-hidden mb-4 px-4 pt-4 pb-4" style={{ background: C.dark, color: C.darkInk, borderRadius: 18, boxShadow: C.shadow }}>
+        <div className="text-xs font-semibold" style={{ color: C.darkMuted }}>
+          Training bezig · blok {a.blockNumber} · {BLOCK_LABEL[a.blockPhase] || "vrij"} · doel {effortLabel(a.deload ? 4 : D.pos.rir, scale)}
+        </div>
+        <div className="flex items-end justify-between gap-3 mt-1">
+          <h2 className="disp text-3xl font-bold uppercase leading-none">{a.name}</h2>
+          <div className="text-right shrink-0">
+            <div className="disp text-2xl font-bold leading-none">
+              <Elapsed start={a.start} />
+            </div>
+            <div className="text-xs tnum" style={{ color: C.darkMuted }}>
+              {doneWork}/{totalWork} werksets
+            </div>
+          </div>
+        </div>
+        <div className="mt-3" style={{ height: 5, background: "rgba(255,255,255,.12)", borderRadius: 3 }}>
+          <div className="bar-fill" style={{ height: 5, width: `${totalWork ? (doneWork / totalWork) * 100 : 0}%`, background: "var(--accent)", borderRadius: 3 }} />
+        </div>
+        {a.deload && (
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+            Deload: de helft van de werksets, hetzelfde gewicht en ver van falen (RIR 4). Herstel is vandaag het doel.
+          </p>
+        )}
+        {a.volumeCut && (
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+            {TRAIN_PHASE.minicut.note}
+          </p>
+        )}
+        {a.light && (
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+            Lichtere dag: een werkset minder per oefening vanwege de lage herstelscore.
+          </p>
+        )}
+      </div>
+
+      {T.settings.readiness && !a.readiness && !anyDone && (
+        <ReadinessCard onSave={(r) => upd((x) => ({ ...x, readiness: r }))} onSkip={() => upd((x) => ({ ...x, readiness: { skipped: true } }))} />
+      )}
+      {lowReadiness(a.readiness) && !a.lightAsked && (
+        <div className="mb-4 px-4 py-3 relative overflow-hidden" style={{ background: C.warnBg, borderRadius: R.card }}>
+          <span className="rail" style={{ background: C.warn }} />
+          <div className="disp text-lg font-bold uppercase leading-none" style={{ color: C.warn }}>
+            Lage herstelscore
+          </div>
+          <p className="text-xs mt-1 mb-2 leading-relaxed" style={{ color: C.warn }}>
+            Train vandaag met een werkset minder per oefening. De gewichten blijven gelijk, zodat de prikkel blijft zonder extra vermoeidheid.
+          </p>
+          <div className="flex gap-2">
+            <TBtn small onClick={lightDay}>
+              Lichter trainen
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => upd((x) => ({ ...x, lightAsked: true }))}>
+              Gewoon doorgaan
+            </TBtn>
+          </div>
+        </div>
+      )}
+
+      {a.exercises.map((e, i) => {
+        const ex = exOf(D.exIndex, e.exId);
+        const isOpen = open === i;
+        const work = e.sets.filter((s) => s.type === "work");
+        const done = work.filter((s) => s.done).length;
+        const complete = e.sets.length > 0 && e.sets.every((s) => s.done);
+        const last = isOpen ? lastSummary(D, e) : null;
+        let wn = 0;
+        let un = 0;
+        return (
+          <div key={e.id} className="mb-3 overflow-hidden" style={{ background: C.panel, border: `1px solid ${isOpen ? C.accent : C.line}`, borderRadius: R.card, boxShadow: C.shadow }}>
+            <button onClick={() => setOpen(isOpen ? -1 : i)} className="tap w-full text-left px-4 py-3 flex items-center gap-3" aria-expanded={isOpen}>
+              <span
+                className="shrink-0 flex items-center justify-center disp font-bold text-sm"
+                style={{ width: 28, height: 28, borderRadius: 14, background: complete ? "var(--carb-fill)" : C.surface2, color: complete ? "#04140E" : C.muted, border: `1px solid ${complete ? "var(--carb-fill)" : C.line}` }}
+              >
+                {complete ? "✓" : i + 1}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="text-sm font-semibold block truncate">{ex.name}</span>
+                <span className="text-xs block" style={{ color: C.muted }}>
+                  {work.length} × {e.repMin}–{e.repMax} · rust {mmss(e.rest)}
+                  {e.target && e.target.change && e.target.change !== "vorige" ? " · " : ""}
+                  {e.target && e.target.change && e.target.change !== "vorige" && (
+                    <span style={{ color: CHANGE_COLOR[e.target.change], fontWeight: 600 }}>{CHANGE_LABEL[e.target.change]}</span>
+                  )}
+                </span>
+              </span>
+              <span className="text-xs tnum shrink-0" style={{ color: complete ? C.carb : C.muted }}>
+                {done}/{work.length}
+              </span>
+            </button>
+
+            {isOpen && (
+              <div className="px-4 pb-3" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+                <div className="pt-2 text-xs leading-relaxed" style={{ color: C.muted }}>
+                  <span style={{ color: C.ink, fontWeight: 600 }}>
+                    Doel: {e.target && e.target.weight != null ? `${kgTxt(e.target.weight)} kg${e.bwLoad ? " extra" : ""}` : "gewicht kiezen"} ·{" "}
+                    {e.target && e.target.reps && e.target.reps.some((r) => r != null) ? `${e.target.reps.join(", ")} reps` : `${e.repMin}–${e.repMax} reps`} · {effortLabel(e.rir, scale)}
+                  </span>
+                  {e.target && e.target.why && <span className="block">{e.target.why}</span>}
+                  {last && (
+                    <span className="block mt-0.5">
+                      Vorige keer ({fmtDay(dayNum(last.date))}): {last.text}
+                      {last.rir.length ? ` · ${last.rir.map((r) => effortLabel(r, scale)).join(", ")}` : ""}
+                    </span>
+                  )}
+                  {e.slotNote && <span className="block mt-0.5 italic">{e.slotNote}</span>}
+                  {e.bwLoad > 0 && <span className="block mt-0.5">Lichaamsgewicht telt mee als {kgTxt(e.bwLoad)} kg; vul alleen extra gewicht in.</span>}
+                </div>
+
+                {e.proposal && (
+                  <div className="mt-2 px-3 py-2 flex items-center gap-3" style={{ background: C.surface2, borderRadius: R.field, border: `1px solid ${C.lineSoft}` }}>
+                    <div className="text-xs flex-1 leading-snug">
+                      <strong style={{ color: CHANGE_COLOR[e.proposal.change] }}>
+                        Voorstel: {kgTxt(e.proposal.weight)} kg × {e.proposal.reps.join(", ")}
+                      </strong>
+                      <span className="block" style={{ color: C.muted }}>
+                        {e.proposal.why}
+                      </span>
+                    </div>
+                    <TBtn small onClick={() => acceptProposal(i)}>
+                      Overnemen
+                    </TBtn>
+                  </div>
+                )}
+
+                <div className="grid gap-1.5 mt-3 text-xs" style={{ ...cols, color: C.muted }}>
+                  <span>Set</span>
+                  <span className="text-center">{e.bwLoad ? "+kg" : "kg"}</span>
+                  <span className="text-center">Reps</span>
+                  <span className="text-center">{scale === "rpe" ? "RPE" : "RIR"}</span>
+                  <span />
+                </div>
+                {e.sets.map((s, j) => {
+                  const warm = s.type === "warmup";
+                  const label = warm ? `W${++un}` : `${++wn}`;
+                  return (
+                    <div
+                      key={j}
+                      className="grid items-center gap-1.5 py-1"
+                      style={{ ...cols, background: s.done ? "rgba(0,195,137,.08)" : "transparent", borderRadius: 8 }}
+                    >
+                      <span className="disp text-sm font-bold text-center" style={{ color: warm ? C.muted : C.ink }}>
+                        {label}
+                      </span>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.5"
+                        min="0"
+                        value={s.weight ?? ""}
+                        placeholder={warm ? "opw." : "kg"}
+                        onChange={(ev) => setField(i, j, "weight", ev.target.value === "" ? null : Number(ev.target.value))}
+                        className="w-full px-1 py-2 text-sm text-center tnum"
+                        style={inputStyle}
+                        aria-label={`Gewicht set ${label}`}
+                      />
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min="0"
+                        value={s.reps ?? ""}
+                        placeholder={`${e.repMin}-${e.repMax}`}
+                        onChange={(ev) => setField(i, j, "reps", ev.target.value === "" ? null : Number(ev.target.value))}
+                        className="w-full px-1 py-2 text-sm text-center tnum"
+                        style={inputStyle}
+                        aria-label={`Reps set ${label}`}
+                      />
+                      {warm ? (
+                        <span className="text-xs text-center" style={{ color: C.muted }}>
+                          opwarmen
+                        </span>
+                      ) : (
+                        <EffortSelect value={s.rir} onChange={(v) => setField(i, j, "rir", v)} scale={scale} />
+                      )}
+                      <button
+                        onClick={() => toggleDone(i, j)}
+                        className="tap flex items-center justify-center"
+                        style={{
+                          height: 38,
+                          borderRadius: R.field,
+                          background: s.done ? "var(--carb-fill)" : C.surface2,
+                          color: s.done ? "#04140E" : C.muted,
+                          border: `1px solid ${s.done ? "var(--carb-fill)" : C.line}`,
+                          fontWeight: 700,
+                        }}
+                        aria-label={s.done ? `Set ${label} ongedaan maken` : `Set ${label} afronden`}
+                        aria-pressed={s.done}
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  );
+                })}
+
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  <TBtn small kind="secondary" onClick={() => addSet(i)}>
+                    + Set
+                  </TBtn>
+                  <TBtn small kind="secondary" onClick={() => removeSet(i)} disabled={!e.sets.length || e.sets[e.sets.length - 1].done}>
+                    − Set
+                  </TBtn>
+                  <TBtn small kind="secondary" onClick={() => setPicker({ mode: "swap", i, muscle: ex.pri[0] || null })}>
+                    Wisselen
+                  </TBtn>
+                  <TBtn small kind="secondary" onClick={() => setNoteOpen(noteOpen === i ? null : i)}>
+                    Notitie
+                  </TBtn>
+                  <TBtn small kind="ghost" onClick={() => moveEx(i, -1)} disabled={i === 0} label="Omhoog">
+                    ↑
+                  </TBtn>
+                  <TBtn small kind="ghost" onClick={() => moveEx(i, 1)} disabled={i === a.exercises.length - 1} label="Omlaag">
+                    ↓
+                  </TBtn>
+                  <TBtn small kind="ghost" onClick={() => upd((x) => ({ ...x, exercises: x.exercises.filter((_, k) => k !== i) }))}>
+                    Verwijderen
+                  </TBtn>
+                </div>
+                {(noteOpen === i || e.note) && (
+                  <textarea
+                    value={e.note || ""}
+                    onChange={(ev) => updEx(i, (x) => ({ ...x, note: ev.target.value }))}
+                    placeholder="Notitie bij deze oefening, bijvoorbeeld stoelstand of techniekpunt"
+                    rows={2}
+                    className="w-full mt-2 px-3 py-2 text-sm"
+                    style={inputStyle}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="mb-4">
+        <TBtn kind="secondary" full onClick={() => setPicker({ mode: "add" })}>
+          + Oefening toevoegen
+        </TBtn>
+      </div>
+
+      <textarea
+        value={a.note || ""}
+        onChange={(ev) => upd((x) => ({ ...x, note: ev.target.value }))}
+        placeholder="Notitie bij deze training (optioneel)"
+        rows={2}
+        className="w-full mb-4 px-3 py-2 text-sm"
+        style={inputStyle}
+      />
+
+      {confirm === "leeg" ? (
+        <div className="mb-4 px-4 py-3" style={{ background: C.warnBg, borderRadius: R.card }}>
+          <p className="text-sm mb-2" style={{ color: C.warn }}>
+            Er is nog geen set afgerond. Training weggooien?
+          </p>
+          <div className="flex gap-2">
+            <TBtn kind="danger" small onClick={discard}>
+              Weggooien
+            </TBtn>
+            <TBtn kind="ghost" small onClick={() => setConfirm(null)}>
+              Doorgaan met trainen
+            </TBtn>
+          </div>
+        </div>
+      ) : confirm === "stop" ? (
+        <div className="mb-4 px-4 py-3" style={{ background: C.warnBg, borderRadius: R.card }}>
+          <p className="text-sm mb-2" style={{ color: C.warn }}>
+            Deze training stoppen zonder op te slaan? Alle ingevoerde sets gaan verloren.
+          </p>
+          <div className="flex gap-2">
+            <TBtn kind="danger" small onClick={discard}>
+              Stoppen zonder opslaan
+            </TBtn>
+            <TBtn kind="ghost" small onClick={() => setConfirm(null)}>
+              Annuleren
+            </TBtn>
+          </div>
+        </div>
+      ) : null}
+
+      <TBtn full onClick={finish} className="disp text-xl uppercase">
+        Training afronden
+      </TBtn>
+      <div className="text-center mt-3 mb-2">
+        <button onClick={() => setConfirm("stop")} className="tap text-xs underline" style={{ color: C.muted }}>
+          Stoppen zonder opslaan
+        </button>
+      </div>
+
+      {picker && (
+        <ExercisePicker
+          exIndex={D.exIndex}
+          title={picker.mode === "swap" ? "Oefening wisselen" : "Oefening toevoegen"}
+          muscle={picker.muscle || null}
+          onClose={() => setPicker(null)}
+          onCreate={(ex) => setT((t) => ({ ...t, customEx: [...t.customEx, ex] }))}
+          onPick={(ex) => {
+            if (picker.mode === "swap") swapEx(picker.i, ex);
+            else addEx(ex);
+            setPicker(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------------- overzicht, schema, inzichten, logboek ---------------- */
+
+function syncNutritionWeek(week, program) {
+  return week.map((d, i) => {
+    const day = program.days.find((x) => x.id === program.weekMap[i]);
+    if (!day) return { ...d, session: null };
+    return {
+      ...d,
+      session: { type: (d.session && d.session.type) || "volume", start: (d.session && d.session.start) || "18:00", minutes: estMinutes(day) },
+    };
+  });
+}
+const weekMismatch = (week, program) =>
+  program && program.mode === "week"
+    ? week.reduce((n, d, i) => n + (Boolean(d.session) !== Boolean(program.days.find((x) => x.id === program.weekMap[i])) ? 1 : 0), 0)
+    : 0;
+
+function downloadJSON(name, data) {
+  try {
+    const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const el = document.createElement("a");
+    el.href = url;
+    el.download = name;
+    document.body.appendChild(el);
+    el.click();
+    el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+const dayInitials = (name) => {
+  const w = String(name).trim().split(/[\s/]+/).filter(Boolean);
+  return (w.length > 1 ? w.slice(0, 2).map((x) => x[0]).join("") : String(name).slice(0, 2)).toUpperCase();
+};
+const fmtKgTotal = (v) => `${Math.round(v).toLocaleString("nl-NL")} kg`;
+const weekdayNL = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" });
+
+function Stat({ label, value, sub }) {
+  return (
+    <div className="px-3 py-2.5" style={{ background: C.surface2, borderRadius: R.field, border: `1px solid ${C.lineSoft}` }}>
+      <div className="text-xs" style={{ color: C.muted }}>
+        {label}
+      </div>
+      <div className="disp text-2xl font-bold tnum leading-tight">{value}</div>
+      {sub && (
+        <div className="text-xs" style={{ color: C.muted }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TargetRow({ slot, tg, T, onAccept, accepted }) {
+  const show = tg.source === "auto" || tg.source === "handmatig" ? tg.use : tg.prop;
+  const reps = (show.reps || []).filter((r) => r != null);
+  return (
+    <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold">{tg.ex.name}</span>
+        <span className="text-xs font-semibold shrink-0" style={{ color: CHANGE_COLOR[tg.prop.change] }}>
+          {CHANGE_LABEL[tg.prop.change]}
+        </span>
+      </div>
+      <div className="text-xs tnum mt-0.5" style={{ color: C.ink }}>
+        {show.weight != null ? `${kgTxt(show.weight)} kg` : "gewicht kiezen"}
+        {reps.length ? ` × ${reps.join(", ")}` : ` × ${slot.repMin}–${slot.repMax}`}
+        {tg.prop.last ? (
+          <span style={{ color: C.muted }}>
+            {" "}
+            · vorige keer {kgTxt(tg.prop.last.weight)} × {tg.prop.last.reps.join(", ")}
+          </span>
+        ) : null}
+      </div>
+      <p className="text-xs mt-0.5 leading-snug" style={{ color: C.muted }}>
+        {tg.prop.why}
+      </p>
+      {onAccept && tg.pending && (
+        <div className="mt-1.5">
+          <TBtn small onClick={onAccept}>
+            Overnemen
+          </TBtn>
+        </div>
+      )}
+      {accepted && (
+        <p className="text-xs mt-1 font-semibold" style={{ color: C.carb }}>
+          Overgenomen voor de volgende keer
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SessionSummary({ s, D, T, setT, onClose }) {
+  const st = sessionStats(s);
+  const prs = sessionPRs(s, D.sessions);
+  const day = D.program && D.program.days.find((d) => d.id === s.dayId);
+  const nexts = day ? day.slots.map((slot) => ({ slot, tg: targetFor(slot, D, T) })).filter((x) => x.tg.prop.last) : [];
+  const accept = (slot, tg) =>
+    setT((t) => ({ ...t, overrides: { ...t.overrides, [slot.id]: { weight: tg.prop.weight, reps: tg.prop.reps, basis: tg.lastId } } }));
+  return (
+    <Sheet title="Training opgeslagen" onClose={onClose}>
+      <div className="disp text-2xl font-bold uppercase leading-none mb-3">{s.name}</div>
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <Stat label="Duur" value={`${st.min} min`} />
+        <Stat label="Werksets" value={st.sets} />
+        <Stat label="Volume" value={fmtKgTotal(st.ton)} sub="gewicht × reps, werksets" />
+        <Stat label="Reps" value={st.reps} />
+      </div>
+      {prs.length > 0 && (
+        <div className="mb-4 px-3 py-2.5" style={{ background: "rgba(0,195,137,.12)", borderRadius: R.field }}>
+          <div className="text-sm font-semibold mb-1" style={{ color: C.carb }}>
+            {prs.length === 1 ? "Nieuw record" : `${prs.length} nieuwe records`}
+          </div>
+          {prs.map((p) => (
+            <div key={p.exId} className="text-xs tnum">
+              {exOf(D.exIndex, p.exId).name}: e1RM {kgTxt(Math.round(p.e1 * 10) / 10)} kg (was {kgTxt(Math.round(p.prev * 10) / 10)})
+            </div>
+          ))}
+        </div>
+      )}
+      {nexts.length > 0 && (
+        <>
+          <div className="text-sm font-semibold mb-1">Volgende keer</div>
+          <p className="text-xs mb-2" style={{ color: C.muted }}>
+            {T.settings.autoProgress
+              ? "Automatische progressie staat aan: deze doelen staan klaar bij de volgende training."
+              : "Voorstelmodus: neem over wat u wilt. Wat u niet overneemt, blijft gelijk aan vandaag."}
+          </p>
+          <div className="-mx-4 mb-4" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+            {nexts.map(({ slot, tg }) => (
+              <TargetRow
+                key={slot.id}
+                slot={slot}
+                tg={tg}
+                T={T}
+                onAccept={T.settings.autoProgress ? null : () => accept(slot, tg)}
+                accepted={tg.source === "handmatig"}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      <TBtn full onClick={onClose}>
+        Klaar
+      </TBtn>
+    </Sheet>
+  );
+}
+
+function TemplateStarter({ T, setT, D, week, setWeek, onDone }) {
+  const [tpl, setTpl] = useState("ul");
+  const [mode, setMode] = useState("week");
+  const [sets, setSets] = useState(2);
+  const [sync, setSync] = useState(true);
+  const create = () => {
+    const t = TEMPLATES.find((x) => x.id === tpl);
+    const p = programFromTemplate(t, { mode, sets, exIndex: D.exIndex });
+    setT((s) => ({ ...s, programs: [...s.programs, p], activeProgramId: p.id }));
+    if (mode === "week" && sync) setWeek(syncNutritionWeek(week, p));
+    onDone && onDone(p);
+  };
+  return (
+    <Section title="Kies een startschema" sub="Alle sjablonen volgen de Kuba-principes: twee werksets tot RIR 0-1, veel oefeningen die de spier onder rek belasten, en ongeveer 40/60 compound/isolatie. Alles is daarna aan te passen.">
+      <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+        {TEMPLATES.map((t) => {
+          const on = tpl === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTpl(t.id)}
+              className="tap w-full text-left px-3 py-2.5"
+              style={{ border: `1.5px solid ${on ? C.accent : C.line}`, borderRadius: R.field, background: on ? "var(--accent-soft)" : C.surface2 }}
+              aria-pressed={on}
+            >
+              <div className="text-sm font-semibold">{t.name}</div>
+              <div className="text-xs mt-0.5" style={{ color: C.muted }}>
+                {t.sub}
+              </div>
+              <div className="text-xs mt-1" style={{ color: C.muted }}>
+                {t.days.map(([n]) => n).join(" · ")}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <Row label="Indeling" hint={mode === "week" ? "Elke weekdag een vaste training." : "Trainingen schuiven door; een gemiste dag schuift gewoon op."}>
+        <Seg
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: "week", label: "Weekdagen" },
+            { value: "rotation", label: "Rotatie" },
+          ]}
+        />
+      </Row>
+      <Row label="Werksets per oefening" hint="Kuba: twee sets van topkwaliteit. Drie geeft meer volume.">
+        <Seg
+          value={sets}
+          onChange={setSets}
+          options={[
+            { value: 2, label: "2" },
+            { value: 3, label: "3" },
+          ]}
+        />
+      </Row>
+      {mode === "week" && (
+        <Row label="Voeding afstemmen" hint="Zet de trainingsdagen in uw voedingsweek op dezelfde dagen, met de geschatte duur.">
+          <Seg
+            value={sync}
+            onChange={setSync}
+            options={[
+              { value: true, label: "Ja" },
+              { value: false, label: "Nee" },
+            ]}
+          />
+        </Row>
+      )}
+      <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
+        <TBtn onClick={create}>Schema aanmaken</TBtn>
+        <button
+          onClick={() => {
+            const p = emptyProgram();
+            setT((s) => ({ ...s, programs: [...s.programs, p], activeProgramId: p.id }));
+            onDone && onDone(p, true);
+          }}
+          className="tap text-sm underline"
+          style={{ color: C.muted }}
+        >
+          of begin met een leeg schema
+        </button>
+      </div>
+    </Section>
+  );
+}
+
+function BlockBar({ pos }) {
+  const segs = [...Array(pos.acc).fill("opbouw"), ...Array(pos.int).fill("intensivering"), ...Array(pos.dl).fill("deload")];
+  return (
+    <div className="flex gap-1" style={{ height: 8 }}>
+      {segs.map((p, k) => {
+        const here = !pos.forced && k === pos.week;
+        const past = !pos.forced && k < pos.week;
+        return (
+          <span
+            key={k}
+            className="flex-1"
+            style={{ background: BLOCK_COLOR[p], opacity: here ? 1 : past ? 0.35 : 0.6, borderRadius: 4, boxShadow: here ? "0 0 0 2px rgba(255,255,255,.85)" : "none" }}
+            title={`Week ${k + 1}: ${BLOCK_LABEL[p]}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
+  const [other, setOther] = useState("");
+  const scale = T.settings.effort;
+  const program = D.program;
+  const plan = D.plan;
+  if (!program) return <TemplateStarter T={T} setT={setT} D={D} week={week} setWeek={setWeek} onDone={(p, empty) => empty && go("schema")} />;
+
+  const pos = D.pos;
+  const nextDay = plan ? plan.day || plan.next : null;
+  const targets = nextDay ? nextDay.slots.map((slot) => ({ slot, tg: targetFor(slot, D, T) })) : [];
+  const pending = targets.filter((x) => x.tg.pending);
+  const acceptAll = () =>
+    setT((t) => {
+      const ov = { ...t.overrides };
+      pending.forEach(({ slot, tg }) => {
+        ov[slot.id] = { weight: tg.prop.weight, reps: tg.prop.reps, basis: tg.lastId };
+      });
+      return { ...t, overrides: ov };
+    });
+  const acceptOne = (slot, tg) => setT((t) => ({ ...t, overrides: { ...t.overrides, [slot.id]: { weight: tg.prop.weight, reps: tg.prop.reps, basis: tg.lastId } } }));
+
+  const today = dayNum(D.today);
+  const mon = today - wdOfNum(today);
+  const weekDays = [...Array(7)].map((_, k) => {
+    const n = mon + k;
+    const iso = isoOfNum(n);
+    const done = D.sessions.filter((s) => s.date === iso && s.end);
+    const plannedDay = program.mode === "week" ? program.days.find((d) => d.id === program.weekMap[k]) : null;
+    return { n, iso, done, plannedDay };
+  });
+  const doneWeek = weekDays.reduce((a, d) => a + d.done.length, 0);
+  const plannedWeek = Math.round(sessionsPerWeek(program));
+  const weekSessions = weekDays.flatMap((d) => d.done);
+  const weekStats = weekSessions.reduce((acc, s) => {
+    const st = sessionStats(s);
+    return { sets: acc.sets + st.sets, ton: acc.ton + st.ton };
+  }, { sets: 0, ton: 0 });
+  const recentPRs = D.sessions
+    .filter((s) => s.end && dayNum(s.date) >= today - 30)
+    .flatMap((s) => sessionPRs(s, D.sessions).map((p) => ({ ...p, date: s.date })))
+    .reverse()
+    .slice(0, 5);
+
+  const startDay = (day) => onStart(day, program.mode === "rotation" ? rotPosFor(program, day.id, plan && plan.rotPos != null ? plan.rotPos : 0) : null);
+
+  return (
+    <>
+      <div className="hero-in relative overflow-hidden mb-6 px-4 pt-4 pb-4" style={{ background: C.dark, color: C.darkInk, borderRadius: 18, boxShadow: C.shadow }}>
+        <div className="flex items-baseline justify-between gap-3 mb-2">
+          <span className="text-xs font-semibold" style={{ color: C.darkMuted }}>
+            {pos.forced ? `Ingelaste deload · nog ${pos.daysLeft} ${pos.daysLeft === 1 ? "dag" : "dagen"}` : `Blok ${pos.number} · week ${pos.week + 1} van ${pos.len}`}
+          </span>
+          <span className="text-xs" style={{ color: C.darkMuted }}>
+            {program.name}
+          </span>
+        </div>
+        <BlockBar pos={pos} />
+        <div className="flex items-baseline justify-between gap-3 mt-3">
+          <span className="disp text-3xl font-bold uppercase leading-none">{BLOCK_LABEL[pos.phase]}</span>
+          <span className="disp text-xl font-bold uppercase leading-none shrink-0" style={{ color: C.darkMuted }}>
+            doel {effortLabel(pos.rir, scale)}
+          </span>
+        </div>
+        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: C.darkMuted }}>
+          {pos.phase === "opbouw"
+            ? "Opbouw: werksets met een of twee reps in reserve, elke sessie een rep of wat gewicht erbij."
+            : pos.phase === "intensivering"
+            ? "Intensivering: werksets tot RIR 1, de laatste week tot falen. Hier worden de records gezet."
+            : "Deload: halve werksets, zelfde gewicht, ver van falen. Vermoeidheid zakt weg zodat het volgende blok hoger begint."}
+        </p>
+        <p className="text-xs mt-1 leading-relaxed" style={{ color: C.darkMuted }}>
+          Voeding: <strong style={{ color: C.darkInk }}>{D.tp.label}</strong>
+          {D.tp.vf < 1 ? (D.phaseOn ? " · volume een derde omlaag, gewichten vasthouden" : " · aanpassing wacht op uw akkoord") : ""}
+        </p>
+
+        <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.darkLine}` }}>
+          {plan && plan.day && !plan.doneToday ? (
+            <>
+              <div className="text-xs" style={{ color: C.darkMuted }}>
+                Vandaag
+              </div>
+              <div className="disp text-2xl font-bold uppercase leading-none">{plan.day.name}</div>
+              <div className="text-xs mt-1 tnum" style={{ color: C.darkMuted }}>
+                {plan.day.slots.length} oefeningen · {sum(plannedSetsFor(plan.day, D))} werksets · ± {estMinutes(plan.day)} min
+              </div>
+              <button
+                onClick={() => onStart(plan.day, plan.rotPos)}
+                className="tap w-full mt-3 py-3 disp text-xl font-bold uppercase"
+                style={{ background: "var(--accent)", color: "var(--on-accent)", borderRadius: R.field }}
+              >
+                Start training
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-xs" style={{ color: C.darkMuted }}>
+                Vandaag
+              </div>
+              <div className="disp text-2xl font-bold uppercase leading-none">{plan && plan.doneToday ? "Training gedaan" : "Rustdag"}</div>
+              <div className="text-xs mt-1" style={{ color: C.darkMuted }}>
+                {plan && plan.next ? `Volgende: ${plan.next.name}` : "Herstel is waar de groei gebeurt."}
+              </div>
+              {plan && plan.next && (
+                <button
+                  onClick={() => onStart(plan.next, plan.rotPos)}
+                  className="tap mt-3 px-3 py-2 text-sm font-semibold"
+                  style={{ border: `1px solid ${C.darkLine}`, borderRadius: R.field, color: C.darkInk }}
+                >
+                  Toch trainen: {plan.next.name}
+                </button>
+              )}
+            </>
+          )}
+          <div className="mt-3 flex items-center gap-2">
+            <select
+              value={other}
+              onChange={(e) => {
+                const v = e.target.value;
+                setOther("");
+                if (v === "__vrij") onStart(null, null);
+                else {
+                  const d = program.days.find((x) => x.id === v);
+                  if (d) startDay(d);
+                }
+              }}
+              className="flex-1 px-2 py-2 text-sm"
+              style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${C.darkLine}`, borderRadius: R.field, color: C.darkInk }}
+              aria-label="Andere training starten"
+            >
+              <option value="">Andere training starten…</option>
+              {program.days.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+              <option value="__vrij">Lege training</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {D.fatigue && !T.block.deloadFrom && !T.settings.autoProgress && (
+        <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.warnBg, borderRadius: R.card }}>
+          <span className="rail" style={{ background: C.train }} />
+          <div className="disp text-xl font-bold uppercase leading-none" style={{ color: C.train }}>
+            Tijd voor een deload?
+          </div>
+          {D.fatigue.reasons.map((r, k) => (
+            <p key={k} className="text-xs mt-1 leading-relaxed" style={{ color: C.warn }}>
+              {r}
+            </p>
+          ))}
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: C.warn }}>
+            Een week met halve werksets en ver van falen laat de vermoeidheid zakken. Daarna begint een nieuw blok.
+          </p>
+          <div className="flex gap-2 mt-2">
+            <TBtn small kind="danger" onClick={() => setT((t) => ({ ...t, block: { ...t.block, deloadFrom: D.today, auto: null } }))}>
+              Deload starten
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => setT((t) => ({ ...t, block: { ...t.block, dismissedAt: D.today } }))}>
+              Nog niet
+            </TBtn>
+          </div>
+        </div>
+      )}
+      {T.block.auto && pos.forced && (
+        <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
+          <span className="rail" style={{ background: BLOCK_COLOR.deload }} />
+          <div className="disp text-lg font-bold uppercase leading-none">Deload automatisch ingelast</div>
+          {(T.block.auto.reasons || []).map((r, k) => (
+            <p key={k} className="text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
+              {r}
+            </p>
+          ))}
+          <div className="mt-2">
+            <TBtn small kind="ghost" onClick={() => setT((t) => ({ ...t, block: { ...t.block, deloadFrom: null, auto: null, dismissedAt: D.today } }))}>
+              Ongedaan maken
+            </TBtn>
+          </div>
+        </div>
+      )}
+      {D.tp.vf < 1 && !D.phaseOn && (
+        <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
+          <span className="rail" style={{ background: "var(--fat-fill)" }} />
+          <div className="disp text-lg font-bold uppercase leading-none">{D.tp.label} actief in uw voeding</div>
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
+            {D.tp.note}
+          </p>
+          <div className="mt-2">
+            <TBtn small onClick={() => setT((t) => ({ ...t, phaseAccept: D.phase }))}>
+              Toepassen op mijn training
+            </TBtn>
+          </div>
+        </div>
+      )}
+      {D.tp.vf < 1 && D.phaseOn && !T.settings.autoProgress && T.phaseAccept === D.phase && (
+        <p className="text-xs mb-6 -mt-3" style={{ color: C.muted }}>
+          {D.tp.label}-aanpassing staat aan.{" "}
+          <button className="underline" onClick={() => setT((t) => ({ ...t, phaseAccept: null }))}>
+            Terugdraaien
+          </button>
+        </p>
+      )}
+
+      {nextDay && targets.some((x) => x.tg.prop.last) && (
+        <Section
+          title={`Doelen: ${nextDay.name}`}
+          sub={
+            T.settings.autoProgress
+              ? "Automatische progressie: deze doelen staan klaar voor de volgende keer."
+              : "Voorstelmodus: de app stelt voor, u beslist. Zonder akkoord blijft het doel gelijk aan de vorige keer."
+          }
+        >
+          {!T.settings.autoProgress && pending.length > 1 && (
+            <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+              <span className="text-xs" style={{ color: C.muted }}>
+                {pending.length} voorstellen open
+              </span>
+              <TBtn small onClick={acceptAll}>
+                Alles overnemen
+              </TBtn>
+            </div>
+          )}
+          {targets
+            .filter((x) => x.tg.prop.last)
+            .map(({ slot, tg }) => (
+              <TargetRow key={slot.id} slot={slot} tg={tg} T={T} onAccept={T.settings.autoProgress ? null : () => acceptOne(slot, tg)} accepted={tg.source === "handmatig"} />
+            ))}
+        </Section>
+      )}
+
+      <Section title="Deze week" sub={`${doneWeek} van ${plannedWeek} ${plannedWeek === 1 ? "training" : "trainingen"} gedaan · ${weekStats.sets} werksets · ${fmtKgTotal(weekStats.ton)} volume`}>
+        <div className="px-3 py-3 grid grid-cols-7 gap-1">
+          {weekDays.map((d, k) => {
+            const isToday = d.n === today;
+            const done = d.done.length > 0;
+            return (
+              <div key={k} className="flex flex-col items-center gap-1">
+                <span className="text-xs uppercase disp" style={{ color: isToday ? C.accent : C.muted, fontWeight: isToday ? 700 : 500 }}>
+                  {DAYS[k]}
+                </span>
+                <span
+                  className="flex items-center justify-center text-xs font-bold"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    background: done ? "var(--carb-fill)" : d.plannedDay ? C.surface2 : "transparent",
+                    color: done ? "#04140E" : C.muted,
+                    border: `1.5px ${d.plannedDay && !done ? "solid" : "dashed"} ${isToday ? C.accent : done ? "var(--carb-fill)" : C.line}`,
+                  }}
+                  title={done ? d.done.map((s) => s.name).join(", ") : d.plannedDay ? d.plannedDay.name : "Rust"}
+                >
+                  {done ? "✓" : d.plannedDay ? dayInitials(d.plannedDay.name) : ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      {recentPRs.length > 0 && (
+        <Section title="Recente records" accent={C.carb} sub="Hoogste geschatte 1RM per oefening, gecorrigeerd voor reps in reserve.">
+          {recentPRs.map((p, k) => (
+            <div key={k} className="px-4 py-2.5 flex items-baseline justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+              <span className="text-sm">{exOf(D.exIndex, p.exId).name}</span>
+              <span className="text-xs tnum shrink-0" style={{ color: C.muted }}>
+                <strong style={{ color: C.carb }}>{kgTxt(Math.round(p.e1 * 10) / 10)} kg</strong> · {fmtDay(dayNum(p.date))}
+              </span>
+            </div>
+          ))}
+        </Section>
+      )}
+    </>
+  );
+}
+
+function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap }) {
+  const [open, setOpen] = useState(false);
+  const hasHist = historyFor(D.sessions, slot).length > 0;
+  const edit = (T.exEdits && T.exEdits[ex.id]) || {};
+  const move = (d) =>
+    updDay(day.id, (x) => {
+      const j = idx + d;
+      if (j < 0 || j >= x.slots.length) return x;
+      const s = [...x.slots];
+      [s[idx], s[j]] = [s[j], s[idx]];
+      return { ...x, slots: s };
+    });
+  return (
+    <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+      <button onClick={() => setOpen(!open)} className="tap w-full text-left px-4 py-2.5 flex items-center gap-3" aria-expanded={open}>
+        <span className="disp text-sm font-bold shrink-0 text-center" style={{ width: 18, color: C.muted }}>
+          {idx + 1}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="text-sm font-semibold block">
+            {ex.name} <ExBadges ex={ex} />
+          </span>
+          <span className="text-xs block tnum" style={{ color: C.muted }}>
+            {slot.sets} × {slot.repMin}–{slot.repMax} · {slot.warmups} opw. · rust {mmss(slot.rest)} · {slot.rir != null && slot.rir !== "" ? effortLabel(slot.rir, T.settings.effort) : "RIR volgens blok"}
+          </span>
+        </span>
+        <span className="text-xs shrink-0" style={{ color: C.accent }}>
+          {open ? "Klaar" : "Wijzig"}
+        </span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-2.5">
+          <div className="grid grid-cols-3 gap-x-3 gap-y-2">
+            <label className="block">
+              <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                Werksets
+              </span>
+              <Num value={slot.sets} onChange={(v) => updSlot(day.id, slot.id, { sets: clamp(num(v, 2), 1, 8) })} min={1} max={8} />
+            </label>
+            <label className="block">
+              <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                Warming-ups
+              </span>
+              <Num value={slot.warmups} onChange={(v) => updSlot(day.id, slot.id, { warmups: clamp(num(v, 0), 0, 3) })} min={0} max={3} />
+            </label>
+            <label className="block">
+              <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                Reps vanaf
+              </span>
+              <Num value={slot.repMin} onChange={(v) => updSlot(day.id, slot.id, { repMin: clamp(num(v, 1), 1, 50) })} min={1} max={50} />
+            </label>
+            <label className="block">
+              <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                Reps tot
+              </span>
+              <Num value={slot.repMax} onChange={(v) => updSlot(day.id, slot.id, { repMax: clamp(num(v, 1), 1, 60) })} min={1} max={60} />
+            </label>
+            <label className="block">
+              <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                Rust (sec)
+              </span>
+              <Num value={slot.rest} step={15} onChange={(v) => updSlot(day.id, slot.id, { rest: clamp(num(v, 120), 15, 600) })} min={15} max={600} />
+            </label>
+            <label className="block">
+              <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                Stap (kg)
+              </span>
+              <Num
+                value={edit.inc ?? ""}
+                step={0.5}
+                onChange={(v) =>
+                  setT((t) => ({ ...t, exEdits: { ...t.exEdits, [ex.id]: { ...((t.exEdits || {})[ex.id] || {}), inc: v === "" ? null : Math.max(0.25, num(v, 2.5)) } } }))
+                }
+                min={0.25}
+                max={20}
+              />
+            </label>
+          </div>
+          <p className="text-xs" style={{ color: C.muted }}>
+            Stap leeg = standaard voor {EQUIP[ex.equip] ? EQUIP[ex.equip].label.toLowerCase() : "dit materiaal"} ({kgTxt(incFor({ ...ex, inc: null }, T.settings, 0))} kg).
+          </p>
+          <label className="block text-sm">
+            <span className="text-xs" style={{ color: C.muted }}>
+              Inspanning op werksets
+            </span>
+            <Pick
+              value={slot.rir == null ? "" : String(slot.rir)}
+              onChange={(v) => updSlot(day.id, slot.id, { rir: v === "" ? null : Number(v) })}
+              options={[{ id: "", label: "Volgens blok (aanbevolen)" }, ...[0, 1, 2, 3, 4].map((r) => ({ id: String(r), label: effortLabel(r, T.settings.effort) + (r === 0 ? ", tot falen" : "") }))]}
+            />
+          </label>
+          {!hasHist && (
+            <label className="flex items-center justify-between gap-2 text-sm">
+              Startgewicht (kg)
+              <Num value={slot.startWeight ?? ""} step={0.5} onChange={(v) => updSlot(day.id, slot.id, { startWeight: v === "" ? null : v })} min={0} />
+            </label>
+          )}
+          <input
+            value={slot.note || ""}
+            onChange={(e) => updSlot(day.id, slot.id, { note: e.target.value })}
+            placeholder="Notitie, bijvoorbeeld stoelstand of tempo 3-1-1"
+            className="w-full px-3 py-2 text-sm"
+            style={inputStyle}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            <TBtn small kind="secondary" onClick={onSwap}>
+              Andere oefening
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => move(-1)} disabled={idx === 0} label="Omhoog">
+              ↑
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => move(1)} disabled={idx === n - 1} label="Omlaag">
+              ↓
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => updDay(day.id, (x) => ({ ...x, slots: x.slots.filter((s) => s.id !== slot.id) }))}>
+              Verwijderen
+            </TBtn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrainSchema({ T, setT, D, week, setWeek }) {
+  const [picker, setPicker] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [newTpl, setNewTpl] = useState(false);
+  const [notifyMsg, setNotifyMsg] = useState(null);
+  const program = D.program;
+  const s = T.settings;
+  const setS = (k, v) => setT((t) => ({ ...t, settings: { ...t.settings, [k]: v } }));
+  const setB = (k, v) => setT((t) => ({ ...t, block: { ...t.block, [k]: v } }));
+  const updProg = (fn) => setT((t) => ({ ...t, programs: t.programs.map((p) => (p.id === t.activeProgramId ? fn(p) : p)) }));
+  const updDay = (dayId, fn) => updProg((p) => ({ ...p, days: p.days.map((d) => (d.id === dayId ? fn(d) : d)) }));
+  const updSlot = (dayId, slotId, patch) => updDay(dayId, (d) => ({ ...d, slots: d.slots.map((x) => (x.id === slotId ? { ...x, ...patch } : x)) }));
+
+  const askNotify = async () => {
+    if (s.notify) return setS("notify", false);
+    try {
+      if (typeof Notification === "undefined") {
+        setNotifyMsg("Deze browser ondersteunt geen meldingen. Geluid en trillen werken wel.");
+        return;
+      }
+      const p = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (p === "granted") {
+        setS("notify", true);
+        setNotifyMsg(null);
+      } else setNotifyMsg("Meldingen zijn geweigerd. U kunt ze toestaan in de instellingen van de browser.");
+    } catch (e) {
+      setNotifyMsg("Meldingen konden niet worden aangezet in deze weergave.");
+    }
+  };
+
+  const mismatch = program ? weekMismatch(week, program) : 0;
+  const nutriDays = week.filter((d) => d.session).length;
+  const perWeek = program ? sessionsPerWeek(program) : 0;
+  const check = program ? programCheck(program, D.exIndex) : [];
+
+  return (
+    <>
+      {newTpl || !program ? (
+        <TemplateStarter T={T} setT={setT} D={D} week={week} setWeek={setWeek} onDone={() => setNewTpl(false)} />
+      ) : null}
+
+      {program && (
+        <>
+          <Section title="Schema" sub="Uw trainingen, de volgorde en welke dagen u traint.">
+            {T.programs.length > 1 && (
+              <Row label="Actief schema" stack>
+                <Pick value={program.id} onChange={(v) => setT((t) => ({ ...t, activeProgramId: v }))} options={T.programs.map((p) => ({ id: p.id, label: p.name }))} />
+              </Row>
+            )}
+            <Row label="Naam" stack>
+              <input value={program.name} onChange={(e) => updProg((p) => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2 text-sm" style={inputStyle} />
+            </Row>
+            <Row label="Indeling" hint={program.mode === "week" ? "Vaste training per weekdag." : "Trainingen schuiven door, ongeacht de weekdag."}>
+              <Seg
+                value={program.mode}
+                onChange={(v) => updProg((p) => ({ ...p, mode: v }))}
+                options={[
+                  { value: "week", label: "Weekdagen" },
+                  { value: "rotation", label: "Rotatie" },
+                ]}
+              />
+            </Row>
+            {program.mode === "week" ? (
+              DAY_FULL.map((dn, i) => (
+                <Row key={i} label={dn}>
+                  <div style={{ width: 170 }}>
+                    <Pick
+                      value={program.weekMap[i] || ""}
+                      onChange={(v) => updProg((p) => ({ ...p, weekMap: p.weekMap.map((x, k) => (k === i ? v || null : x)) }))}
+                      options={[{ id: "", label: "Rust" }, ...program.days.map((d) => ({ id: d.id, label: d.name }))]}
+                    />
+                  </div>
+                </Row>
+              ))
+            ) : (
+              <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                <p className="text-xs mb-2" style={{ color: C.muted }}>
+                  De app kiest steeds de volgende in deze reeks. Een gemiste dag schuift gewoon op; een rustdag wordt overgeslagen zodra u al lang genoeg rust had.
+                </p>
+                {program.rotation.map((r, k) => (
+                  <div key={k} className="flex items-center gap-1.5 mb-1.5">
+                    <span className="disp text-sm font-bold text-center shrink-0" style={{ width: 20, color: C.muted }}>
+                      {k + 1}
+                    </span>
+                    <div className="flex-1">
+                      <Pick
+                        value={r}
+                        onChange={(v) => updProg((p) => ({ ...p, rotation: p.rotation.map((x, j) => (j === k ? v : x)) }))}
+                        options={[{ id: "rust", label: "Rustdag" }, ...program.days.map((d) => ({ id: d.id, label: d.name }))]}
+                      />
+                    </div>
+                    <TBtn
+                      small
+                      kind="ghost"
+                      label="Omhoog"
+                      disabled={k === 0}
+                      onClick={() =>
+                        updProg((p) => {
+                          const rr = [...p.rotation];
+                          [rr[k - 1], rr[k]] = [rr[k], rr[k - 1]];
+                          return { ...p, rotation: rr };
+                        })
+                      }
+                    >
+                      ↑
+                    </TBtn>
+                    <TBtn small kind="ghost" label="Verwijderen" disabled={program.rotation.length <= 1} onClick={() => updProg((p) => ({ ...p, rotation: p.rotation.filter((_, j) => j !== k) }))}>
+                      ✕
+                    </TBtn>
+                  </div>
+                ))}
+                <div className="flex gap-2 mt-2">
+                  <TBtn small kind="secondary" onClick={() => updProg((p) => ({ ...p, rotation: [...p.rotation, p.days[0].id] }))}>
+                    + Training
+                  </TBtn>
+                  <TBtn small kind="secondary" onClick={() => updProg((p) => ({ ...p, rotation: [...p.rotation, "rust"] }))}>
+                    + Rustdag
+                  </TBtn>
+                </div>
+              </div>
+            )}
+            {program.mode === "week" ? (
+              mismatch ? (
+                <div className="px-4 py-3 relative" style={{ background: C.warnBg }}>
+                  <span className="rail" style={{ background: C.warn }} />
+                  <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
+                    Uw voeding rekent op {mismatch === 1 ? "één dag" : `${mismatch} dagen`} anders dan dit schema. Trainingsdagen krijgen extra calorieën en koolhydraten rond de training; laat ze gelijklopen.
+                  </p>
+                  <div className="mt-2">
+                    <TBtn small onClick={() => setWeek(syncNutritionWeek(week, program))}>
+                      Voeding gelijktrekken
+                    </TBtn>
+                  </div>
+                </div>
+              ) : (
+                <div className="px-4 py-2.5 text-xs" style={{ color: C.carb }}>
+                  Voeding en training lopen gelijk: dezelfde {nutriDays} trainingsdagen.
+                </div>
+              )
+            ) : (
+              <div className="px-4 py-2.5 text-xs leading-relaxed" style={{ color: C.muted }}>
+                Gemiddeld {perWeek.toFixed(1).replace(".", ",")} trainingen per week. De voeding rekent met een vast weekpatroon van {nutriDays} trainingsdagen
+                {Math.abs(perWeek - nutriDays) >= 1 ? "; stem dat aantal af op het tabblad Profiel." : "; dat klopt."}
+              </div>
+            )}
+            <div className="px-4 py-3 flex flex-wrap gap-2">
+              <TBtn small kind="secondary" onClick={() => setNewTpl(true)}>
+                Nieuw uit sjabloon
+              </TBtn>
+              <TBtn
+                small
+                kind="secondary"
+                onClick={() => {
+                  const map = {};
+                  const days = program.days.map((d) => {
+                    const id = uid();
+                    map[d.id] = id;
+                    return { ...d, id, slots: d.slots.map((x) => ({ ...x, id: uid() })) };
+                  });
+                  const copy = {
+                    ...program,
+                    id: uid(),
+                    name: `${program.name} (kopie)`,
+                    days,
+                    weekMap: program.weekMap.map((x) => (x ? map[x] : null)),
+                    rotation: program.rotation.map((x) => (x === "rust" ? x : map[x])),
+                  };
+                  setT((t) => ({ ...t, programs: [...t.programs, copy], activeProgramId: copy.id }));
+                }}
+              >
+                Dupliceren
+              </TBtn>
+              {confirm === "prog" ? (
+                <>
+                  <TBtn
+                    small
+                    kind="danger"
+                    onClick={() => {
+                      setT((t) => {
+                        const rest = t.programs.filter((p) => p.id !== program.id);
+                        return { ...t, programs: rest, activeProgramId: rest.length ? rest[0].id : null };
+                      });
+                      setConfirm(null);
+                    }}
+                  >
+                    Ja, schema verwijderen
+                  </TBtn>
+                  <TBtn small kind="ghost" onClick={() => setConfirm(null)}>
+                    Annuleren
+                  </TBtn>
+                </>
+              ) : (
+                <TBtn small kind="ghost" onClick={() => setConfirm("prog")}>
+                  Verwijderen
+                </TBtn>
+              )}
+            </div>
+          </Section>
+
+          {program.days.map((day) => {
+            const n = sum(day.slots.map((x) => num(x.sets, 2)));
+            return (
+              <Section key={day.id} title={day.name} sub={`${day.slots.length} oefeningen · ${n} werksets · ± ${estMinutes(day)} min`}>
+                <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                  <input
+                    value={day.name}
+                    onChange={(e) => updDay(day.id, (d) => ({ ...d, name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm"
+                    style={inputStyle}
+                    aria-label="Naam van de training"
+                  />
+                </div>
+                {day.slots.map((slot, idx) => (
+                  <SlotEditor
+                    key={slot.id}
+                    slot={slot}
+                    ex={exOf(D.exIndex, slot.exId)}
+                    day={day}
+                    idx={idx}
+                    n={day.slots.length}
+                    T={T}
+                    D={D}
+                    setT={setT}
+                    updSlot={updSlot}
+                    updDay={updDay}
+                    onSwap={() => setPicker({ mode: "swap", dayId: day.id, slotId: slot.id, muscle: exOf(D.exIndex, slot.exId).pri[0] || null })}
+                  />
+                ))}
+                <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
+                  <TBtn small onClick={() => setPicker({ mode: "add", dayId: day.id })}>
+                    + Oefening
+                  </TBtn>
+                  {program.days.length > 1 &&
+                    (confirm === day.id ? (
+                      <>
+                        <TBtn
+                          small
+                          kind="danger"
+                          onClick={() => {
+                            updProg((p) => {
+                              const rot = p.rotation.filter((x) => x !== day.id);
+                              return {
+                                ...p,
+                                days: p.days.filter((d) => d.id !== day.id),
+                                weekMap: p.weekMap.map((x) => (x === day.id ? null : x)),
+                                rotation: rot.length ? rot : ["rust"],
+                              };
+                            });
+                            setConfirm(null);
+                          }}
+                        >
+                          Ja, dag verwijderen
+                        </TBtn>
+                        <TBtn small kind="ghost" onClick={() => setConfirm(null)}>
+                          Annuleren
+                        </TBtn>
+                      </>
+                    ) : (
+                      <TBtn small kind="ghost" onClick={() => setConfirm(day.id)}>
+                        Dag verwijderen
+                      </TBtn>
+                    ))}
+                </div>
+              </Section>
+            );
+          })}
+          <div className="mb-8 -mt-4">
+            <TBtn
+              kind="secondary"
+              full
+              onClick={() => updProg((p) => ({ ...p, days: [...p.days, { id: uid(), name: `Training ${String.fromCharCode(65 + p.days.length)}`, slots: [] }] }))}
+            >
+              + Trainingsdag toevoegen
+            </TBtn>
+          </div>
+
+          {check.length > 0 && (
+            <Section title="Programmacheck" accent={C.carb} sub="Getoetst aan de principes van Kuba Cielen en de volumerichtwaarden van Renaissance Periodization.">
+              {check.map((c) => (
+                <Status key={c.label} label={c.label} value={c.value} state={c.state} note={c.note} />
+              ))}
+            </Section>
+          )}
+        </>
+      )}
+
+      <Section title="Periodisering" accent={BLOCK_COLOR[D.pos.phase]} sub="Blokken van opbouw en intensivering, afgesloten met een deload. De RIR-doelen schuiven per week mee.">
+        <Row label="Start van dit blok">
+          <input
+            type="date"
+            value={T.block.start}
+            onChange={(e) => e.target.value && setB("start", e.target.value)}
+            className="px-2 py-1.5 text-sm tnum"
+            style={inputStyle}
+          />
+        </Row>
+        <Row label="Opbouwweken">
+          <Num value={T.block.acc} onChange={(v) => setB("acc", clamp(num(v, 4), 1, 8))} min={1} max={8} />
+        </Row>
+        <Row label="Intensiveringsweken">
+          <Num value={T.block.int} onChange={(v) => setB("int", clamp(num(v, 2), 0, 4))} min={0} max={4} />
+        </Row>
+        <Row label="Deloadweek aan het eind">
+          <Seg
+            value={T.block.deload !== false}
+            onChange={(v) => setB("deload", v)}
+            options={[
+              { value: true, label: "Ja" },
+              { value: false, label: "Nee" },
+            ]}
+          />
+        </Row>
+        <Row label="Intensiteit" stack hint="Kuba traint werksets tot RIR 0-1. Gematigd houdt overal een rep meer over.">
+          <Pick value={s.intensity} onChange={(v) => setS("intensity", v)} options={Object.entries(INTENSITY).map(([id, v]) => ({ id, label: v.label }))} />
+        </Row>
+        <div className="px-4 py-3 flex flex-wrap gap-2">
+          <TBtn small kind="secondary" onClick={() => setT((t) => ({ ...t, block: { ...t.block, start: mondayOf(D.today), number: D.pos.number + 1, deloadFrom: null, auto: null } }))}>
+            Nieuw blok starten
+          </TBtn>
+          {D.pos.phase !== "deload" && (
+            <TBtn small kind="secondary" onClick={() => setT((t) => ({ ...t, block: { ...t.block, deloadFrom: D.today, auto: null } }))}>
+              Nu een deloadweek
+            </TBtn>
+          )}
+          {D.pos.forced && (
+            <TBtn small kind="ghost" onClick={() => setT((t) => ({ ...t, block: { ...t.block, deloadFrom: null, auto: null, dismissedAt: D.today } }))}>
+              Deload stoppen
+            </TBtn>
+          )}
+        </div>
+      </Section>
+
+      <Section title="Instellingen training">
+        <Row label="Inspanning loggen als" hint="RPE 10 = RIR 0, RPE 9 = RIR 1. De app rekent intern met RIR.">
+          <Seg
+            value={s.effort}
+            onChange={(v) => setS("effort", v)}
+            options={[
+              { value: "rir", label: "RIR" },
+              { value: "rpe", label: "RPE" },
+            ]}
+          />
+        </Row>
+        <Row
+          label="Progressie"
+          hint={
+            s.autoProgress
+              ? "Automatisch: gewicht, reps, fase-aanpassingen en een deload bij vermoeidheid worden direct toegepast. U kunt alles terugdraaien."
+              : "Voorstel: de app rekent alles uit en u keurt goed. Zo kan een verkeerd ingevoerde set nooit ongemerkt uw schema sturen."
+          }
+        >
+          <Seg
+            value={s.autoProgress}
+            onChange={(v) => setS("autoProgress", v)}
+            options={[
+              { value: false, label: "Voorstel" },
+              { value: true, label: "Auto" },
+            ]}
+          />
+        </Row>
+        <Row label="Herstelcheck voor de training" hint="Slaap, energie en spierpijn. Voedt de deload-detectie.">
+          <Seg
+            value={s.readiness}
+            onChange={(v) => setS("readiness", v)}
+            options={[
+              { value: true, label: "Aan" },
+              { value: false, label: "Uit" },
+            ]}
+          />
+        </Row>
+        <Row label="Geluid bij einde rust">
+          <Seg
+            value={s.sound}
+            onChange={(v) => setS("sound", v)}
+            options={[
+              { value: true, label: "Aan" },
+              { value: false, label: "Uit" },
+            ]}
+          />
+        </Row>
+        <Row label="Trillen bij einde rust" hint="Werkt op Android; iPhone ondersteunt trillen vanuit een webapp niet.">
+          <Seg
+            value={s.vibrate}
+            onChange={(v) => setS("vibrate", v)}
+            options={[
+              { value: true, label: "Aan" },
+              { value: false, label: "Uit" },
+            ]}
+          />
+        </Row>
+        <Row
+          label="Melding als de app op de achtergrond staat"
+          hint="Werkt het best met de app geïnstalleerd op het beginscherm. Op een iPhone pauzeert de telefoon webapps op de achtergrond; de melding komt dan pas als u de app weer opent. Houd de app open voor een betrouwbare timer."
+        >
+          <Seg
+            value={s.notify}
+            onChange={askNotify}
+            options={[
+              { value: true, label: "Aan" },
+              { value: false, label: "Uit" },
+            ]}
+          />
+        </Row>
+        {notifyMsg && (
+          <p className="px-4 py-2 text-xs" style={{ color: C.warn }}>
+            {notifyMsg}
+          </p>
+        )}
+        <Row label="Scherm aan houden tijdens training">
+          <Seg
+            value={s.wakeLock}
+            onChange={(v) => setS("wakeLock", v)}
+            options={[
+              { value: true, label: "Aan" },
+              { value: false, label: "Uit" },
+            ]}
+          />
+        </Row>
+        <div className="px-4 pt-3 pb-1 text-sm font-medium">Gewichtsstappen per materiaal</div>
+        <p className="px-4 text-xs" style={{ color: C.muted }}>
+          Hiermee verhoogt de app het gewicht. Per oefening kunt u dit overschrijven.
+        </p>
+        <div className="px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-2">
+          {Object.entries(EQUIP).map(([k, v]) => (
+            <label key={k} className="flex items-center justify-between gap-2 text-sm">
+              {v.label}
+              <Num value={s.inc[k]} step={0.5} onChange={(val) => setT((t) => ({ ...t, settings: { ...t.settings, inc: { ...t.settings.inc, [k]: Math.max(0.25, num(val, v.inc)) } } }))} min={0.25} max={20} />
+            </label>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Eigen oefeningen" sub="Oefeningen die u zelf heeft toegevoegd.">
+        {T.customEx.length ? (
+          T.customEx.map((e) => (
+            <div key={e.id} className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+              <span className="min-w-0">
+                <span className="text-sm font-semibold block">{e.name}</span>
+                <span className="text-xs" style={{ color: C.muted }}>
+                  {exMeta(e)}
+                </span>
+              </span>
+              {confirm === e.id ? (
+                <TBtn small kind="danger" onClick={() => setT((t) => ({ ...t, customEx: t.customEx.filter((x) => x.id !== e.id) }))}>
+                  Zeker?
+                </TBtn>
+              ) : (
+                <TBtn small kind="ghost" onClick={() => setConfirm(e.id)}>
+                  Verwijderen
+                </TBtn>
+              )}
+            </div>
+          ))
+        ) : (
+          <p className="px-4 py-3 text-xs" style={{ color: C.muted }}>
+            Nog geen eigen oefeningen. Voeg ze toe via "+ Oefening" bij een training.
+          </p>
+        )}
+      </Section>
+
+      {picker && (
+        <ExercisePicker
+          exIndex={D.exIndex}
+          title={picker.mode === "swap" ? "Andere oefening" : "Oefening toevoegen"}
+          muscle={picker.muscle || null}
+          onClose={() => setPicker(null)}
+          onCreate={(ex) => setT((t) => ({ ...t, customEx: [...t.customEx, ex] }))}
+          onPick={(ex) => {
+            if (picker.mode === "swap") updSlot(picker.dayId, picker.slotId, { exId: ex.id, repMin: ex.repMin, repMax: ex.repMax, startWeight: null });
+            else {
+              const day = program.days.find((d) => d.id === picker.dayId);
+              const first = day && !day.slots.some((x) => ex.pri.some((m) => exOf(D.exIndex, x.exId).pri.includes(m)));
+              updDay(picker.dayId, (d) => ({
+                ...d,
+                slots: [...d.slots, makeSlot(ex, { sets: 2, warmups: ex.kind === "compound" ? (first ? 2 : 1) : first ? 1 : 0 })],
+              }));
+            }
+            setPicker(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function TrainInsights({ T, D }) {
+  const [which, setWhich] = useState("deze");
+  const today = dayNum(D.today);
+  const mon = today - wdOfNum(today);
+  const from = which === "deze" ? mon : mon - 7;
+  const vol = muscleSets(D.sessions, D.exIndex, from, from + 6);
+  const planned = D.program ? plannedMuscleSets(D.program, D.exIndex) : Object.fromEntries(MUSCLE_IDS.map((k) => [k, 0]));
+  const shown = MUSCLE_IDS.filter((k) => vol[k] > 0 || planned[k] > 0);
+
+  const weeks = [...Array(8)].map((_, k) => {
+    const m = mon - (7 - k) * 7;
+    const ss = D.sessions.filter((s) => s.end && dayNum(s.date) >= m && dayNum(s.date) <= m + 6);
+    return { m, n: ss.length, ton: sum(ss.map((s) => sessionStats(s).ton)) };
+  });
+  const perWeek = D.program ? sessionsPerWeek(D.program) : null;
+  const last4 = weeks.slice(4);
+  const done4 = sum(last4.map((w) => w.n));
+  const plan4 = perWeek ? Math.round(perWeek * 4) : null;
+
+  const exCounts = {};
+  D.sessions.forEach((s) =>
+    s.exercises.forEach((e) => {
+      if (bestE1rm(e) > 0) exCounts[e.exId] = (exCounts[e.exId] || 0) + 1;
+    })
+  );
+  const exList = Object.keys(exCounts).sort((a, b) => exCounts[b] - exCounts[a]);
+  const [exSel, setExSel] = useState(null);
+  const cur = exSel && exCounts[exSel] ? exSel : exList[0];
+  const pts = [];
+  let best = 0;
+  let heaviest = null;
+  D.sessions.forEach((s) => {
+    const e = s.exercises.find((x) => x.exId === cur);
+    if (!e) return;
+    const v = bestE1rm(e);
+    if (!v) return;
+    const pr = best > 0 && v > best + 0.05;
+    best = Math.max(best, v);
+    pts.push({ t: dayNum(s.date), v, pr, date: s.date });
+    workSets(e).forEach((x) => {
+      if (!heaviest || num(x.weight, 0) > num(heaviest.weight, 0)) heaviest = { ...x, date: s.date };
+    });
+  });
+  const change = pts.length >= 2 ? ((pts[pts.length - 1].v - pts[0].v) / pts[0].v) * 100 : null;
+
+  const records = exList
+    .map((id) => {
+      let b = 0;
+      let d = null;
+      D.sessions.forEach((s) =>
+        s.exercises.forEach((e) => {
+          if (e.exId !== id) return;
+          const v = bestE1rm(e);
+          if (v > b) {
+            b = v;
+            d = s.date;
+          }
+        })
+      );
+      return { id, b, d };
+    })
+    .sort((a, b) => (b.d || "").localeCompare(a.d || ""))
+    .slice(0, 10);
+
+  if (!D.sessions.length) {
+    return (
+      <Section title="Inzichten" sub="Na uw eerste trainingen verschijnen hier volume per spiergroep, krachtverloop, records en therapietrouw.">
+        <p className="px-4 py-3 text-sm" style={{ color: C.muted }}>
+          Nog geen trainingen gelogd.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <>
+      <Section
+        title="Volume per spiergroep"
+        sub="Werksets per week. Hoofdspier telt 1, hulpspier ½. Groene band: MAV, grijs streepje: MEV, rood: MRV, zwart: gepland volgens uw schema. Bij sets tot (bijna) falen ligt het effectieve minimum vaak lager."
+      >
+        <div className="px-4 py-2.5 flex justify-end" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+          <Seg
+            value={which}
+            onChange={setWhich}
+            options={[
+              { value: "deze", label: "Deze week" },
+              { value: "vorige", label: "Vorige week" },
+            ]}
+          />
+        </div>
+        {shown.map((k) => (
+          <VolumeRow key={k} m={k} done={vol[k]} planned={planned[k]} />
+        ))}
+      </Section>
+
+      <Section title="Volume per week" sub="Gewicht × reps van alle werksets, laatste acht weken.">
+        <div className="px-4 py-3">
+          <BarsMini bars={weeks.map((w, k) => ({ label: fmtDay(w.m), v: w.ton, hi: k === 7 }))} fmt={(v) => `${Math.round(v / 100) / 10}t`} />
+        </div>
+      </Section>
+
+      {cur && (
+        <Section title="Krachtverloop" sub="Geschatte 1RM per training (Epley, gecorrigeerd voor reps in reserve). Groene punten zijn records.">
+          <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+            <Pick value={cur} onChange={setExSel} options={exList.map((id) => ({ id, label: `${exOf(D.exIndex, id).name} (${exCounts[id]}×)` }))} />
+          </div>
+          <div className="px-4 py-3">
+            {pts.length >= 2 ? (
+              <LineMini pts={pts} />
+            ) : (
+              <p className="text-xs" style={{ color: C.muted }}>
+                Na twee trainingen met deze oefening verschijnt hier de lijn.
+              </p>
+            )}
+          </div>
+          <div className="px-4 pb-3 grid grid-cols-2 gap-2">
+            <Stat label="Beste e1RM" value={`${kgTxt(Math.round(best * 10) / 10)} kg`} />
+            <Stat label="Zwaarste set" value={heaviest ? `${kgTxt(heaviest.weight)} × ${heaviest.reps}` : "–"} sub={heaviest ? fmtDay(dayNum(heaviest.date)) : null} />
+            <Stat label="Sinds de eerste keer" value={change == null ? "–" : `${change >= 0 ? "+" : ""}${change.toFixed(1).replace(".", ",")}%`} />
+            <Stat label="Trainingen" value={pts.length} />
+          </div>
+        </Section>
+      )}
+
+      <Section title="Therapietrouw" sub={perWeek ? `Trainingen per week tegen uw schema (${perWeek.toFixed(1).replace(".", ",")} per week).` : "Trainingen per week."}>
+        <div className="px-4 py-3">
+          <BarsMini bars={weeks.map((w, k) => ({ label: fmtDay(w.m), v: w.n, hi: perWeek ? w.n >= Math.round(perWeek) : k === 7 }))} fmt={(v) => v} color="var(--carb-fill)" target={perWeek} />
+          {plan4 != null && (
+            <p className="text-xs mt-2" style={{ color: C.muted }}>
+              Laatste vier weken: <strong style={{ color: C.ink }}>{done4}</strong> van {plan4} geplande trainingen ({plan4 ? Math.round((done4 / plan4) * 100) : 0}%).
+            </p>
+          )}
+        </div>
+      </Section>
+
+      {records.length > 0 && (
+        <Section title="Records" accent={C.carb} sub="Hoogste geschatte 1RM per oefening.">
+          {records.map((r) => (
+            <div key={r.id} className="px-4 py-2.5 flex items-baseline justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+              <span className="text-sm">{exOf(D.exIndex, r.id).name}</span>
+              <span className="text-xs tnum shrink-0" style={{ color: C.muted }}>
+                <strong style={{ color: C.ink }}>{kgTxt(Math.round(r.b * 10) / 10)} kg</strong> · {r.d ? fmtDay(dayNum(r.d)) : ""}
+              </span>
+            </div>
+          ))}
+        </Section>
+      )}
+    </>
+  );
+}
+
+function TrainLog({ T, setT, D }) {
+  const [open, setOpen] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const fileRef = useRef(null);
+  const scale = T.settings.effort;
+  const list = [...D.sessions].filter((s) => s.end).reverse();
+  const [limit, setLimit] = useState(20);
+
+  const onImport = async (file) => {
+    try {
+      const text = await file.text();
+      const d = JSON.parse(text);
+      if (!d || !Array.isArray(d.sessions) || !Array.isArray(d.programs)) throw new Error("geen trainingsbestand");
+      setConfirm({ kind: "import", data: normalizeTraining(d) });
+    } catch (e) {
+      setMsg("Dit bestand kon niet worden gelezen als trainingsdata.");
+    }
+  };
+
+  return (
+    <>
+      <Section title="Logboek" sub={`${list.length} ${list.length === 1 ? "training" : "trainingen"} opgeslagen.`}>
+        {!list.length && (
+          <p className="px-4 py-3 text-sm" style={{ color: C.muted }}>
+            Nog geen trainingen. Start er een op Overzicht.
+          </p>
+        )}
+        {list.slice(0, limit).map((s) => {
+          const st = sessionStats(s);
+          const isOpen = open === s.id;
+          return (
+            <div key={s.id} style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+              <button onClick={() => setOpen(isOpen ? null : s.id)} className="tap w-full text-left px-4 py-2.5 flex items-center gap-3" aria-expanded={isOpen}>
+                <span className="min-w-0 flex-1">
+                  <span className="text-sm font-semibold block">
+                    {s.name}{" "}
+                    {s.deload && <Chip color={C.carb}>deload</Chip>} {s.light && <Chip color={C.warn}>lichter</Chip>}
+                  </span>
+                  <span className="text-xs block tnum" style={{ color: C.muted }}>
+                    {weekdayNL(s.date)} · {st.min} min · {st.sets} werksets · {fmtKgTotal(st.ton)}
+                  </span>
+                </span>
+                <span className="text-xs shrink-0" style={{ color: C.accent }}>
+                  {isOpen ? "Sluiten" : "Details"}
+                </span>
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-3">
+                  {s.readiness && !s.readiness.skipped && (
+                    <p className="text-xs mb-2" style={{ color: C.muted }}>
+                      Herstelscore {readinessScore(s.readiness)} van 9
+                    </p>
+                  )}
+                  {s.exercises.map((e) => (
+                    <div key={e.id} className="mb-2">
+                      <div className="text-sm font-medium">{exOf(D.exIndex, e.exId).name}</div>
+                      <div className="text-xs tnum leading-relaxed" style={{ color: C.muted }}>
+                        {e.sets
+                          .map((x) => `${x.type === "warmup" ? "opw. " : ""}${kgTxt(x.weight)} × ${x.reps}${x.type === "work" && x.rir != null ? ` ${effortLabel(x.rir, scale)}` : ""}`)
+                          .join(" · ")}
+                      </div>
+                      {e.note && (
+                        <div className="text-xs italic" style={{ color: C.muted }}>
+                          {e.note}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {s.note && (
+                    <p className="text-xs italic mb-2" style={{ color: C.muted }}>
+                      {s.note}
+                    </p>
+                  )}
+                  {confirm && confirm.kind === "del" && confirm.id === s.id ? (
+                    <div className="flex gap-2">
+                      <TBtn
+                        small
+                        kind="danger"
+                        onClick={() => {
+                          setT((t) => ({ ...t, sessions: t.sessions.filter((x) => x.id !== s.id) }));
+                          setConfirm(null);
+                        }}
+                      >
+                        Ja, verwijderen
+                      </TBtn>
+                      <TBtn small kind="ghost" onClick={() => setConfirm(null)}>
+                        Annuleren
+                      </TBtn>
+                    </div>
+                  ) : (
+                    <TBtn small kind="ghost" onClick={() => setConfirm({ kind: "del", id: s.id })}>
+                      Training verwijderen
+                    </TBtn>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {list.length > limit && (
+          <div className="px-4 py-3">
+            <TBtn small kind="secondary" onClick={() => setLimit(limit + 20)}>
+              Meer tonen
+            </TBtn>
+          </div>
+        )}
+      </Section>
+
+      <Section title="Back-up" sub="Uw trainingsdata staan in deze app. Maak af en toe een back-up, of zet ze over naar een ander apparaat.">
+        <div className="px-4 py-3 flex flex-wrap gap-2">
+          <TBtn
+            small
+            kind="secondary"
+            onClick={() => {
+              const { active, ...rest } = T;
+              const ok = downloadJSON(`training-${D.today}.json`, rest);
+              setMsg(ok ? "Back-up gedownload." : "Downloaden lukt niet in deze weergave.");
+            }}
+          >
+            Back-up downloaden
+          </TBtn>
+          <TBtn small kind="secondary" onClick={() => fileRef.current && fileRef.current.click()}>
+            Back-up terugzetten
+          </TBtn>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files && e.target.files[0];
+              if (f) onImport(f);
+              e.target.value = "";
+            }}
+          />
+          {confirm && confirm.kind === "wipe" ? (
+            <>
+              <TBtn
+                small
+                kind="danger"
+                onClick={() => {
+                  setT(TRAIN_DEFAULT());
+                  setConfirm(null);
+                  setMsg("Alle trainingsdata gewist.");
+                }}
+              >
+                Ja, alles wissen
+              </TBtn>
+              <TBtn small kind="ghost" onClick={() => setConfirm(null)}>
+                Annuleren
+              </TBtn>
+            </>
+          ) : (
+            <TBtn small kind="ghost" onClick={() => setConfirm({ kind: "wipe" })}>
+              Alle trainingsdata wissen
+            </TBtn>
+          )}
+        </div>
+        {confirm && confirm.kind === "import" && (
+          <div className="px-4 pb-3">
+            <p className="text-xs mb-2" style={{ color: C.warn }}>
+              Terugzetten vervangt uw huidige trainingsdata door {confirm.data.sessions.length} trainingen en {confirm.data.programs.length} schema's uit het bestand.
+            </p>
+            <div className="flex gap-2">
+              <TBtn
+                small
+                kind="danger"
+                onClick={() => {
+                  setT({ ...confirm.data, active: null });
+                  setConfirm(null);
+                  setMsg("Back-up teruggezet.");
+                }}
+              >
+                Vervangen
+              </TBtn>
+              <TBtn small kind="ghost" onClick={() => setConfirm(null)}>
+                Annuleren
+              </TBtn>
+            </div>
+          </div>
+        )}
+        {msg && (
+          <p className="px-4 pb-3 text-xs" style={{ color: C.muted }}>
+            {msg}
+          </p>
+        )}
+      </Section>
+    </>
+  );
+}
+
+const TRAIN_VIEWS = [
+  { id: "overzicht", label: "Overzicht" },
+  { id: "schema", label: "Schema" },
+  { id: "inzichten", label: "Inzichten" },
+  { id: "logboek", label: "Logboek" },
+];
+
+function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSummary }) {
+  const [view, setView] = useState("overzicht");
+  const go = (v) => {
+    setView(v);
+    try {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    } catch (e) {
+      /* oudere browsers */
+    }
+  };
+  if (T.active) return <LiveWorkout T={T} setT={setT} D={D} bw={bw} onFinish={(s) => setSummary(s)} />;
+  return (
+    <>
+      <div className="flex gap-1 p-1 mb-5" style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 999 }} role="tablist">
+        {TRAIN_VIEWS.map((v) => {
+          const on = view === v.id;
+          return (
+            <button
+              key={v.id}
+              role="tab"
+              aria-selected={on}
+              onClick={() => go(v.id)}
+              className="tap flex-1 py-1.5 text-sm rounded-full"
+              style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+            >
+              {v.label}
+            </button>
+          );
+        })}
+      </div>
+      {view === "overzicht" && <TrainOverview T={T} setT={setT} D={D} week={week} setWeek={setWeek} onStart={onStart} go={go} />}
+      {view === "schema" && <TrainSchema T={T} setT={setT} D={D} week={week} setWeek={setWeek} />}
+      {view === "inzichten" && <TrainInsights T={T} D={D} />}
+      {view === "logboek" && <TrainLog T={T} setT={setT} D={D} />}
+      {summary && <SessionSummary s={summary} D={D} T={T} setT={setT} onClose={() => setSummary(null)} />}
+    </>
+  );
+}
+
+function TodayTrainingCard({ T, D, onOpen, onStart }) {
+  if (T.active) return null;
+  const plan = D.plan;
+  if (!D.program) {
+    return (
+      <button
+        onClick={onOpen}
+        className="tap w-full text-left mb-3 px-3 py-2 flex items-center gap-3"
+        style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}
+      >
+        <span className="shrink-0 rounded-full" style={{ width: 10, height: 10, background: C.muted }} />
+        <span className="text-xs flex-1" style={{ color: C.muted }}>
+          <strong style={{ color: C.ink }}>Nog geen trainingsschema</strong> · kies een startschema en log uw trainingen
+        </span>
+        <span className="text-xs shrink-0" style={{ color: C.accent }}>
+          Training
+        </span>
+      </button>
+    );
+  }
+  const day = plan && plan.day && !plan.doneToday ? plan.day : null;
+  return (
+    <div className="mb-3 px-3 py-2 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+      <span className="shrink-0 rounded-full" style={{ width: 10, height: 10, background: BLOCK_COLOR[D.pos.phase] }} />
+      <button onClick={onOpen} className="tap text-left text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+        <strong style={{ color: C.ink }}>
+          {day ? `Training: ${day.name}` : plan && plan.doneToday ? "Training gedaan" : "Rustdag"}
+        </strong>
+        {" · "}
+        {BLOCK_LABEL[D.pos.phase].toLowerCase()} · doel {effortLabel(D.pos.rir, T.settings.effort)}
+        {D.fatigue && !T.block.deloadFrom ? " · deload aanbevolen" : ""}
+      </button>
+      {day ? (
+        <TBtn small onClick={() => onStart(day, plan.rotPos)}>
+          Start
+        </TBtn>
+      ) : (
+        <button onClick={onOpen} className="tap text-xs shrink-0" style={{ color: C.accent }}>
+          Training
+        </button>
+      )}
+    </div>
+  );
+}
+
+class TrainingBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    if (this.props.quiet) return null;
+    return (
+      <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.warnBg, borderRadius: R.card }}>
+        <span className="rail" style={{ background: C.train }} />
+        <div className="disp text-lg font-bold uppercase leading-none" style={{ color: C.train }}>
+          Training kon niet laden
+        </div>
+        <p className="text-xs mt-1 mb-2" style={{ color: C.warn }}>
+          {String(this.state.error && this.state.error.message)}. Uw voeding werkt gewoon door. Meestal lost het verwijderen van de lopende training dit op; uw logboek blijft bewaard.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <TBtn
+            small
+            kind="danger"
+            onClick={() => {
+              this.props.onClearActive && this.props.onClearActive();
+              this.setState({ error: null });
+            }}
+          >
+            Lopende training verwijderen
+          </TBtn>
+          <TBtn small kind="ghost" onClick={() => this.setState({ error: null })}>
+            Opnieuw proberen
+          </TBtn>
+        </div>
+      </div>
+    );
+  }
+}
+
 /* Vangnet: één fout in de weergave mag nooit een leeg scherm opleveren.
    De gebruiker krijgt de melding plus een knop om de opgeslagen instellingen
    te wissen, want een onverwachte fout komt vrijwel altijd uit oude opslag. */
@@ -2588,6 +6262,8 @@ function MacroApp() {
   const [storage, setStorage] = useState("laden");
   const [loaded, setLoaded] = useState(false);
   const [storeMode, setStoreMode] = useState("claude");
+  const [T, setT, tLoaded] = useTrainingStore();
+  const [trainSummary, setTrainSummary] = useState(null);
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const setPhase = (k, v) => setPhaseCfg((s) => ({ ...s, [k]: v }));
@@ -2771,6 +6447,59 @@ function MacroApp() {
   }, [f, week, kcalAdjust, effGoal, effRate]);
 
   const { input, energy, weight } = core;
+
+  /* ---------------- training ---------------- */
+  const trainToday = localISO();
+  const trainPhase = planNow.active ? planNow.row.phase : effGoal;
+  const D = useMemo(() => trainDerive(T, { phase: trainPhase }, trainToday), [T, trainPhase, trainToday]);
+
+  const startTraining = (day, rotPos = null) => {
+    primeAudio();
+    setT((t) => (t.active ? t : { ...t, active: buildSession({ program: D.program, day, D, T: t, rotPos, bw: weight }) }));
+    setTab("training");
+  };
+
+  /* Een ingelaste deload loopt zeven dagen; daarna begint een nieuw blok.
+     In de automatische stand wordt een deload bij vermoeidheid direct ingelast. */
+  useEffect(() => {
+    if (!tLoaded) return;
+    const b = T.block;
+    if (b.deloadFrom && dayNum(trainToday) >= dayNum(b.deloadFrom) + 7) {
+      const before = blockPosition({ ...b, deloadFrom: null }, b.deloadFrom, T.settings.intensity);
+      setT((t) => ({ ...t, block: { ...t.block, start: isoOfNum(dayNum(b.deloadFrom) + 7), number: before.number + 1, deloadFrom: null, auto: null } }));
+      return;
+    }
+    if (T.settings.autoProgress && D.fatigue && !b.deloadFrom && !T.active) {
+      setT((t) => ({ ...t, block: { ...t.block, deloadFrom: trainToday, auto: { at: trainToday, reasons: D.fatigue.reasons } } }));
+    }
+  }, [tLoaded, T.block, T.settings.autoProgress, T.settings.intensity, D.fatigue, trainToday, !!T.active]);
+
+  /* Scherm aan houden tijdens een training (Screen Wake Lock API). */
+  const trainingActive = !!T.active;
+  useEffect(() => {
+    if (!trainingActive || !T.settings.wakeLock || typeof navigator === "undefined" || !navigator.wakeLock) return;
+    let lock = null;
+    let alive = true;
+    const req = async () => {
+      try {
+        if (alive && document.visibilityState === "visible") lock = await navigator.wakeLock.request("screen");
+      } catch (e) {
+        /* geweigerd of niet ondersteund */
+      }
+    };
+    req();
+    const onVis = () => document.visibilityState === "visible" && req();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      alive = false;
+      document.removeEventListener("visibilitychange", onVis);
+      try {
+        if (lock) lock.release();
+      } catch (e) {
+        /* al vrijgegeven */
+      }
+    };
+  }, [trainingActive, T.settings.wakeLock]);
 
   const dayPlan = useMemo(() => {
     const proteinPerKg = f.proteinOverride ?? recommendedProtein(input);
@@ -4035,7 +7764,10 @@ function MacroApp() {
       )}
 
 
-      <div className="macroapp no-print mx-auto max-w-2xl px-4 pt-6" style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}>
+      <div
+        className="macroapp no-print mx-auto max-w-2xl px-4 pt-6"
+        style={{ paddingBottom: trainingActive ? "calc(210px + env(safe-area-inset-bottom, 0px))" : "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+      >
         <header className="mb-5 flex items-end justify-between gap-3">
           <div>
             <div className="text-xs font-semibold" style={{ color: C.accent, letterSpacing: "0.02em" }}>
@@ -4191,6 +7923,10 @@ function MacroApp() {
                 </span>
               </button>
             )}
+
+            <TrainingBoundary quiet>
+              <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
+            </TrainingBoundary>
 
             {/* Kleeft bovenaan tijdens het scrollen met position: sticky.
                 Geen scrollmeting nodig, dus het werkt in elke webweergave. */}
@@ -5054,6 +8790,21 @@ function MacroApp() {
         )}
 
           </>
+        )}
+        {tab === "training" && (
+          <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
+            <TrainingTab
+              T={T}
+              setT={setT}
+              D={D}
+              bw={weight}
+              week={week}
+              setWeek={setWeek}
+              onStart={startTraining}
+              summary={trainSummary}
+              setSummary={setTrainSummary}
+            />
+          </TrainingBoundary>
         )}
         {tab === "eten" && (
           <>
@@ -6956,6 +10707,10 @@ function MacroApp() {
         )}
       </div>
 
+      <TrainingBoundary quiet>
+        <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />
+      </TrainingBoundary>
+
       {/* ---------------- tabbalk ---------------- */}
       <nav
         className="no-print fixed left-0 right-0 bottom-0 z-40"
@@ -6967,10 +10722,13 @@ function MacroApp() {
         }}
         aria-label="Hoofdnavigatie"
       >
-        <div className="mx-auto max-w-2xl grid grid-cols-5">
+        <div className="mx-auto max-w-2xl grid grid-cols-6">
           {TABS.map((t) => {
             const on = tab === t.id;
-            const badge = t.id === "vandaag" && (warnings.length > 0 || !!planUpdate) && !on;
+            const badge =
+              !on &&
+              ((t.id === "vandaag" && (warnings.length > 0 || !!planUpdate)) ||
+                (t.id === "training" && (trainingActive || (!!D.fatigue && !T.block.deloadFrom))));
             return (
               <button
                 key={t.id}
