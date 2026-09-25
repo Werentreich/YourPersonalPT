@@ -1474,8 +1474,8 @@ const HORMONE_TIPS = {
     title: "Testosteron: wat er werkelijk toe doet",
     works: [
       "Houd uw vetpercentage ruwweg tussen 10 en 20 procent. Bij een hoog vetpercentage zet aromatase meer testosteron om in oestradiol, bij een zeer laag vetpercentage zakt de productie door het energietekort.",
-      "Houd vet op minimaal 20 procent van uw calorieën. Vetarme voeding gaat in meta-analyse samen met een circa 10 tot 15 procent lager totaal testosteron (Whittaker en Wu, 2021).",
-      "Slaap minimaal 7 uur. Een week met 5 uur slaap verlaagde testosteron bij jonge mannen met 10 tot 15 procent (Leproult en Van Cauter, JAMA 2011).",
+      "Houd vet op minimaal 20 procent van uw calorieën. Vetarme voeding gaat samen met een circa 10 tot 15 procent lager totaal testosteron.",
+      "Slaap minimaal 7 uur. Een week met 5 uur slaap per nacht kan testosteron bij jonge mannen met 10 tot 15 procent verlagen.",
       "Houd het calorietekort gematigd en bouw onderhoudsfases in. Een langdurig groot tekort drukt LH en daarmee de productie.",
       "Beperk alcohol. Zware inname verlaagt testosteron acuut en chronisch.",
       "Train met gewichten en herstel voldoende. Chronisch te veel volume zonder herstel werkt averechts.",
@@ -1489,7 +1489,7 @@ const HORMONE_TIPS = {
   vrouw: {
     title: "Vrouwelijke hormonen: wat er werkelijk toe doet",
     works: [
-      "Energiebeschikbaarheid is de belangrijkste knop. Onder 30 kcal per kg vetvrije massa verstoort de LH-pulsatiliteit, met cyclusuitval en botverlies tot gevolg (IOC-consensus REDs, 2023).",
+      "Energiebeschikbaarheid is de belangrijkste knop. Onder 30 kcal per kg vetvrije massa verstoort de LH-pulsatiliteit, met cyclusuitval en botverlies tot gevolg.",
       "Behandel uw cyclus als meetinstrument. Het wegblijven van de menstruatie is geen teken van fitheid maar van een energietekort en vraagt om ingrijpen.",
       "Houd vet op minimaal 20 tot 25 procent van uw calorieën. Steroïdhormonen worden uit cholesterol opgebouwd.",
       "Vermijd chronisch zeer lage koolhydraatinname bij een hoge trainingsbelasting; dat verhoogt cortisol en verstoort de cyclus.",
@@ -2683,7 +2683,7 @@ function emptyProgram(name = "Eigen schema") {
 /* ---------------- periodisering ---------------- */
 
 const INTENSITY = {
-  kuba: { label: "Kuba: RIR 2 naar 0", acc: [2, 1], int: [1, 0] },
+  kuba: { label: "Standaard: RIR 2 naar 0", acc: [2, 1], int: [1, 0] },
   gematigd: { label: "Gematigd: RIR 3 naar 1", acc: [3, 2], int: [2, 1] },
 };
 const BLOCK_LABEL = { opbouw: "Opbouw", intensivering: "Intensivering", deload: "Deload" };
@@ -3147,10 +3147,10 @@ function programCheck(program, exIndex) {
       state: comp >= 0.3 && comp <= 0.5 ? "goed" : "oplet",
       note:
         comp > 0.5
-          ? "Veel compound. Kuba mikt op ongeveer 40/60: isolatie laat u dichter bij falen trainen met minder vermoeidheid per set."
+          ? "Veel compound. Streef naar ongeveer 40/60: isolatie laat u dichter bij falen trainen met minder vermoeidheid per set."
           : comp < 0.3
           ? "Weinig compound. Een paar zware basisoefeningen per week houden de totale belasting en kracht op peil."
-          : "Rond de 40/60 die Kuba aanhoudt.",
+          : "Rond de aanbevolen 40/60.",
     },
     {
       label: "Lengthened-bias",
@@ -3168,7 +3168,7 @@ function programCheck(program, exIndex) {
       label: "Werksets per oefening",
       value: avgSets.toFixed(1).replace(".", ","),
       state: avgSets <= 3 ? "goed" : "oplet",
-      note: "Kuba: twee kwaliteitssets tot RIR 0-1. Meer sets per oefening kan, maar dan daalt de kwaliteit per set vaak.",
+      note: "Twee kwaliteitssets tot RIR 0-1 is het uitgangspunt. Meer sets per oefening kan, maar dan daalt de kwaliteit per set vaak.",
     },
     {
       label: "Onder het minimum (MEV)",
@@ -4650,7 +4650,7 @@ function TemplateStarter({ T, setT, D, week, setWeek, onDone }) {
     onDone && onDone(p);
   };
   return (
-    <Section title="Kies een startschema" sub="Alle sjablonen volgen de Kuba-principes: twee werksets tot RIR 0-1, veel oefeningen die de spier onder rek belasten, en ongeveer 40/60 compound/isolatie. Alles is daarna aan te passen.">
+    <Section title="Kies een startschema" sub="Alle sjablonen volgen dezelfde uitgangspunten: twee werksets tot RIR 0-1, veel oefeningen die de spier onder rek belasten, en ongeveer 40/60 compound/isolatie. Alles is daarna aan te passen.">
       <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
         {TEMPLATES.map((t) => {
           const on = tpl === t.id;
@@ -4683,7 +4683,7 @@ function TemplateStarter({ T, setT, D, week, setWeek, onDone }) {
           ]}
         />
       </Row>
-      <Row label="Werksets per oefening" hint="Kuba: twee sets van topkwaliteit. Drie geeft meer volume.">
+      <Row label="Werksets per oefening" hint="Twee sets van topkwaliteit is het uitgangspunt. Drie geeft meer volume.">
         <Seg
           value={sets}
           onChange={setSets}
@@ -5421,7 +5421,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
           </div>
 
           {check.length > 0 && (
-            <Section title="Programmacheck" accent={C.carb} sub="Getoetst aan de principes van Kuba Cielen en de volumerichtwaarden van Renaissance Periodization.">
+            <Section title="Programmacheck" accent={C.carb} sub="Uw schema getoetst op oefenkeuze, verhouding compound/isolatie en volume per spiergroep.">
               {check.map((c) => (
                 <Status key={c.label} label={c.label} value={c.value} state={c.state} note={c.note} />
               ))}
@@ -5456,7 +5456,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
             ]}
           />
         </Row>
-        <Row label="Intensiteit" stack hint="Kuba traint werksets tot RIR 0-1. Gematigd houdt overal een rep meer over.">
+        <Row label="Intensiteit" stack hint="Standaard: werksets tot RIR 0-1. Gematigd houdt overal een rep meer over.">
           <Pick value={s.intensity} onChange={(v) => setS("intensity", v)} options={Object.entries(INTENSITY).map(([id, v]) => ({ id, label: v.label }))} />
         </Row>
         <div className="px-4 py-3 flex flex-wrap gap-2">
@@ -5731,7 +5731,7 @@ function TrainInsights({ T, D }) {
       </Section>
 
       {cur && (
-        <Section title="Krachtverloop" sub="Geschatte 1RM per training (Epley, gecorrigeerd voor reps in reserve). Groene punten zijn records.">
+        <Section title="Krachtverloop" sub="Geschatte 1RM per training, gecorrigeerd voor reps in reserve. Groene punten zijn records.">
           <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
             <Pick value={cur} onChange={setExSel} options={exList.map((id) => ({ id, label: `${exOf(D.exIndex, id).name} (${exCounts[id]}×)` }))} />
           </div>
@@ -10062,7 +10062,7 @@ function MacroApp() {
             state={hormone.fatPct < 20 ? "risico" : hormone.fatPct < 23 ? "oplet" : "goed"}
             note={
               hormone.fatPct < 23
-                ? "Steroïdhormonen worden uit cholesterol opgebouwd. Onder 20 procent van de calorieën uit vet daalt het totaal testosteron in meta-analyse met ongeveer 10 tot 15 procent. Verhoog het vetaandeel bij de geavanceerde instellingen."
+                ? "Steroïdhormonen worden uit cholesterol opgebouwd. Onder 20 procent van de calorieën uit vet daalt het totaal testosteron gemiddeld met ongeveer 10 tot 15 procent. Verhoog het vetaandeel bij de geavanceerde instellingen."
                 : null
             }
           />
@@ -10691,12 +10691,9 @@ function MacroApp() {
               : "Opslag is in deze weergave niet beschikbaar; uw invoer geldt alleen voor deze sessie."}
           </p>
           <p className="mb-2">
-            Rekenmethode: Mifflin-St Jeor of Katch-McArdle voor het rustmetabolisme, MET-waarden voor het
-            trainingsverbruik, eiwitrichtlijnen volgens de ISSN position stand en Helms et al., eiwitspreiding volgens
-            Schoenfeld en Aragon, koolhydraattiming volgens Kerksick et al. Voedingswaarden zijn afgeronde
-            standaardwaarden uit NEVO en USDA FoodData Central; controleer de verpakking van uw eigen producten.
-            De niveaus en beschrijvingen bij het vetpercentage volgen de fotoreeks van BuiltLean (Marc Perry), met de ACE-tabel en Gallagher et al. (AJCN 2000) als achtergrond. Micronutriëntnormen volgen de Gezondheidsraad en EFSA Dietary Reference Values; hormonale adviezen zijn
-            gebaseerd op Whittaker en Wu (2021), Leproult en Van Cauter (2011) en de IOC-consensus over REDs (2023).
+            Rekenmethode: gangbare formules voor het rustmetabolisme, MET-waarden voor het trainingsverbruik en
+            sportvoedingsrichtlijnen voor eiwit, eiwitspreiding en koolhydraattiming. Voedingswaarden zijn afgeronde
+            standaardwaarden; controleer de verpakking van uw eigen producten.
           </p>
           <p>
             Dit is een rekenhulp, geen medisch advies. De prognoses zijn schattingen; de weegschaal over meerdere weken
