@@ -3033,6 +3033,299 @@ const lowReadiness = (r) => {
   return v != null && v <= 5;
 };
 
+/* ---------------- technieken ----------------
+   Supersets koppelen een oefening aan de volgende (slot.ss); twee of meer
+   gekoppelde oefeningen wisselen elkaar per ronde af, met een korte wissel
+   (slot.ssRest) en de volledige rust na de laatste. Dropsets, rest-pause,
+   myo-reps en halve reps hangen als extra rijen (subsets) na een werkset.
+   Progressie, e1RM en records kijken alleen naar gewone werksets; voor het
+   volume telt elke subset als een halve set, hoogstens één extra per werkset. */
+
+const TECH = {
+  drop: { label: "Dropset", sub: "drop", n: [1, 3, 2], rest: 0, row: "↓", reps: "max", hint: "Direct na de werkset, zonder rust, met minder gewicht door tot (bijna) falen." },
+  rp: { label: "Rest-pause", sub: "rp", n: [1, 3, 2], rest: 15, row: "P", reps: "max", hint: "Zelfde gewicht, korte pauze, dan zoveel mogelijk reps. Herhaal." },
+  myo: { label: "Myo-reps", sub: "myo", n: [2, 5, 4], rest: 15, row: "M", reps: "3–5", hint: "Activatieset van 12–20 reps, dan mini-sets van 3–5 reps met 3 tot 5 ademhalingen rust. Stop zodra u het doel niet meer haalt." },
+  partial: { label: "Halve reps (gerekt)", sub: "partial", n: [1, 1, 1], rest: 0, row: "½", reps: "5–10", hint: "Na de laatste volledige rep doorgaan met halve reps in de gerekte positie, tot falen." },
+};
+const SUB_TYPES = new Set(Object.keys(TECH));
+const techShort = (t) =>
+  !t
+    ? ""
+    : t.type === "drop"
+    ? `dropset ${t.n}× −${t.pct}%${t.all ? " (elke set)" : ""}`
+    : t.type === "rp"
+    ? `rest-pause ${t.n}× ${t.pause} s${t.all ? " (elke set)" : ""}`
+    : t.type === "myo"
+    ? `myo-reps tot ${t.n} mini-sets`
+    : `halve reps${t.all ? " (elke set)" : ""}`;
+const isSub = (s) => !!s && SUB_TYPES.has(s.type);
+const MYO_MIN = 3;
+
+function normTech(t) {
+  if (!t || !TECH[t.type]) return null;
+  const d = TECH[t.type];
+  return {
+    type: t.type,
+    n: clamp(Math.round(num(t.n, d.n[2])), d.n[0], d.n[1]),
+    pct: clamp(num(t.pct, 20), 10, 40),
+    pause: clamp(num(t.pause, d.rest || 15), 5, 60),
+    all: !!t.all,
+  };
+}
+
+/* Techniek vervalt in een deload en in een minicut: dan gaat het om
+   herstel en behoud, niet om extra prikkel. */
+const techOff = (D) => (D.pos.phase === "deload" ? "deload" : D.phase === "minicut" && D.phaseOn ? "minicut" : null);
+
+function subWeight(type, w, k, pct, inc) {
+  if (!(num(w, 0) > 0)) return null;
+  if (type === "drop") return Math.max(0, roundTo(num(w, 0) * Math.pow(1 - pct / 100, k), inc || 2.5));
+  return num(w, 0);
+}
+
+function techSubs(tech, w, inc) {
+  const t = normTech(tech);
+  if (!t) return [];
+  return Array.from({ length: t.n }, (_, k) => ({ type: t.type, k: k + 1, weight: subWeight(t.type, w, k + 1, t.pct, inc), reps: null, rir: null, done: false }));
+}
+
+/* Plakt de subsets achter de laatste werkset, of achter elke werkset. */
+function applyTech(sets, tech, inc) {
+  const t = normTech(tech);
+  if (!t) return sets;
+  const work = sets.map((x, k) => (x.type === "work" ? k : -1)).filter((k) => k >= 0);
+  if (!work.length) return sets;
+  const at = new Set(t.all ? work : [work[work.length - 1]]);
+  const out = [];
+  sets.forEach((x, k) => {
+    out.push(x);
+    if (at.has(k)) out.push(...techSubs(t, x.weight, inc));
+  });
+  return out;
+}
+
+/* Houdt de gewichten van nog niet gedane subsets gelijk met hun werkset,
+   tot de gebruiker er zelf een wijzigt. */
+function syncSubs(sets, tech, inc) {
+  const t = normTech(tech);
+  let w = null;
+  return sets.map((x) => {
+    if (x.type === "work") w = x.weight;
+    if (!isSub(x) || x.done || x.manual) return x;
+    const nw = subWeight(x.type, w, x.k || 1, t ? t.pct : 20, inc);
+    return nw === x.weight ? x : { ...x, weight: nw };
+  });
+}
+
+/* Werksets met hun subsets als blokken; warming-ups apart. */
+function setBlocks(sets) {
+  const warm = [];
+  const blocks = [];
+  sets.forEach((x, j) => {
+    if (x.type === "warmup") warm.push(j);
+    else if (x.type === "work" || !blocks.length) blocks.push([j]);
+    else blocks[blocks.length - 1].push(j);
+  });
+  return { warm, blocks };
+}
+
+function addWorkSet(sets, tech, inc) {
+  const t = normTech(tech);
+  const lastWork = [...sets].reverse().find((x) => x.type === "work");
+  const ns = { type: "work", weight: lastWork ? lastWork.weight : null, reps: lastWork ? lastWork.reps : null, rir: null, done: false };
+  if (!t) return [...sets, ns];
+  if (t.all) return [...sets, ns, ...techSubs(t, ns.weight, inc)];
+  // de techniek blijft op de laatste werkset: nieuwe set vóór die laatste
+  const { blocks } = setBlocks(sets);
+  const lastB = blocks[blocks.length - 1];
+  if (!lastB || sets[lastB[0]].done) return [...sets, ns];
+  const at = lastB[0];
+  return [...sets.slice(0, at), ns, ...sets.slice(at)];
+}
+
+/* Haalt een werkset weg (standaard de laatste nog open). Staat de techniek
+   alleen op de laatste set, dan schuift die door naar de vorige. */
+function removeWorkSet(sets, tech, inc) {
+  const t = normTech(tech);
+  const work = setBlocks(sets).blocks.filter((b) => sets[b[0]].type === "work");
+  const open = work.filter((b) => !b.some((j) => sets[j].done));
+  const b = open[open.length - 1];
+  if (!b) {
+    const k = sets.length - 1;
+    return k >= 0 && !sets[k].done ? sets.slice(0, k) : sets;
+  }
+  const keepSubs = t && !t.all && b.length > 1 && work.length > 1;
+  const drop = new Set(keepSubs ? [b[0]] : b);
+  return syncSubs(
+    sets.filter((_, j) => !drop.has(j)),
+    tech,
+    inc
+  );
+}
+
+/* Supersets: groepen van opeenvolgende oefeningen die met ss aan elkaar
+   hangen. label A1, A2, B1 ... alleen bij groepen van twee of meer. */
+function ssGroups(list) {
+  const info = list.map(() => ({ g: null, pos: 0, size: 1, label: null }));
+  let gi = 0;
+  let k = 0;
+  while (k < list.length) {
+    let end = k;
+    while (end < list.length - 1 && list[end].ss) end++;
+    if (end > k) {
+      const letter = String.fromCharCode(65 + (gi % 26));
+      for (let m = k; m <= end; m++) info[m] = { g: gi, pos: m - k, size: end - k + 1, label: `${letter}${m - k + 1}`, start: k, end };
+      gi++;
+    }
+    k = end + 1;
+  }
+  return info;
+}
+
+/* Volgorde van alle sets in een training: binnen een superset eerst alle
+   warming-ups, dan per ronde van elke oefening één werkset met zijn subsets. */
+function sessionOrder(exercises) {
+  const info = ssGroups(exercises);
+  const out = [];
+  let i = 0;
+  while (i < exercises.length) {
+    const g = info[i];
+    if (g.g == null) {
+      exercises[i].sets.forEach((_, j) => out.push({ i, j, round: null }));
+      i++;
+      continue;
+    }
+    const members = [];
+    for (let m = g.start; m <= g.end; m++) members.push(m);
+    const parts = members.map((m) => setBlocks(exercises[m].sets));
+    members.forEach((m, q) => parts[q].warm.forEach((j) => out.push({ i: m, j, round: null })));
+    const rounds = Math.max(0, ...parts.map((p) => p.blocks.length));
+    for (let r = 0; r < rounds; r++) members.forEach((m, q) => (parts[q].blocks[r] || []).forEach((j) => out.push({ i: m, j, round: r })));
+    i = g.end + 1;
+  }
+  return out;
+}
+
+/* Wat komt er na set (i, j), en hoe lang is de rust ertussen. */
+function nextStep(exercises, i, j, doneNow = true) {
+  const order = sessionOrder(exercises);
+  const isDone = (o) => exercises[o.i].sets[o.j].done || (doneNow && o.i === i && o.j === j);
+  const pos = order.findIndex((o) => o.i === i && o.j === j);
+  const next = order.slice(pos + 1).find((o) => !isDone(o)) || order.find((o) => !isDone(o)) || null;
+  const e = exercises[i];
+  const s = e.sets[j];
+  if (!next) return { next: null, rest: 0, kind: "klaar" };
+  const ns = exercises[next.i].sets[next.j];
+  const t = normTech(e.tech);
+  if (next.i === i && isSub(ns) && next.j === j + 1) {
+    return { next, rest: ns.type === "rp" || ns.type === "myo" ? (t ? t.pause : TECH[ns.type].rest) : 0, kind: "sub" };
+  }
+  if (s.type === "warmup") return { next, rest: 60, kind: "warmup" };
+  const cur = order[pos];
+  if (cur && cur.round != null && next.i !== i && next.round === cur.round && ssGroups(exercises)[next.i].g === ssGroups(exercises)[i].g) {
+    return { next, rest: clamp(num(e.ssRest, 15), 0, 120), kind: "wissel" };
+  }
+  return { next, rest: num(e.rest, 120), kind: "rust" };
+}
+
+/* Voor het volume: werksets plus een halve set per subset, hoogstens één
+   extra per werkset. */
+function effSets(e) {
+  const sets = (e && e.sets) || [];
+  let n = 0;
+  let extra = 0;
+  let open = false;
+  const flush = () => {
+    n += Math.min(1, extra * 0.5);
+    extra = 0;
+  };
+  sets.forEach((x) => {
+    if (x.type === "work") {
+      flush();
+      open = x.done && num(x.reps, 0) > 0;
+      if (open) n++;
+    } else if (isSub(x) && open && x.done && num(x.reps, 0) > 0) extra++;
+  });
+  flush();
+  return n;
+}
+
+function techExtraSets(slot) {
+  const t = normTech(slot.tech);
+  if (!t) return 0;
+  return Math.min(1, t.n * 0.5) * (t.all ? Math.max(1, num(slot.sets, 2)) : 1);
+}
+
+const UPPER = new Set(["borst", "rug", "schouder_voor", "schouder_zij", "schouder_achter", "trapezius", "biceps", "triceps", "onderarmen"]);
+const LOWER = new Set(["quadriceps", "hamstrings", "bilspieren", "kuiten"]);
+const ANTAG = [
+  ["borst", "rug"],
+  ["biceps", "triceps"],
+  ["quadriceps", "hamstrings"],
+  ["schouder_voor", "schouder_achter"],
+];
+function ssKind(a, b) {
+  if (!a || !b) return null;
+  if (a.pri.some((m) => b.pri.includes(m))) return "zelfde";
+  if (ANTAG.some(([x, y]) => (a.pri.includes(x) && b.pri.includes(y)) || (a.pri.includes(y) && b.pri.includes(x)))) return "tegengesteld";
+  if (a.pri.some((m) => b.sec.includes(m)) || b.pri.some((m) => a.sec.includes(m))) return "overlap";
+  const up = (e) => e.pri.every((m) => UPPER.has(m));
+  const low = (e) => e.pri.every((m) => LOWER.has(m));
+  if ((up(a) && low(b)) || (low(a) && up(b))) return "boven-onder";
+  return "los";
+}
+const SS_KIND = {
+  tegengesteld: { label: "tegengestelde spieren", note: "Aanbevolen: bespaart tijd zonder prestatieverlies.", ok: true },
+  "boven-onder": { label: "boven- en onderlichaam", note: "Prima: de spieren storen elkaar niet.", ok: true },
+  los: { label: "verschillende spieren", note: "Prima: de spieren storen elkaar nauwelijks.", ok: true },
+  overlap: { label: "deels dezelfde spieren", note: "De tweede oefening gebruikt spieren die de eerste al vermoeid heeft; reken op iets minder reps.", ok: false },
+  zelfde: { label: "dezelfde spiergroep", note: "Zwaar: de tweede oefening haalt duidelijk minder reps en de progressie wordt lastiger te volgen. Liever tegengestelde spieren combineren.", ok: false },
+};
+
+/* Zware oefeningen met een losse stang (squat, deadlift, bankdrukken):
+   tot falen met snel gewicht wisselen is daar riskant. */
+const heavyFree = (ex) => !!ex && ex.equip === "stang" && ex.kind === "compound";
+
+/* Stelt supersets van tegengestelde spieren voor binnen een trainingsdag.
+   De volgorde blijft zoveel mogelijk staan: de partner schuift naar voren. */
+function suggestSupersets(day, exIndex) {
+  const slots = day.slots;
+  const grouped = new Set();
+  ssGroups(slots).forEach((g, k) => g.g != null && grouped.add(k));
+  const used = new Set(grouped);
+  const pairs = [];
+  slots.forEach((s, i) => {
+    if (used.has(i)) return;
+    const a = exIndex[s.exId];
+    if (!a || (heavyFree(a) && a.pri.some((m) => LOWER.has(m)))) return;
+    for (let j = i + 1; j < slots.length; j++) {
+      if (used.has(j)) continue;
+      const b = exIndex[slots[j].exId];
+      if (!b || (heavyFree(b) && b.pri.some((m) => LOWER.has(m)))) continue;
+      if (ssKind(a, b) === "tegengesteld") {
+        used.add(i);
+        used.add(j);
+        pairs.push([i, j]);
+        break;
+      }
+    }
+  });
+  if (!pairs.length) return null;
+  const partner = new Map(pairs.map(([i, j]) => [i, j]));
+  const moved = new Set(pairs.map(([, j]) => j));
+  const out = [];
+  slots.forEach((s, i) => {
+    if (moved.has(i)) return;
+    if (partner.has(i)) {
+      const r = rest2(s, slots[partner.get(i)]);
+      out.push({ ...s, ss: true, ssRest: s.ssRest ?? 15 });
+      out.push({ ...slots[partner.get(i)], ss: false, rest: r });
+    } else out.push(s);
+  });
+  return { pairs: pairs.map(([i, j]) => [slots[i], slots[j]]), slots: out };
+}
+const rest2 = (a, b) => Math.max(num(a.rest, 120), num(b.rest, 120));
+
 function historyFor(sessions, slot) {
   const pick = (pred) => {
     const out = [];
@@ -3228,6 +3521,8 @@ function entryFromSlot(slot, count, D, T, bw) {
   const inc = incFor(ex, T.settings, w || 0);
   const lo = num(slot.repMin, ex.repMin);
   const hi = num(slot.repMax, ex.repMax);
+  const off = techOff(D);
+  const tech = off ? null : normTech(slot.tech);
   const reps = tg.prop.last || tg.source === "handmatig" ? expand(tg.use.reps, count) : expand([], count, null);
   return {
     id: uid(),
@@ -3256,10 +3551,18 @@ function entryFromSlot(slot, count, D, T, bw) {
           : tg.prop.why,
     },
     proposal: tg.pending ? { weight: tg.prop.weight, reps: expand(tg.prop.reps, count), why: tg.prop.why, change: tg.prop.change } : null,
-    sets: [
-      ...warmupSets(slot.warmups, w || 0, inc),
-      ...Array.from({ length: count }, (_, i) => ({ type: "work", weight: w, reps: reps[i] ?? null, rir: null, done: false })),
-    ],
+    ss: !!slot.ss,
+    ssRest: slot.ssRest ?? 15,
+    tech: tech,
+    techOff: slot.tech && !tech ? off : null,
+    sets: applyTech(
+      [
+        ...warmupSets(slot.warmups, w || 0, inc),
+        ...Array.from({ length: count }, (_, i) => ({ type: "work", weight: w, reps: reps[i] ?? null, rir: null, done: false })),
+      ],
+      tech,
+      inc
+    ),
   };
 }
 
@@ -3303,13 +3606,18 @@ function sessionStats(s) {
   let ton = 0;
   let sets = 0;
   let reps = 0;
-  s.exercises.forEach((e) =>
+  s.exercises.forEach((e) => {
     workSets(e).forEach((x) => {
       ton += setLoad(e, x) * num(x.reps, 0);
       sets++;
       reps += num(x.reps, 0);
-    })
-  );
+    });
+    e.sets.forEach((x) => {
+      if (!isSub(x) || !x.done) return;
+      ton += setLoad(e, x) * num(x.reps, 0);
+      reps += num(x.reps, 0);
+    });
+  });
   return { ton, sets, reps, min: s.end ? Math.max(1, Math.round((s.end - s.start) / 60000)) : null };
 }
 
@@ -3345,7 +3653,7 @@ function muscleSets(sessions, exIndex, fromNum, toNum) {
     s.exercises.forEach((e) => {
       const ex = exIndex[e.exId];
       if (!ex) return;
-      const k = workSets(e).length;
+      const k = effSets(e);
       ex.pri.forEach((p) => {
         if (m[p] != null) m[p] += k;
       });
@@ -3372,7 +3680,7 @@ function plannedMuscleSets(program, exIndex) {
     day.slots.forEach((s) => {
       const ex = exIndex[s.exId];
       if (!ex) return;
-      const k = num(s.sets, 2) * weight;
+      const k = (num(s.sets, 2) + techExtraSets(s)) * weight;
       ex.pri.forEach((p) => {
         if (m[p] != null) m[p] += k;
       });
@@ -3388,7 +3696,14 @@ const sessionsPerWeek = (program) => sum(daysPerWeek(program).map((d) => d.weigh
 
 function estMinutes(day) {
   if (!day) return 0;
-  const sec = sum(day.slots.map((s) => num(s.warmups, 0) * 100 + num(s.sets, 2) * (45 + num(s.rest, 120))));
+  /* in een superset vervangt de korte wissel de rust, behalve na de laatste */
+  const sec = sum(
+    day.slots.map((s) => {
+      const t = normTech(s.tech);
+      const sub = t ? t.n * (t.type === "rp" || t.type === "myo" ? t.pause + 15 : 20) * (t.all ? num(s.sets, 2) : 1) : 0;
+      return num(s.warmups, 0) * 100 + num(s.sets, 2) * (45 + (s.ss ? num(s.ssRest, 15) : num(s.rest, 120))) + sub;
+    })
+  );
   return Math.max(15, Math.round(sec / 60 / 5) * 5);
 }
 
@@ -4231,7 +4546,7 @@ function WorkoutDock({ T, setT, showOpen, onOpen }) {
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
                 <div className="text-xs truncate" style={{ color: over ? "var(--carb-fill)" : C.darkMuted }}>
-                  {over ? "Rust voorbij" : "Rust"}
+                  {over ? (rest.kind === "wissel" ? "Wisselen" : rest.kind === "sub" ? "Door" : "Rust voorbij") : rest.kind === "wissel" ? "Wissel" : rest.kind === "sub" ? "Pauze" : "Rust"}
                   {rest.next ? ` · ${rest.next}` : ""}
                 </div>
                 <div className="disp text-3xl font-bold tnum leading-none" style={{ color: over ? "var(--carb-fill)" : C.darkInk }}>
@@ -4348,18 +4663,16 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
       const cur = e.sets[j];
       const firstWork = e.sets.findIndex((s) => s.type === "work");
       const inc = incFor(exOf(D.exIndex, e.exId), T.settings, num(val, 0));
-      return {
-        ...e,
-        sets: e.sets.map((s, k) => {
-          if (k === j) return { ...s, [key]: val, ...(key === "weight" && s.type === "warmup" ? { pct: null } : {}) };
+      const sets = e.sets.map((s, k) => {
+          if (k === j) return { ...s, [key]: val, ...(key === "weight" && s.type === "warmup" ? { pct: null } : {}), ...(key === "weight" && isSub(s) ? { manual: true } : {}) };
           // warming-ups rekenen mee met het eerste werkgewicht, tot u ze zelf aanpast
           if (key === "weight" && j === firstWork && s.type === "warmup" && !s.done && s.pct && num(val, 0) > 0)
             return { ...s, weight: Math.max(0, roundTo(num(val, 0) * s.pct, inc)) };
           // een nieuw gewicht op een werkset geldt ook voor de volgende werksets
           if (key === "weight" && k > j && !s.done && s.type === "work" && cur.type === "work" && s.weight === cur.weight) return { ...s, weight: val };
           return s;
-        }),
-      };
+        });
+      return { ...e, sets: key === "weight" && e.tech ? syncSubs(sets, e.tech, inc) : sets };
     });
 
   const toggleDone = (i, j) => {
@@ -4381,33 +4694,48 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
       const prev = Math.max(bestBefore(D.sessions, e.exId, Infinity), ...a.exercises.filter((x) => x.exId === e.exId).map((x) => bestE1rm(x)));
       if (prev > 0 && cur > prev + 0.05) setToast({ text: `Nieuw record: ${name}, e1RM ${kgTxt(Math.round(cur * 10) / 10)} kg`, pr: true, long: true });
     }
-    const restSec = s.type === "warmup" ? 60 : num(e.rest, 120);
-    const nextSet = e.sets.findIndex((y, k) => k !== j && !y.done);
-    const ni = a.exercises.findIndex((x, k) => k > i && x.sets.some((y) => !y.done));
-    let next = null;
-    if (nextSet >= 0) next = `${name}, ${e.sets[nextSet].type === "warmup" ? "warming-up" : "werkset"}`;
-    else if (ni >= 0) next = exOf(D.exIndex, a.exercises[ni].exId).name;
-    const allDone = nextSet < 0 && !a.exercises.some((x, k) => k !== i && x.sets.some((y) => !y.done));
+    /* myo-reps: haalt een mini-set het doel niet meer, dan vervallen de
+       overige mini-sets van dat blok */
+    let sets = e.sets.map((z, m) => (m === j ? { ...z, done: true, t: Date.now() } : z));
+    let myoStop = false;
+    if (s.type === "myo" && reps < MYO_MIN) {
+      const rest = [];
+      for (let m = j + 1; m < sets.length && sets[m].type === "myo"; m++) if (!sets[m].done) rest.push(m);
+      if (rest.length) {
+        sets = sets.filter((_, m) => !rest.includes(m));
+        myoStop = true;
+      }
+    }
+    const exs = a.exercises.map((y, k) => (k === i ? { ...y, sets } : y));
+    const st = nextStep(exs, i, j);
+    const nx = st.next ? exs[st.next.i] : null;
+    const ns = nx ? nx.sets[st.next.j] : null;
+    const gi = ssGroups(exs);
+    const nm = (k) => `${exOf(D.exIndex, exs[k].exId).name}${gi[k].label ? ` (${gi[k].label})` : ""}`;
+    const next = !ns
+      ? null
+      : isSub(ns)
+      ? `${TECH[ns.type].label}, ${ns.type === "drop" ? `${kgTxt(ns.weight)} kg` : `mini-set ${ns.k}`}`
+      : st.next.i === i
+      ? `${name}, ${ns.type === "warmup" ? "warming-up" : "werkset"}`
+      : `${nm(st.next.i)}${ns.type === "warmup" ? ", warming-up" : ""}`;
     upd((x) => ({
       ...x,
-      exercises: x.exercises.map((y, k) => (k === i ? { ...y, sets: y.sets.map((z, m) => (m === j ? { ...z, done: true, t: Date.now() } : z)) } : y)),
-      rest: allDone ? null : { endsAt: Date.now() + restSec * 1000, total: restSec, next },
+      exercises: x.exercises.map((y, k) => (k === i ? { ...y, sets } : y)),
+      rest: !st.next || st.rest <= 0 ? null : { endsAt: Date.now() + st.rest * 1000, total: st.rest, next, kind: st.kind },
     }));
-    if (nextSet < 0 && ni >= 0) setOpen(ni);
-    if (allDone) setToast({ text: "Alle sets gedaan. Rond de training af om hem op te slaan." });
+    if (st.next && st.next.i !== i) setOpen(st.next.i);
+    if (!st.next) setToast({ text: "Alle sets gedaan. Rond de training af om hem op te slaan." });
+    else if (myoStop) setToast({ text: `Myo-reps klaar: minder dan ${MYO_MIN} reps, de overige mini-sets vervallen.` });
+    else if (st.rest <= 0 && next) setToast({ text: `Direct door: ${next}` });
   };
 
-  const addSet = (i) =>
-    updEx(i, (e) => {
-      const lastWork = [...e.sets].reverse().find((s) => s.type === "work");
-      return { ...e, sets: [...e.sets, { type: "work", weight: lastWork ? lastWork.weight : null, reps: lastWork ? lastWork.reps : null, rir: null, done: false }] };
-    });
-  const removeSet = (i) =>
-    updEx(i, (e) => {
-      const k = e.sets.length - 1;
-      if (k < 0 || e.sets[k].done) return e;
-      return { ...e, sets: e.sets.slice(0, k) };
-    });
+  const incOf = (e) => {
+    const w = e.sets.find((s) => s.type === "work");
+    return incFor(exOf(D.exIndex, e.exId), T.settings, w ? num(w.weight, 0) : 0);
+  };
+  const addSet = (i) => updEx(i, (e) => ({ ...e, sets: addWorkSet(e.sets, e.tech, incOf(e)) }));
+  const removeSet = (i) => updEx(i, (e) => ({ ...e, sets: removeWorkSet(e.sets, e.tech, incOf(e)) }));
   const freeSlot = (ex, sets, warmups, rest) => ({
     id: "vrij_" + uid(),
     exId: ex.id,
@@ -4428,7 +4756,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
     const e = a.exercises[i];
     const n = Math.max(1, e.sets.filter((s) => s.type === "work").length);
     const w = e.sets.filter((s) => s.type === "warmup").length;
-    const entry = { ...entryFromSlot(freeSlot(ex, n, w, e.rest), n, D, T, bw), slotId: null, swappedFrom: e.exId };
+    const entry = { ...entryFromSlot(freeSlot(ex, n, w, e.rest), n, D, T, bw), slotId: null, swappedFrom: e.exId, ss: e.ss, ssRest: e.ssRest };
     updEx(i, () => entry);
   };
   const moveEx = (i, d) =>
@@ -4447,14 +4775,18 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
         ...e,
         target: { ...e.target, weight: e.proposal.weight, reps: e.proposal.reps, change: e.proposal.change, why: e.proposal.why },
         proposal: null,
-        sets: e.sets.map((s) => {
-          if (s.type !== "work")
-            return s.done || !(num(e.target.weight, 0) > 0) || !(num(s.weight, 0) > 0)
-              ? s
-              : { ...s, weight: roundTo(e.proposal.weight * (s.weight / e.target.weight), 0.5) };
-          k++;
-          return s.done ? s : { ...s, weight: e.proposal.weight, reps: e.proposal.reps[Math.min(k, e.proposal.reps.length - 1)] };
-        }),
+        sets: syncSubs(
+          e.sets.map((s) => {
+            if (s.type !== "work")
+              return s.done || !(num(e.target.weight, 0) > 0) || !(num(s.weight, 0) > 0)
+                ? s
+                : { ...s, weight: roundTo(e.proposal.weight * (s.weight / e.target.weight), 0.5) };
+            k++;
+            return s.done ? s : { ...s, weight: e.proposal.weight, reps: e.proposal.reps[Math.min(k, e.proposal.reps.length - 1)] };
+          }),
+          e.tech,
+          incOf(e)
+        ),
       };
     });
   const lightDay = () =>
@@ -4465,9 +4797,8 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
       exercises: x.exercises.map((e) => {
         const work = e.sets.filter((s) => s.type === "work");
         if (work.length <= 1) return e;
-        const idx = e.sets.map((s, k) => (s.type === "work" && !s.done ? k : -1)).filter((k) => k >= 0);
-        const drop = idx[idx.length - 1];
-        return drop == null ? e : { ...e, sets: e.sets.filter((_, k) => k !== drop) };
+        if (!work.some((s) => !s.done)) return e;
+        return { ...e, sets: removeWorkSet(e.sets, e.tech, incOf(e)) };
       }),
     }));
 
@@ -4482,6 +4813,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
   };
   const discard = () => setT((t) => ({ ...t, active: null }));
 
+  const liveGroups = ssGroups(a.exercises);
   const totalWork = sum(a.exercises.map((e) => e.sets.filter((s) => s.type === "work").length));
   const doneWork = sum(a.exercises.map((e) => e.sets.filter((s) => s.type === "work" && s.done).length));
   const anyDone = a.exercises.some((e) => e.sets.some((s) => s.done));
@@ -4561,6 +4893,9 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
       {a.exercises.map((e, i) => {
         const ex = exOf(D.exIndex, e.exId);
         const isOpen = open === i;
+        const g = liveGroups[i];
+        const inGroup = g.g != null;
+        const tech = normTech(e.tech);
         const work = e.sets.filter((s) => s.type === "work");
         const done = work.filter((s) => s.done).length;
         const complete = e.sets.length > 0 && e.sets.every((s) => s.done);
@@ -4568,18 +4903,33 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
         let wn = 0;
         let un = 0;
         return (
-          <div key={e.id} className="mb-3 overflow-hidden" style={{ background: C.panel, border: `1px solid ${isOpen ? C.accent : C.line}`, borderRadius: R.card, boxShadow: C.shadow }}>
+          <React.Fragment key={e.id}>
+          {inGroup && g.pos === 0 && (
+            <div className="flex items-baseline justify-between gap-2 px-1 mb-1.5 text-xs">
+              <span className="font-semibold" style={{ color: C.accent }}>
+                {g.size === 2 ? "Superset" : "Giant set"} {g.label[0]}
+              </span>
+              <span className="tnum" style={{ color: C.muted }}>
+                wissel {num(e.ssRest, 15)} s · rust {mmss(a.exercises[g.end].rest)} per ronde
+              </span>
+            </div>
+          )}
+          <div
+            className={`${inGroup && g.pos < g.size - 1 ? "mb-1.5" : "mb-3"} overflow-hidden`}
+            style={{ background: C.panel, border: `1px solid ${isOpen ? C.accent : C.line}`, borderLeft: inGroup ? `4px solid ${C.accent}` : undefined, borderRadius: R.card, boxShadow: C.shadow }}
+          >
             <button onClick={() => setOpen(isOpen ? -1 : i)} className="tap w-full text-left px-4 py-3 flex items-center gap-3" aria-expanded={isOpen}>
               <span
                 className="shrink-0 flex items-center justify-center disp font-bold text-sm"
                 style={{ width: 28, height: 28, borderRadius: 14, background: complete ? "var(--carb-fill)" : C.surface2, color: complete ? "#04140E" : C.muted, border: `1px solid ${complete ? "var(--carb-fill)" : C.line}` }}
               >
-                {complete ? "✓" : i + 1}
+                {complete ? "✓" : inGroup ? g.label : i + 1}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="text-sm font-semibold block truncate">{ex.name}</span>
                 <span className="text-xs block" style={{ color: C.muted }}>
-                  {work.length} × {e.repMin}–{e.repMax} · rust {mmss(e.rest)}
+                  {work.length} × {e.repMin}–{e.repMax} · {inGroup && g.pos < g.size - 1 ? `wissel ${num(e.ssRest, 15)} s` : `rust ${mmss(e.rest)}`}
+                  {tech && <span style={{ color: C.accent, fontWeight: 600 }}> · {techShort(tech)}</span>}
                   {e.target && e.target.change && e.target.change !== "vorige" ? " · " : ""}
                   {e.target && e.target.change && e.target.change !== "vorige" && (
                     <span style={{ color: CHANGE_COLOR[e.target.change], fontWeight: 600 }}>{CHANGE_LABEL[e.target.change]}</span>
@@ -4606,6 +4956,12 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                     </span>
                   )}
                   {e.slotNote && <span className="block mt-0.5 italic">{e.slotNote}</span>}
+                  {tech && <span className="block mt-0.5">{TECH[tech.type].hint}</span>}
+                  {e.techOff && (
+                    <span className="block mt-0.5">
+                      Uw techniek vervalt vandaag: {e.techOff === "deload" ? "in een deload gaat het om herstel" : "in een minicut gaat het om behoud"}.
+                    </span>
+                  )}
                   {e.bwLoad > 0 && <span className="block mt-0.5">Lichaamsgewicht telt mee als {kgTxt(e.bwLoad)} kg; vul alleen extra gewicht in.</span>}
                 </div>
 
@@ -4634,14 +4990,15 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                 </div>
                 {e.sets.map((s, j) => {
                   const warm = s.type === "warmup";
-                  const label = warm ? `W${++un}` : `${++wn}`;
+                  const sub = isSub(s);
+                  const label = warm ? `W${++un}` : sub ? (s.type === "partial" ? "½" : `${TECH[s.type].row}${s.k || 1}`) : `${++wn}`;
                   return (
                     <div
                       key={j}
                       className="grid items-center gap-1.5 py-1"
                       style={{ ...cols, background: s.done ? "rgba(0,195,137,.08)" : "transparent", borderRadius: 8 }}
                     >
-                      <span className="disp text-sm font-bold text-center" style={{ color: warm ? C.muted : C.ink }}>
+                      <span className="disp text-sm font-bold text-center" style={{ color: warm ? C.muted : sub ? C.accent : C.ink }}>
                         {label}
                       </span>
                       <input
@@ -4661,7 +5018,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                         inputMode="numeric"
                         min="0"
                         value={s.reps ?? ""}
-                        placeholder={`${e.repMin}-${e.repMax}`}
+                        placeholder={sub ? TECH[s.type].reps : `${e.repMin}-${e.repMax}`}
                         onChange={(ev) => setField(i, j, "reps", ev.target.value === "" ? null : Number(ev.target.value))}
                         className="w-full px-1 py-2 text-sm text-center tnum"
                         style={inputStyle}
@@ -4670,6 +5027,10 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                       {warm ? (
                         <span className="text-xs text-center" style={{ color: C.muted }}>
                           opwarmen
+                        </span>
+                      ) : sub ? (
+                        <span className="text-xs text-center leading-tight" style={{ color: C.muted }}>
+                          {s.type === "drop" ? "direct" : s.type === "partial" ? "gerekt" : `na ${tech ? tech.pause : TECH[s.type].rest} s`}
                         </span>
                       ) : (
                         <EffortSelect value={s.rir} onChange={(v) => setField(i, j, "rir", v)} scale={scale} />
@@ -4730,6 +5091,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
               </div>
             )}
           </div>
+          </React.Fragment>
         );
       })}
 
@@ -4916,7 +5278,7 @@ function SessionSummary({ s, D, T, setT, onClose }) {
       <div className="grid grid-cols-2 gap-2 mb-4">
         <Stat label="Duur" value={`${st.min} min`} />
         <Stat label="Werksets" value={st.sets} />
-        <Stat label="Volume" value={fmtKgTotal(st.ton)} sub="gewicht × reps, werksets" />
+        <Stat label="Volume" value={fmtKgTotal(st.ton)} sub="gewicht × reps, zonder warming-ups" />
         <Stat label="Reps" value={st.reps} />
       </div>
       {prs.length > 0 && (
@@ -5343,30 +5705,45 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
   );
 }
 
-function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap, onEditEx }) {
+/* Verplaatsen of verwijderen haalt een oefening uit haar superset, zodat
+   er nooit ongemerkt een andere oefening aan vast komt te hangen. */
+function unlinkAt(slots, idx) {
+  return slots.map((x, k) => (k === idx || (k === idx - 1 && x.ss) ? { ...x, ss: false } : x));
+}
+
+function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot, updDay, onSwap, onEditEx }) {
   const [open, setOpen] = useState(false);
   const hasHist = historyFor(D.sessions, slot).length > 0;
   const edit = (T.exEdits && T.exEdits[ex.id]) || {};
+  const tech = normTech(slot.tech);
+  const kind = slot.ss && nextEx ? ssKind(ex, nextEx) : null;
+  const setTech = (patch) =>
+    updSlot(day.id, slot.id, {
+      tech: !patch ? null : patch.type ? (tech && tech.type === patch.type ? tech : normTech({ type: patch.type })) : normTech({ ...tech, ...patch }),
+    });
   const move = (d) =>
     updDay(day.id, (x) => {
       const j = idx + d;
       if (j < 0 || j >= x.slots.length) return x;
-      const s = [...x.slots];
+      const s = unlinkAt(x.slots, idx);
       [s[idx], s[j]] = [s[j], s[idx]];
       return { ...x, slots: s };
     });
+  const inGroup = group && group.g != null;
   return (
-    <div style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+    <div style={{ borderBottom: `1px solid ${C.lineSoft}`, borderLeft: inGroup ? `4px solid ${C.accent}` : undefined }}>
       <button onClick={() => setOpen(!open)} className="tap w-full text-left px-4 py-2.5 flex items-center gap-3" aria-expanded={open}>
-        <span className="disp text-sm font-bold shrink-0 text-center" style={{ width: 18, color: C.muted }}>
-          {idx + 1}
+        <span className="disp text-sm font-bold shrink-0 text-center" style={{ width: 18, color: inGroup ? C.accent : C.muted }}>
+          {inGroup ? group.label : idx + 1}
         </span>
         <span className="min-w-0 flex-1">
           <span className="text-sm font-semibold block">
             {ex.name} <ExBadges ex={ex} />
           </span>
           <span className="text-xs block tnum" style={{ color: C.muted }}>
-            {slot.sets} × {slot.repMin}–{slot.repMax} · {slot.warmups} opw. · rust {mmss(slot.rest)} · {slot.rir != null && slot.rir !== "" ? effortLabel(slot.rir, T.settings.effort) : "RIR volgens blok"}
+            {slot.sets} × {slot.repMin}–{slot.repMax} · {slot.warmups} opw. · {slot.ss && idx < n - 1 ? `wissel ${num(slot.ssRest, 15)} s` : `rust ${mmss(slot.rest)}`} ·{" "}
+            {slot.rir != null && slot.rir !== "" ? effortLabel(slot.rir, T.settings.effort) : "RIR volgens blok"}
+            {tech && <span style={{ color: C.accent, fontWeight: 600 }}> · {techShort(tech)}</span>}
           </span>
         </span>
         <span className="text-xs shrink-0" style={{ color: C.accent }}>
@@ -5440,6 +5817,91 @@ function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap
               <Num value={slot.startWeight ?? ""} step={0.5} onChange={(v) => updSlot(day.id, slot.id, { startWeight: v === "" ? null : v })} min={0} />
             </label>
           )}
+          <div className="pt-1" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+            <span className="text-xs block mb-1 mt-1.5" style={{ color: C.muted }}>
+              Techniek
+            </span>
+            <Pick
+              value={tech ? tech.type : ""}
+              onChange={(v) => setTech(v ? { type: v } : null)}
+              options={[{ id: "", label: "Normaal" }, ...Object.entries(TECH).map(([id, t]) => ({ id, label: t.label }))]}
+            />
+            {tech && (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+                  {TECH[tech.type].hint}
+                </p>
+                <div className="grid grid-cols-3 gap-x-3 gap-y-2">
+                  {TECH[tech.type].n[1] > 1 && (
+                    <label className="block">
+                      <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                        {tech.type === "drop" ? "Drops" : tech.type === "rp" ? "Pauzes" : "Max. mini-sets"}
+                      </span>
+                      <Num value={tech.n} onChange={(v) => setTech({ n: v })} min={TECH[tech.type].n[0]} max={TECH[tech.type].n[1]} />
+                    </label>
+                  )}
+                  {tech.type === "drop" && (
+                    <label className="block">
+                      <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                        Minder per drop
+                      </span>
+                      <Pick value={String(tech.pct)} onChange={(v) => setTech({ pct: Number(v) })} options={[15, 20, 25, 30].map((x) => ({ id: String(x), label: `${x}%` }))} />
+                    </label>
+                  )}
+                  {(tech.type === "rp" || tech.type === "myo") && (
+                    <label className="block">
+                      <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                        Pauze (sec)
+                      </span>
+                      <Num value={tech.pause} step={5} onChange={(v) => setTech({ pause: v })} min={5} max={60} />
+                    </label>
+                  )}
+                </div>
+                {tech.type !== "myo" && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={tech.all} onChange={(e) => setTech({ all: e.target.checked })} />
+                    Op elke werkset (standaard alleen de laatste)
+                  </label>
+                )}
+                {heavyFree(ex) && (
+                  <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
+                    Let op: tot falen met snel gewicht wisselen is bij een zware oefening met de stang riskant. Kies deze techniek liever bij een machine, kabel of
+                    isolatieoefening.
+                  </p>
+                )}
+                {tech.type === "myo" && num(slot.repMin, 0) < 12 && (
+                  <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
+                    Kies voor myo-reps een range van ongeveer 12 tot 20 reps voor de activatieset.
+                  </p>
+                )}
+                <p className="text-xs" style={{ color: C.muted }}>
+                  Vervalt automatisch in een deload en een minicut. Telt per extra drop of mini-set als een halve set, hoogstens één extra per werkset.
+                </p>
+              </div>
+            )}
+          </div>
+          {idx < n - 1 && (
+            <div className="pt-1" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+              <label className="flex items-center gap-2 text-sm mt-1.5">
+                <input type="checkbox" checked={!!slot.ss} onChange={(e) => updSlot(day.id, slot.id, { ss: e.target.checked, ssRest: slot.ssRest ?? 15 })} />
+                Superset met {nextEx ? nextEx.name : "de volgende oefening"}
+              </label>
+              {slot.ss && (
+                <div className="mt-2 space-y-2">
+                  <label className="flex items-center justify-between gap-2 text-sm">
+                    Wissel naar de volgende (sec)
+                    <Num value={slot.ssRest ?? 15} step={5} onChange={(v) => updSlot(day.id, slot.id, { ssRest: clamp(num(v, 15), 0, 120) })} min={0} max={120} />
+                  </label>
+                  {kind && (
+                    <p className="text-xs leading-relaxed" style={{ color: SS_KIND[kind].ok ? C.muted : C.warn }}>
+                      <strong>{SS_KIND[kind].label[0].toUpperCase() + SS_KIND[kind].label.slice(1)}.</strong> {SS_KIND[kind].note} De volle rust (
+                      {mmss(group && group.end != null ? num(day.slots[group.end].rest, 120) : num(slot.rest, 120))}) komt na de laatste oefening van de superset.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <input
             value={slot.note || ""}
             onChange={(e) => updSlot(day.id, slot.id, { note: e.target.value })}
@@ -5462,7 +5924,7 @@ function SlotEditor({ slot, ex, day, idx, n, T, D, setT, updSlot, updDay, onSwap
             <TBtn small kind="ghost" onClick={() => move(1)} disabled={idx === n - 1} label="Omlaag">
               ↓
             </TBtn>
-            <TBtn small kind="ghost" onClick={() => updDay(day.id, (x) => ({ ...x, slots: x.slots.filter((s) => s.id !== slot.id) }))}>
+            <TBtn small kind="ghost" onClick={() => updDay(day.id, (x) => ({ ...x, slots: unlinkAt(x.slots, idx).filter((s) => s.id !== slot.id) }))}>
               Verwijderen
             </TBtn>
           </div>
@@ -5478,6 +5940,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
   const [confirm, setConfirm] = useState(null);
   const [newTpl, setNewTpl] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState(null);
+  const [ssProp, setSsProp] = useState(null);
   const program = D.program;
   const s = T.settings;
   const setS = (k, v) => setT((t) => ({ ...t, settings: { ...t.settings, [k]: v } }));
@@ -5685,11 +6148,13 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
                     aria-label="Naam van de training"
                   />
                 </div>
-                {day.slots.map((slot, idx) => (
+                {day.slots.map((slot, idx, all) => (
                   <SlotEditor
                     key={slot.id}
                     slot={slot}
                     ex={exOf(D.exIndex, slot.exId)}
+                    nextEx={idx < all.length - 1 ? exOf(D.exIndex, all[idx + 1].exId) : null}
+                    group={ssGroups(all)[idx]}
                     day={day}
                     idx={idx}
                     n={day.slots.length}
@@ -5702,10 +6167,57 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
                     onEditEx={() => setEditEx(exOf(D.exIndex, slot.exId))}
                   />
                 ))}
+                {ssProp && ssProp.dayId === day.id && (
+                  <div className="mx-4 mt-3 px-3 py-2.5" style={{ background: C.surface2, border: `1px solid ${C.lineSoft}`, borderRadius: R.field }}>
+                    {ssProp.sg ? (
+                      <>
+                        <div className="text-sm font-semibold">Voorstel: {ssProp.sg.pairs.length === 1 ? "één superset" : `${ssProp.sg.pairs.length} supersets`}</div>
+                        <ul className="text-xs mt-1 space-y-0.5" style={{ color: C.muted }}>
+                          {ssProp.sg.pairs.map(([x, y]) => (
+                            <li key={x.id}>
+                              {exOf(D.exIndex, x.exId).name} + {exOf(D.exIndex, y.exId).name}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: C.muted }}>
+                          Tegengestelde spieren herstellen terwijl de andere werkt. Geschatte duur {estMinutes(day)} → {estMinutes({ ...day, slots: ssProp.sg.slots })} min; de
+                          partner schuift daarvoor naar voren.
+                        </p>
+                        <div className="flex gap-2 mt-2">
+                          <TBtn
+                            small
+                            onClick={() => {
+                              updDay(day.id, (d) => ({ ...d, slots: ssProp.sg.slots }));
+                              setSsProp(null);
+                            }}
+                          >
+                            Toepassen
+                          </TBtn>
+                          <TBtn small kind="ghost" onClick={() => setSsProp(null)}>
+                            Annuleren
+                          </TBtn>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+                        Geen geschikte combinatie gevonden. Een superset werkt het best met tegengestelde spieren (borst en rug, biceps en triceps,
+                        quadriceps en hamstrings); zware squats en deadlifts met de stang blijven bewust los.{" "}
+                        <button onClick={() => setSsProp(null)} className="tap underline">
+                          Sluiten
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
                   <TBtn small onClick={() => setPicker({ mode: "add", dayId: day.id })}>
                     + Oefening
                   </TBtn>
+                  {day.slots.length >= 2 && (
+                    <TBtn small kind="secondary" onClick={() => setSsProp({ dayId: day.id, sg: suggestSupersets(day, D.exIndex) })}>
+                      Tijd besparen
+                    </TBtn>
+                  )}
                   {program.days.length > 1 &&
                     (confirm === day.id ? (
                       <>
@@ -6217,12 +6729,20 @@ function TrainLog({ T, setT, D }) {
                       Herstelscore {readinessScore(s.readiness)} van 9
                     </p>
                   )}
-                  {s.exercises.map((e) => (
+                  {s.exercises.map((e, k, all) => (
                     <div key={e.id} className="mb-2">
-                      <div className="text-sm font-medium">{exOf(D.exIndex, e.exId).name}</div>
+                      <div className="text-sm font-medium">
+                        {ssGroups(all)[k].label && <span style={{ color: C.accent }}>{ssGroups(all)[k].label} </span>}
+                        {exOf(D.exIndex, e.exId).name}
+                        {e.tech && <span className="text-xs font-normal" style={{ color: C.muted }}> · {techShort(normTech(e.tech))}</span>}
+                      </div>
                       <div className="text-xs tnum leading-relaxed" style={{ color: C.muted }}>
                         {e.sets
-                          .map((x) => `${x.type === "warmup" ? "opw. " : ""}${kgTxt(x.weight)} × ${x.reps}${x.type === "work" && x.rir != null ? ` ${effortLabel(x.rir, scale)}` : ""}`)
+                          .map((x) =>
+                            isSub(x)
+                              ? `${x.type === "drop" ? "↓ " : x.type === "partial" ? "½ " : "+ "}${x.type === "drop" ? `${kgTxt(x.weight)} × ` : ""}${x.reps}`
+                              : `${x.type === "warmup" ? "opw. " : ""}${kgTxt(x.weight)} × ${x.reps}${x.type === "work" && x.rir != null ? ` ${effortLabel(x.rir, scale)}` : ""}`
+                          )
                           .join(" · ")}
                       </div>
                       {e.note && (

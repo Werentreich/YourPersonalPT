@@ -75,6 +75,24 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   trainingsdagen van de voedingsweek gelijktrekken.
 - **Analyses**: werksets per spiergroep tegen MEV/MAV/MRV (Renaissance
   Periodization), volume per week, e1RM-verloop, records en therapietrouw.
+- **Technieken** (blok `technieken`, vóór `historyFor`):
+  - *Supersets*: `slot.ss` koppelt een oefening aan de volgende (twee of
+    meer = superset of giant set, labels A1/A2). `sessionOrder` zet eerst
+    alle warming-ups, dan per ronde één werkset per oefening; `nextStep`
+    geeft de korte wissel (`slot.ssRest`, standaard 15 s) en na de laatste
+    oefening de volle rust. `ssKind` herkent tegengestelde spieren,
+    overlap en dezelfde spiergroep. "Tijd besparen" (`suggestSupersets`)
+    stelt per dag paren van tegengestelde spieren voor, zonder zware
+    squats en deadlifts met de stang.
+  - *Dropset, rest-pause, myo-reps, halve reps*: `slot.tech`; de extra
+    rijen (subsets, types `drop`/`rp`/`myo`/`partial`) hangen na de
+    laatste werkset of na elke werkset. Dropgewichten volgen het
+    werkgewicht tot de gebruiker ze zelf wijzigt. Myo-reps stoppen zodra
+    een mini-set onder de 3 reps blijft.
+  - Progressie, e1RM en records gebruiken alleen gewone werksets. Voor het
+    volume telt elke subset als een halve set, hoogstens één extra per
+    werkset (`effSets`, `techExtraSets`). In een deload en een minicut
+    vervallen de technieken automatisch (`techOff`); supersets blijven.
 - **Rusttimer**: geluid, trillen (Android) en een melding als de app op de
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
