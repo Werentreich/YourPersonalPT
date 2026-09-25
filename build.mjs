@@ -25,7 +25,7 @@ run(
   '--define:process.env.NODE_ENV=\\"production\\" --outfile=./dist/app.js'
 );
 
-for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png"]) {
+for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "favicon-32.png"]) {
   copyFileSync(`public/${f}`, `dist/${f}`);
 }
 
@@ -55,10 +55,11 @@ let html = `<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="NEXA">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
-<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest?v=nexa1">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=nexa1">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=nexa1">
+<link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=nexa1">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=nexa1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>${css}

@@ -79,6 +79,21 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
 
+## Logo en iconen
+
+`design/nexa-logo-ontwerpen.png` is het huisstijlontwerp. Het app-icoon is
+daaruit nagetekend als vector (`design/nexa-icon.svg`); alle formaten in
+`public/` (180 voor iOS, 192 en 512 voor Android en browsers, 512 maskeerbaar,
+32 als favicon) worden gemaakt met:
+
+```bash
+NODE_PATH=$(npm root -g) node design/maak-iconen.cjs
+```
+
+Netlify bewaart iconen een jaar in de cache. Verhoog na een nieuw icoon
+daarom het versienummer `?v=nexa1` in `build.mjs` en
+`public/manifest.webmanifest`, anders houden telefoons het oude icoon.
+
 ## Belangrijke valkuil bij het bouwen
 
 Voeg nooit tekst toe aan `dist/index.html` via een kale

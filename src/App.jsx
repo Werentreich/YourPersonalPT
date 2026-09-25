@@ -2135,6 +2135,30 @@ const ICON_PATHS = {
   profiel: ["M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M4.5 20.5c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5"],
 };
 
+/* Beeldmerk van NEXA: drie staven in blauw, groen en oranje. */
+function NexaMark({ size = 14 }) {
+  const bars = [
+    { x: 0, h: 10, c: ["#4D86FF", "#1E48F5"] },
+    { x: 7, h: 14, c: ["#46F2BC", "#0FBF86"] },
+    { x: 14, h: 8.5, c: ["#FFD24D", "#FFA114"] },
+  ];
+  return (
+    <svg width={(size * 20) / 14} height={size} viewBox="0 0 20 14" aria-hidden="true" style={{ display: "inline-block", verticalAlign: "-2px" }}>
+      <defs>
+        {bars.map((b, i) => (
+          <linearGradient key={i} id={`nexa-mark-${i}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={b.c[0]} />
+            <stop offset="1" stopColor={b.c[1]} />
+          </linearGradient>
+        ))}
+      </defs>
+      {bars.map((b, i) => (
+        <rect key={i} x={b.x} y={14 - b.h} width="6" height={b.h} rx="1.6" fill={`url(#nexa-mark-${i})`} />
+      ))}
+    </svg>
+  );
+}
+
 function Icon({ name, size = 22 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -7890,7 +7914,8 @@ function MacroApp() {
       >
         <header className="mb-5">
           <div className="text-xs leading-snug whitespace-nowrap overflow-hidden" style={{ textOverflow: "ellipsis" }}>
-            <span className="font-bold" style={{ color: C.accent, letterSpacing: "0.14em" }}>
+            <NexaMark size={13} />{" "}
+            <span className="font-bold" style={{ color: C.ink, letterSpacing: "0.14em" }}>
               NEXA
             </span>
             <span style={{ color: C.muted }}> · Your personal performance coach</span>
