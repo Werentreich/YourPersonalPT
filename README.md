@@ -79,6 +79,28 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
 
+## Lichaamssamenstelling
+
+De weegschaal ziet het verschil tussen vet en spier niet. Daarom meet de
+gebruiker wekelijks taille en nek (vrouwen ook heupen) met een meetlint,
+eventueel aangevuld met een andere vetmeting (weegschaal, huidplooimeter,
+DEXA, Bod Pod). Code tussen het kopcommentaar `lichaamssamenstelling` en
+`recommendedProtein`, UI in `CheckinSheet` en `CompositionSection`.
+
+- **Schatting** (`estimateComposition`): een klein Kalmanfilter met twee
+  grootheden, het werkelijke vetpercentage en de afwijking van de
+  meetlintformule (US Navy). Tussen metingen voorspelt het gewichtsverloop
+  hoeveel vet en vetvrije massa er bij- of afging; elke meting stelt bij,
+  gewogen naar haar betrouwbaarheid. Het meetlint volgt veranderingen
+  scherp maar ijkt het niveau niet; een DEXA-scan wel.
+- **Bijsturen** (`compositionAdvice`): daalt het gewicht in een cut trager
+  dan gepland terwijl de taille minstens 0,2 cm per week daalt en de kracht
+  (mediane e1RM-verandering, `strengthTrend`) op peil blijft, dan stelt de
+  app geen verlaging voor. Valt de gebruiker te snel af met dalende kracht,
+  of groeit de taille in een bulk, dan krijgt het voorstel een waarschuwing.
+  Alles blijft een voorstel; de gebruiker kan altijd toch bijsturen.
+- **Opslag**: `checkins` en `compAnchor` in `macroverdeling:v1`.
+
 ## Nexa-account en synchronisatie
 
 In de losse app (Netlify) kan de gebruiker een account maken; de gegevens

@@ -800,6 +800,223 @@ function calorieCorrection({ trend, targetKgPerWeek, goal }) {
   return { gap, perDay, rounded, meaningful: Math.abs(rounded) >= 100 };
 }
 
+/* ---------------- lichaamssamenstelling ----------------
+   De weegschaal ziet het verschil tussen vet en spier niet, en geen enkele
+   praktische meting ziet een week vetverlies van een paar tienden procent.
+   Daarom schat de app het vetpercentage: per wekelijkse meting voorspelt hij
+   uit het gewichtsverloop hoeveel vet en spier er bij- of afging, en stelt
+   die voorspelling bij met de metingen, gewogen naar hun betrouwbaarheid.
+   De meetlintschatting (US Navy-formule) is als absoluut getal onzeker maar
+   volgt veranderingen goed; de eerste meting ijkt daarom alleen het niveau. */
+
+function navyBodyFat({ sex, height, waist, neck, hip }) {
+  const h = num(height, 0);
+  const w = num(waist, 0);
+  const n = num(neck, 0);
+  if (!(h > 0 && w > 0 && n > 0)) return null;
+  if (sex === "vrouw") {
+    const hp = num(hip, 0);
+    if (!(hp > 0) || w + hp - n <= 0) return null;
+    return 495 / (1.29579 - 0.35004 * Math.log10(w + hp - n) + 0.221 * Math.log10(h)) - 450;
+  }
+  if (w - n <= 0) return null;
+  return 495 / (1.0324 - 0.19077 * Math.log10(w - n) + 0.15456 * Math.log10(h)) - 450;
+}
+
+const BF_METHODS = {
+  weegschaal: { label: "Weegschaal met vetmeting", sd: 3.5 },
+  huidplooi: { label: "Huidplooimeter", sd: 2.5 },
+  dexa: { label: "DEXA-scan", sd: 1.2 },
+  bodpod: { label: "Bod Pod", sd: 1.8 },
+};
+
+/* Gemiddeld gewicht rond een datum: alle metingen binnen drie dagen, anders
+   de dichtstbijzijnde binnen tien dagen. */
+function weightNear(pts, t) {
+  const near = pts.filter((p) => Math.abs(p.t - t) <= 3);
+  if (near.length) return sum(near.map((p) => p.w)) / near.length;
+  let best = null;
+  pts.forEach((p) => {
+    if (Math.abs(p.t - t) <= 10 && (!best || Math.abs(p.t - t) < Math.abs(best.t - t))) best = p;
+  });
+  return best ? best.w : null;
+}
+
+function estimateComposition({ sex, height, log, checkins, anchor, win, today }) {
+  if (!anchor || !checkins || !checkins.length) return null;
+  const pts = (log || [])
+    .filter((e) => e.weight > 0)
+    .map((e) => ({ t: dayNum(e.date), w: e.weight }))
+    .sort((a, b) => a.t - b.t);
+  const cks = [...checkins].sort((a, b) => a.date.localeCompare(b.date));
+  let t = Math.min(dayNum(anchor.date), dayNum(cks[0].date));
+  let W = weightNear(pts, t) ?? num(anchor.weight, 80);
+  /* Twee grootheden: b = werkelijk vetpercentage, o = afwijking van de
+     meetlintijking. Het meetlint meet b + o: veranderingen scherp, het niveau
+     niet. Een andere meting (weegschaal, DEXA) meet b zelf en stelt daarmee
+     ook de ijking bij. P is de onzekerheid (covariantie) van beide. */
+  let b = num(anchor.bf, 20);
+  let o = 0;
+  let P = [num(anchor.sd, 4) ** 2, 0, 0]; // [var b, cov b-o, var o]
+  let navy0 = null;
+  const out = [];
+  const start = { bf: b, weight: W, fat: (W * b) / 100, lean: W * (1 - b / 100) };
+
+  const step = (toT) => {
+    const W2 = weightNear(pts, toT) ?? W;
+    const weeks = Math.max(0, (toT - t) / 7);
+    const dW = W2 - W;
+    if (weeks > 0) {
+      const rate = ((dW / W) * 100) / weeks;
+      const p = dW < 0 ? fatFractionLoss(rate, b, win) : fatFractionGain(rate, b, win);
+      const fat = (b / 100) * W + p * dW;
+      b = clamp((fat / W2) * 100, 3, 60);
+      // onzekerheid groeit met de tijd en met de onzekere verdeling vet/spier
+      P = [P[0] + 0.04 * weeks + ((0.2 * Math.abs(dW)) / W2 * 100) ** 2, P[1], P[2]];
+    }
+    t = toT;
+    W = W2;
+  };
+  // scalaire meting z = h0*b + h1*o met ruis r
+  const update = (z, h0, h1, r) => {
+    const Ph0 = P[0] * h0 + P[1] * h1;
+    const Ph1 = P[1] * h0 + P[2] * h1;
+    const S = h0 * Ph0 + h1 * Ph1 + r;
+    const k0 = Ph0 / S;
+    const k1 = Ph1 / S;
+    const res = z - (h0 * b + h1 * o);
+    b += k0 * res;
+    o += k1 * res;
+    P = [P[0] - k0 * Ph0, P[1] - k0 * Ph1, P[2] - k1 * Ph1];
+  };
+
+  cks.forEach((c) => {
+    const n = dayNum(c.date);
+    if (n > t) step(n);
+    const navy = navyBodyFat({ sex, height, waist: c.waist, neck: c.neck, hip: c.hip });
+    let navyAdj = null;
+    if (navy != null) {
+      if (navy0 == null) {
+        // ijken: het meetlint gaat uit van de huidige schatting; de ijkfout
+        // is precies de (onbekende) fout in die schatting
+        navy0 = b - navy;
+        o = 0;
+        P = [P[0], -P[0], P[0]];
+      } else {
+        navyAdj = navy + navy0;
+        update(navyAdj, 1, 1, 0.7 ** 2);
+      }
+    }
+    const dev = num(c.bf, 0);
+    if (dev > 0 && BF_METHODS[c.method]) update(dev, 1, 0, BF_METHODS[c.method].sd ** 2);
+    out.push({ date: c.date, t: n, bf: b, sd: Math.sqrt(P[0]), weight: W, navy: navyAdj, device: dev > 0 ? dev : null });
+  });
+  const tn = dayNum(today);
+  if (tn > t) step(tn);
+  // de verandering sinds de start is veel zekerder dan het niveau: met het
+  // meetlint is alleen de onzekerheid van b + o daarop van invloed
+  const sd0 = num(anchor.sd, 4);
+  const changeSd = navy0 != null ? Math.sqrt(Math.max(0.01, P[0] + 2 * P[1] + P[2])) : Math.sqrt(Math.max(0.01, P[0] - sd0 * sd0));
+  return {
+    bf: b,
+    sd: Math.sqrt(P[0]),
+    changeSd,
+    weight: W,
+    fat: (W * b) / 100,
+    lean: W * (1 - b / 100),
+    start,
+    points: out,
+    calibrated: navy0 != null,
+  };
+}
+
+/* Verandering per week van een meting (taille, nek) via lineaire regressie
+   over de laatste vijf weken; minstens drie metingen over twee weken. */
+function measureTrend(checkins, key, today, days = 35) {
+  const tn = dayNum(today);
+  const pts = (checkins || [])
+    .filter((c) => num(c[key], 0) > 0)
+    .map((c) => ({ t: dayNum(c.date), v: num(c[key], 0) }))
+    .filter((p) => tn - p.t <= days)
+    .sort((a, b) => a.t - b.t);
+  if (pts.length < 3 || pts[pts.length - 1].t - pts[0].t < 14) return { ok: false, n: pts.length };
+  const mt = sum(pts.map((p) => p.t)) / pts.length;
+  const mv = sum(pts.map((p) => p.v)) / pts.length;
+  const slope = sum(pts.map((p) => (p.t - mt) * (p.v - mv))) / sum(pts.map((p) => (p.t - mt) ** 2));
+  return { ok: true, n: pts.length, perWeek: slope * 7 };
+}
+
+/* Krachtverloop uit de trainingsmodule: per oefening de verandering van de
+   geschatte 1RM over vier weken, de mediaan over minstens drie oefeningen. */
+function strengthTrend(sessions, today, days = 28) {
+  const t0 = dayNum(today) - days;
+  const by = {};
+  (sessions || []).forEach((s) => {
+    if (!s.end || s.deload || dayNum(s.date) < t0) return;
+    s.exercises.forEach((e) => {
+      const v = bestE1rm(e);
+      if (v > 0) (by[e.exId] = by[e.exId] || []).push({ t: s.start, v });
+    });
+  });
+  const changes = Object.values(by)
+    .filter((a) => a.length >= 2)
+    .map((a) => {
+      a.sort((x, y) => x.t - y.t);
+      return (a[a.length - 1].v - a[0].v) / a[0].v;
+    })
+    .sort((a, b) => a - b);
+  if (changes.length < 3) return { ok: false, n: changes.length };
+  return { ok: true, n: changes.length, pct: changes[Math.floor(changes.length / 2)] * 100 };
+}
+
+const cmTxt = (v) => `${v > 0 ? "+" : ""}${v.toFixed(1).replace(".", ",")} cm`;
+const pctTxt = (v) => `${v > 0 ? "+" : ""}${v.toFixed(1).replace(".", ",")}%`;
+
+/* Leest gewicht, taille en kracht samen. Geeft alleen iets terug als de
+   combinatie iets anders zegt dan de weegschaal alleen. */
+function compositionAdvice({ goal, correction, waist, strength }) {
+  if (!correction || !correction.meaningful) return null;
+  const lower = correction.rounded < 0; // minder eten
+  const waistDown = waist.ok && waist.perWeek <= -0.2;
+  const waistUp = waist.ok && waist.perWeek >= 0.2;
+  const strengthKept = strength.ok ? strength.pct >= -2 : null;
+  const strengthDown = strength.ok && strength.pct <= -3;
+  const kracht = strength.ok ? `uw kracht ${strength.pct >= 0 ? "blijft op peil" : "daalt licht"} (${pctTxt(strength.pct)} in vier weken)` : null;
+  if (goal === "cut" && lower && waistDown && strengthKept !== false) {
+    return {
+      kind: "recomp",
+      suppress: true,
+      title: "Niet bijsturen: u verliest wel vet",
+      text: `Uw gewicht daalt trager dan gepland, maar uw taille daalt ${cmTxt(-waist.perWeek).replace("+", "")} per week${kracht ? ` en ${kracht}` : ""}. Dat wijst op vetverlies terwijl u spier behoudt of opbouwt, of op tijdelijk vastgehouden vocht. Houd de calorieën gelijk en kijk over twee weken opnieuw.`,
+    };
+  }
+  if (goal === "cut" && !lower && strengthDown) {
+    return {
+      kind: "spier",
+      suppress: false,
+      title: "Te snel: risico op spierverlies",
+      text: `U valt sneller af dan gepland en uw kracht daalt (${pctTxt(strength.pct)} in vier weken). Verhoog de calorieën zoals voorgesteld om spiermassa te beschermen.`,
+    };
+  }
+  if (goal === "bulk" && lower && waistUp) {
+    return {
+      kind: "vet",
+      suppress: false,
+      title: "Er komt te veel vet bij",
+      text: `U komt sneller aan dan gepland en uw taille groeit ${cmTxt(waist.perWeek).replace("+", "")} per week. Verlaag het surplus zoals voorgesteld.`,
+    };
+  }
+  if (goal === "bulk" && !lower && waistDown && strength.ok && strength.pct > 0) {
+    return {
+      kind: "recomp",
+      suppress: true,
+      title: "Niet bijsturen: kwalitatieve opbouw",
+      text: `U komt trager aan dan gepland, maar uw taille daalt en ${kracht}. U bouwt spier op terwijl u vet verliest; laat het schema staan.`,
+    };
+  }
+  return null;
+}
+
 function recommendedProtein({ weight, bodyFat, useBodyFat, goal }) {
   if (useBodyFat && bodyFat >= 4 && bodyFat <= 60) {
     const lbm = weight * (1 - bodyFat / 100);
@@ -6551,6 +6768,297 @@ function SyncNotices({ s }) {
   );
 }
 
+/* ---------------- wekelijkse meting en lichaamssamenstelling ---------------- */
+
+const nlNum = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
+const signed = (v, d = 1) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${nlNum(Math.abs(v), d)}`;
+
+function CheckinSheet({ sex, last, onSave, onClose }) {
+  const [x, setX] = useState(() => ({
+    date: localISO(),
+    waist: "",
+    neck: last && last.neck ? last.neck : "",
+    hip: last && last.hip ? last.hip : "",
+    method: "",
+    bf: "",
+  }));
+  const [err, setErr] = useState(null);
+  const s = (k, v) => setX((o) => ({ ...o, [k]: v }));
+  const field = (key, label, hint, min, max) => (
+    <label className="block">
+      <span className="text-sm font-medium">{label}</span>
+      {hint && (
+        <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+          {hint}
+        </span>
+      )}
+      <div className="flex items-center gap-2 mt-1">
+        <input
+          type="number"
+          inputMode="decimal"
+          step="0.1"
+          min={min}
+          max={max}
+          value={x[key]}
+          onChange={(e) => s(key, e.target.value)}
+          className="w-28 px-3 py-2 text-sm tnum"
+          style={inputStyle}
+          aria-label={label}
+        />
+        <span className="text-sm" style={{ color: C.muted }}>
+          cm
+        </span>
+      </div>
+    </label>
+  );
+  const save = () => {
+    const waist = num(x.waist, 0);
+    const neck = num(x.neck, 0);
+    const hip = num(x.hip, 0);
+    const bf = num(x.bf, 0);
+    if (!(waist >= 40 && waist <= 200)) return setErr("Vul uw taille in, in centimeters.");
+    if (neck && !(neck >= 20 && neck <= 70)) return setErr("De nekomtrek lijkt niet te kloppen; vul centimeters in.");
+    if (hip && !(hip >= 50 && hip <= 200)) return setErr("De heupomtrek lijkt niet te kloppen; vul centimeters in.");
+    if (x.method && !(bf >= 3 && bf <= 60)) return setErr("Vul het gemeten vetpercentage in, of kies geen andere meting.");
+    if (!x.date) return setErr("Kies een datum.");
+    onSave({
+      date: x.date,
+      waist,
+      neck: neck || null,
+      hip: sex === "vrouw" && hip ? hip : null,
+      method: x.method || null,
+      bf: x.method ? bf : null,
+    });
+  };
+  return (
+    <Sheet title="Wekelijkse meting" onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+          Meet het liefst op dezelfde dag en tijd, 's ochtends voor het ontbijt. Lint horizontaal, strak maar zonder in te drukken, na een
+          normale uitademing.
+        </p>
+        <label className="block">
+          <span className="text-sm font-medium">Datum</span>
+          <input type="date" value={x.date} onChange={(e) => s("date", e.target.value)} className="block mt-1 px-3 py-2 text-sm tnum" style={inputStyle} />
+        </label>
+        {field("waist", "Taille", "Ter hoogte van de navel.", 40, 200)}
+        {field("neck", "Nek", "Direct onder het strottenhoofd. Eén keer meten is genoeg; de app onthoudt het.", 20, 70)}
+        {sex === "vrouw" && field("hip", "Heupen", "Op het breedste punt van de billen.", 50, 200)}
+        <div>
+          <span className="text-sm font-medium">Andere vetmeting (optioneel)</span>
+          <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+            Heeft u deze week ook uw vetpercentage laten meten? De app weegt elke methode naar haar betrouwbaarheid.
+          </span>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1">
+              <Pick value={x.method} onChange={(v) => s("method", v)} options={[{ id: "", label: "Geen" }, ...Object.entries(BF_METHODS).map(([id, m]) => ({ id, label: m.label }))]} />
+            </div>
+            {x.method && (
+              <>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  value={x.bf}
+                  onChange={(e) => s("bf", e.target.value)}
+                  className="w-20 px-2 py-2 text-sm tnum"
+                  style={inputStyle}
+                  aria-label="Gemeten vetpercentage"
+                />
+                <span className="text-sm" style={{ color: C.muted }}>
+                  %
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+        {err && (
+          <p className="text-sm" style={{ color: C.train }} role="alert">
+            {err}
+          </p>
+        )}
+        <TBtn full onClick={save}>
+          Meting opslaan
+        </TBtn>
+      </div>
+    </Sheet>
+  );
+}
+
+function BfChart({ comp }) {
+  const pts = [...comp.points.map((p) => ({ t: p.t, v: p.bf, navy: p.navy, dev: p.device })), { t: dayNum(localISO()), v: comp.bf, now: true }]
+    .filter((p, i, a) => i === 0 || p.t > a[i - 1].t || !p.now);
+  if (pts.length < 2) return null;
+  const W = 340;
+  const H = 150;
+  const padL = 34;
+  const padR = 10;
+  const padT = 12;
+  const padB = 22;
+  const vals = pts.flatMap((p) => [p.v, p.navy, p.dev].filter((v) => v != null));
+  let lo = Math.min(...vals);
+  let hi = Math.max(...vals);
+  const span = Math.max(1.5, hi - lo);
+  lo = Math.floor((lo - span * 0.2) * 2) / 2;
+  hi = Math.ceil((hi + span * 0.2) * 2) / 2;
+  const t0 = pts[0].t;
+  const t1 = Math.max(pts[pts.length - 1].t, t0 + 7);
+  const x = (t) => padL + ((t - t0) / (t1 - t0)) * (W - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  const ticks = [lo, (lo + hi) / 2, hi];
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label={`Geschat vetpercentage, nu ${nlNum(comp.bf)} procent`}>
+        {ticks.map((v, i) => (
+          <g key={i}>
+            <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--line-soft)" />
+            <text x={padL - 5} y={y(v) + 3.5} fontSize="10" textAnchor="end" fill="var(--muted)">
+              {nlNum(v)}
+            </text>
+          </g>
+        ))}
+        <text x={padL} y={H - 6} fontSize="10" fill="var(--muted)">
+          {fmtDay(t0)}
+        </text>
+        <text x={W - padR} y={H - 6} fontSize="10" textAnchor="end" fill="var(--muted)">
+          {fmtDay(t1)}
+        </text>
+        <path d={path} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map((p, i) =>
+          p.navy != null ? <circle key={"n" + i} cx={x(p.t)} cy={y(p.navy)} r="3" fill="none" stroke="var(--muted)" strokeWidth="1.5" /> : null
+        )}
+        {pts.map((p, i) => (p.dev != null ? <rect key={"d" + i} x={x(p.t) - 3.5} y={y(p.dev) - 3.5} width="7" height="7" fill="var(--carb-fill)" /> : null))}
+        {pts.map((p, i) => (
+          <circle key={i} cx={x(p.t)} cy={y(p.v)} r={p.now ? 4 : 2.8} fill="var(--accent)" stroke="var(--surface)" strokeWidth="1.5" />
+        ))}
+      </svg>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs" style={{ color: C.muted }}>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block rounded-full" style={{ width: 14, height: 3, background: "var(--accent)" }} />
+          schatting
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block rounded-full" style={{ width: 7, height: 7, border: "1.5px solid var(--muted)" }} />
+          meetlint
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block" style={{ width: 7, height: 7, background: "var(--carb-fill)" }} />
+          andere meting
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CompositionSection({ comp, checkins, sex, waistTrend, strength, bodyFat, useBodyFat, onNew, onDelete, onApply }) {
+  const [showAll, setShowAll] = useState(false);
+  if (!comp) {
+    return (
+      <Section
+        title="Lichaamssamenstelling"
+        sub="De weegschaal ziet het verschil tussen vet en spier niet. Meet daarom elke week uw taille; met uw nek erbij schat de app ook uw vetpercentage."
+      >
+        <div className="px-4 py-4">
+          <p className="text-sm leading-relaxed mb-3" style={{ color: C.muted }}>
+            Een meetlint is genoeg. Blijft uw gewicht gelijk terwijl uw taille daalt, dan verliest u vet en ziet de app dat een
+            stilstaande weegschaal geen reden is om minder te eten.
+          </p>
+          <TBtn onClick={onNew}>Eerste meting</TBtn>
+        </div>
+      </Section>
+    );
+  }
+  const last = checkins[checkins.length - 1];
+  const dBf = comp.bf - comp.start.bf;
+  const dFat = comp.fat - comp.start.fat;
+  const dLean = comp.lean - comp.start.lean;
+  const list = [...checkins].reverse();
+  const canApply = !useBodyFat || Math.abs(num(bodyFat, 0) - comp.bf) >= 0.5;
+  return (
+    <Section
+      title="Lichaamssamenstelling"
+      sub="Geschat uit uw gewichtsverloop, de wekelijkse meting met het meetlint en eventuele andere vetmetingen."
+    >
+      <div className="px-4 pt-4 pb-3 grid grid-cols-2 gap-2">
+        <Stat label="Geschat vetpercentage" value={`${nlNum(comp.bf)}%`} sub={`marge ±${nlNum(comp.sd)}`} />
+        <Stat label="Sinds de eerste meting" value={signed(dBf)} sub={`procentpunt, marge ±${nlNum(comp.changeSd)}`} />
+        <Stat label="Vetmassa" value={`${nlNum(comp.fat)} kg`} sub={`${signed(dFat)} kg`} />
+        <Stat label="Vetvrije massa" value={`${nlNum(comp.lean)} kg`} sub={`${signed(dLean)} kg`} />
+      </div>
+      <p className="px-4 pb-3 text-xs leading-relaxed" style={{ color: C.muted }}>
+        {comp.calibrated
+          ? "De verandering is nauwkeurig; het niveau blijft zo onzeker als uw startschatting tot u een andere meting invoert, zoals een DEXA-scan."
+          : sex === "vrouw"
+          ? "Vul bij de volgende meting ook uw nek en heupen in; dan volgt de app uw vetpercentage ook met het meetlint."
+          : "Vul bij de volgende meting ook uw nek in; dan volgt de app uw vetpercentage ook met het meetlint."}
+      </p>
+      <div className="px-4 pb-3">
+        <BfChart comp={comp} />
+      </div>
+      <Row
+        label="Taille"
+        hint={waistTrend.ok ? `${cmTxt(waistTrend.perWeek)} per week over de laatste weken` : "Na drie metingen over twee weken ziet u hier de trend."}
+      >
+        <span className="text-sm font-semibold tnum">{nlNum(last.waist)} cm</span>
+      </Row>
+      <Row
+        label="Kracht"
+        hint={
+          strength.ok
+            ? `Mediaan van ${strength.n} oefeningen, laatste vier weken. Gelijk of stijgend betekent: spiermassa behouden.`
+            : "Uit uw trainingslogboek: minstens drie oefeningen twee keer getraind in vier weken."
+        }
+      >
+        <span className="text-sm font-semibold tnum" style={{ color: strength.ok ? (strength.pct <= -3 ? C.train : C.carb) : C.muted }}>
+          {strength.ok ? pctTxt(strength.pct) : "–"}
+        </span>
+      </Row>
+      <div className="px-4 py-3 flex flex-wrap gap-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+        <TBtn small onClick={onNew}>
+          Nieuwe meting
+        </TBtn>
+        {canApply && (
+          <TBtn small kind="secondary" onClick={onApply}>
+            Plan bijwerken naar {nlNum(comp.bf)}%
+          </TBtn>
+        )}
+      </div>
+      {canApply && (
+        <p className="px-4 pt-2 text-xs leading-relaxed" style={{ color: C.muted }}>
+          Uw plan rekent nu met {useBodyFat ? `${nlNum(num(bodyFat, 0))}%` : "een geschat vetpercentage"}. Bijwerken zet de schatting en uw
+          huidige gewicht in uw gegevens; het meerwekenplan en uw eiwitbehoefte rekenen daarmee verder.
+        </p>
+      )}
+      <div className="px-4 py-3">
+        <div className="text-sm font-medium mb-1.5">Metingen</div>
+        {(showAll ? list : list.slice(0, 5)).map((c) => (
+          <div key={c.date} className="flex items-center justify-between gap-3 py-1.5 text-xs tnum" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+            <span>
+              <strong>{fmtDay(dayNum(c.date))}</strong>
+              <span style={{ color: C.muted }}>
+                {" "}
+                · taille {nlNum(c.waist)}
+                {c.neck ? ` · nek ${nlNum(c.neck)}` : ""}
+                {c.hip ? ` · heup ${nlNum(c.hip)}` : ""}
+                {c.method && c.bf ? ` · ${BF_METHODS[c.method] ? BF_METHODS[c.method].label.toLowerCase() : c.method} ${nlNum(c.bf)}%` : ""}
+              </span>
+            </span>
+            <button onClick={() => onDelete(c.date)} className="tap underline shrink-0" style={{ color: C.muted }} aria-label={`Meting van ${c.date} verwijderen`}>
+              Verwijderen
+            </button>
+          </div>
+        ))}
+        {list.length > 5 && (
+          <button onClick={() => setShowAll(!showAll)} className="tap text-xs underline mt-1" style={{ color: C.muted }}>
+            {showAll ? "Minder tonen" : `Alle ${list.length} metingen`}
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 /* Vangnet: één fout in de weergave mag nooit een leeg scherm opleveren.
    De gebruiker krijgt de melding plus een knop om de opgeslagen instellingen
    te wissen, want een onverwachte fout komt vrijwel altijd uit oude opslag. */
@@ -6682,6 +7190,17 @@ function MacroApp() {
   const [obTrain, setObTrain] = useState({ type: "kracht", minutes: 75, start: "18:00" });
   const [editMeal, setEditMeal] = useState(null);
   const [log, setLog] = useState([]);
+  const [checkins, setCheckins] = useState([]);
+  const [compAnchor, setCompAnchor] = useState(null);
+  const [checkinOpen, setCheckinOpen] = useState(false);
+  const [overrideAdvice, setOverrideAdvice] = useState(false);
+  const [checkinLater, setCheckinLater] = useState(() => {
+    try {
+      return Number(window.localStorage.getItem("nexa:checkin-later")) || 0;
+    } catch (e) {
+      return 0;
+    }
+  });
   const [newEntry, setNewEntry] = useState({ date: todayISO(), weight: "" });
   const [chartRange, setChartRange] = useState(28);
   const [kcalAdjust, setKcalAdjust] = useState(0);
@@ -6844,6 +7363,8 @@ function MacroApp() {
           if (d.savedMeals) setSavedMeals(d.savedMeals);
           if (d.autopilot && Array.isArray(d.autopilot.rows)) setAutopilot(d.autopilot);
           if (d.lastSeen) setLastSeen(d.lastSeen);
+          if (Array.isArray(d.checkins)) setCheckins(d.checkins);
+          if (d.compAnchor) setCompAnchor(d.compAnchor);
           if (d.mealPlans) {
             const v = Object.values(d.mealPlans);
             // ouder formaat: { maaltijdindex: items } zonder dagniveau
@@ -6890,14 +7411,14 @@ function MacroApp() {
       try {
         window.storage.set(
           STORE_KEY,
-          JSON.stringify({ f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, onboarded: true })
+          JSON.stringify({ f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, onboarded: true })
         );
       } catch (e) {
         setStorage("uit");
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, loaded, storage]);
+  }, [f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, loaded, storage]);
 
   /* ---------------- rekenwerk ---------------- */
 
@@ -7183,6 +7704,57 @@ function MacroApp() {
     const hi = Math.min(L.max, Math.max(lo + 3, num(phaseCfg.bfHigh, presets.standaard[1])));
     return [lo, hi];
   }, [f.sex, phaseCfg.windowKey, phaseCfg.bfLow, phaseCfg.bfHigh]);
+
+  /* Lichaamssamenstelling: schatting uit gewicht plus wekelijkse meting, en
+     het oordeel of een afwijking van het tempo echt bijsturen vraagt. */
+  const todayLocal = localISO();
+  const comp = useMemo(
+    () => estimateComposition({ sex: f.sex, height: num(f.height, 180), log, checkins, anchor: compAnchor, win: bfWindow, today: todayLocal }),
+    [f.sex, f.height, log, checkins, compAnchor, bfWindow, todayLocal]
+  );
+  const waistTrend = useMemo(() => measureTrend(checkins, "waist", todayLocal), [checkins, todayLocal]);
+  const strength = useMemo(() => strengthTrend(T.sessions || [], todayLocal), [T.sessions, todayLocal]);
+  const advice = useMemo(
+    () => compositionAdvice({ goal: effGoal, correction, waist: waistTrend, strength }),
+    [effGoal, correction, waistTrend, strength]
+  );
+  const saveCheckin = (c) => {
+    setCheckins((list) => [...list.filter((x) => x.date !== c.date), c].sort((a, b) => a.date.localeCompare(b.date)));
+    setCompAnchor((a) => {
+      if (a) return c.date < a.date ? { ...a, date: c.date } : a;
+      return {
+        date: c.date,
+        bf: f.useBodyFat ? num(f.bodyFat, 18) : f.sex === "vrouw" ? 27 : 18,
+        sd: f.useBodyFat ? 3 : 5,
+        weight: trend.ok ? trend.avg7 : num(f.weight, 80),
+      };
+    });
+    setCheckinOpen(false);
+  };
+  const deleteCheckin = (date) => {
+    const rest = checkins.filter((x) => x.date !== date);
+    setCheckins(rest);
+    if (!rest.length) setCompAnchor(null);
+  };
+  const applyComposition = () => {
+    if (!comp) return;
+    setF((s) => ({ ...s, bodyFat: Math.round(comp.bf * 10) / 10, useBodyFat: true, weight: Math.round(comp.weight * 10) / 10 }));
+  };
+  const lastCheckin = checkins[checkins.length - 1];
+  const checkinDue =
+    loaded &&
+    onboarding === null &&
+    (!lastCheckin || dayNum(todayLocal) - dayNum(lastCheckin.date) >= 7) &&
+    Date.now() - checkinLater > 3 * DAY_MS;
+  const snoozeCheckin = () => {
+    const now = Date.now();
+    setCheckinLater(now);
+    try {
+      window.localStorage.setItem("nexa:checkin-later", String(now));
+    } catch (e) {
+      /* alleen voor deze sessie */
+    }
+  };
 
   const plan52 = useMemo(() => {
     if (!showPlan) return null;
@@ -8441,6 +9013,24 @@ function MacroApp() {
                     Account
                   </TBtn>
                   <button onClick={hideAccountHint} className="tap text-xs underline" style={{ color: C.muted }}>
+                    Later
+                  </button>
+                </div>
+              </div>
+            )}
+            {checkinDue && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>{lastCheckin ? "Tijd voor uw wekelijkse meting." : "Meet ook uw taille."}</strong>{" "}
+                  {lastCheckin
+                    ? "Taille en nek met het meetlint, 's ochtends voor het ontbijt. Zo ziet de app of u vet verliest als de weegschaal stilstaat."
+                    : "De weegschaal ziet het verschil tussen vet en spier niet. Eén meting per week met het meetlint is genoeg."}
+                </span>
+                <div className="flex flex-col gap-1 shrink-0 items-end">
+                  <TBtn small onClick={() => setCheckinOpen(true)}>
+                    Meten
+                  </TBtn>
+                  <button onClick={snoozeCheckin} className="tap text-xs underline" style={{ color: C.muted }}>
                     Later
                   </button>
                 </div>
@@ -10069,13 +10659,37 @@ function MacroApp() {
                   <p className="text-xs mt-2 leading-relaxed" style={{ color: C.muted }}>
                     {correctionPaused}
                   </p>
+                ) : correction && correction.meaningful && advice && advice.suppress && !overrideAdvice ? (
+                  <div className="mt-3 rounded px-3 py-2" style={{ background: C.surface2, border: `1px solid ${C.carb}` }}>
+                    <p className="text-xs font-semibold" style={{ color: C.carb }}>
+                      {advice.title}
+                    </p>
+                    <p className="text-xs leading-relaxed mt-1" style={{ color: C.ink }}>
+                      {advice.text}
+                    </p>
+                    <button onClick={() => setOverrideAdvice(true)} className="tap text-xs underline mt-2" style={{ color: C.muted }}>
+                      Toch bijsturen ({correction.rounded > 0 ? "+" : ""}
+                      {correction.rounded} kcal)
+                    </button>
+                  </div>
                 ) : correction && correction.meaningful ? (
                   <div className="mt-3 rounded px-3 py-2" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}>
+                    {advice && !advice.suppress && (
+                      <p className="text-xs leading-relaxed mb-1.5" style={{ color: C.warn }}>
+                        <strong>{advice.title}.</strong> {advice.text}
+                      </p>
+                    )}
                     <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
                       U zit {correction.rounded < 0 ? "boven" : "onder"} het geplande tempo. Pas de inname aan met{" "}
                       {correction.rounded > 0 ? "+" : ""}
                       {correction.rounded} kcal per dag.
                     </p>
+                    {!waistTrend.ok && (effGoal === "cut" ? correction.rounded < 0 : correction.rounded > 0) && (
+                      <p className="text-xs leading-relaxed mt-1.5" style={{ color: C.warn }}>
+                        Train u zwaar en eet u genoeg eiwit, dan kan een trage weegschaal ook betekenen dat u spier opbouwt terwijl u vet
+                        verliest. Meet een paar weken uw taille; daalt die, dan hoeft u niet bij te sturen.
+                      </p>
+                    )}
                     <div className="flex gap-2 mt-2">
                       <button
                         onClick={() => setKcalAdjust((k) => k + correction.rounded)}
@@ -10111,6 +10725,19 @@ function MacroApp() {
             )}
           </div>
         </Section>
+
+        <CompositionSection
+          comp={comp}
+          checkins={checkins}
+          sex={f.sex}
+          waistTrend={waistTrend}
+          strength={strength}
+          bodyFat={f.bodyFat}
+          useBodyFat={f.useBodyFat}
+          onNew={() => setCheckinOpen(true)}
+          onDelete={deleteCheckin}
+          onApply={applyComposition}
+        />
 
         {/* ---------------- fasenplan ---------------- */}
         <Section
@@ -11241,6 +11868,8 @@ function MacroApp() {
           <AccountForm initial={accountOpen} onDone={() => setAccountOpen(null)} />
         </Sheet>
       )}
+
+      {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} />}
 
       <TrainingBoundary quiet>
         <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />
