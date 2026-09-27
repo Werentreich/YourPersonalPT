@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<script>
+/* Een geïnstalleerde app en links uit mails (bevestigen, wachtwoord) horen
+   in de app op /app/, niet op deze pagina. */
+(function () {
+  try {
+    var standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+    var fromMail = /(^|[#&])(access_token|error_description)=/.test(location.hash);
+    var fromPwa = /[?&]pwa=1/.test(location.search);
+    if (standalone || fromMail || fromPwa) location.replace("/app/" + location.search + location.hash);
+  } catch (e) {}
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nexa | Uw voedings- en trainingscoach in één app</title>
+<meta name="description" content="Nexa maakt uw voedings- en trainingsschema en stuurt het elke week bij op uw resultaten. Voor wie serieus wil, zonder personal trainer. 7 dagen gratis.">
+<link rel="canonical" href="https://nexa-performance.netlify.app/">
+<meta name="theme-color" content="#EEF0F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#08090C" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="nl_NL">
+<meta property="og:site_name" content="Nexa">
+<meta property="og:title" content="Nexa | Uw schema, elke week bijgestuurd">
+<meta property="og:description" content="Voedings- en trainingsschema op maat, elke week bijgestuurd op uw resultaten. 7 dagen gratis.">
+<meta property="og:url" content="https://nexa-performance.netlify.app/">
+<meta property="og:image" content="https://nexa-performance.netlify.app/assets/img/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="manifest" href="/manifest.webmanifest?v=nexa3">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=nexa1">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=nexa1">
+<link rel="preload" href="/assets/fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/barlow-400.woff2" as="font" type="font/woff2" crossorigin>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Nexa",
+  "applicationCategory": "HealthApplication",
+  "operatingSystem": "iOS, Android, web",
+  "inLanguage": "nl",
+  "description": "Voedings- en trainingsschema op maat, elke week bijgestuurd op uw resultaten.",
+  "url": "https://nexa-performance.netlify.app/",
+  "offers": [
+    { "@type": "Offer", "name": "Nexa Coach, per jaar", "price": "99.99", "priceCurrency": "EUR" },
+    { "@type": "Offer", "name": "Nexa Coach, per maand", "price": "14.99", "priceCurrency": "EUR" }
+  ]
+}
+</script>
+<style>
+/* Lettertype Barlow (SIL Open Font License), op deze site zelf gehost. */
+@font-face{font-family:"Barlow";src:url(/assets/fonts/barlow-400.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow";src:url(/assets/fonts/barlow-500.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow";src:url(/assets/fonts/barlow-600.woff2) format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(/assets/fonts/barlow-condensed-700.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
+
+/* Kleuren gelijk aan de app. Licht en donker volgen de instelling van het toestel. */
+:root{
+  --bg:#EEF0F4;--surface:#FFFFFF;--surface-2:#F6F7F9;
+  --ink:#0B0D11;--muted:#5A606C;--line:#DEE1E7;--line-soft:#E7E9EE;
+  --accent:#1B3BFF;--accent-ink:#1B3BFF;--on-accent:#FFFFFF;--accent-soft:#E7EAFF;
+  --green:#00795A;--green-fill:#00C389;--yellow-fill:#FFB020;
+  --panel:#0E1015;--panel-ink:#F1F3F7;--panel-muted:#9AA1AE;--panel-line:#262A33;
+  --shadow:0 24px 60px -28px rgba(18,24,48,.35);
+  --phone-shadow:0 40px 80px -30px rgba(18,24,48,.45);
+  --r-btn:12px;--r-card:20px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#08090C;--surface:#121419;--surface-2:#191C22;
+    --ink:#F1F3F7;--muted:#9AA1AE;--line:#252932;--line-soft:#1C1F26;
+    --accent:#6B85FF;--accent-ink:#8FA2FF;--on-accent:#07080B;--accent-soft:#1A2044;
+    --green:#1FC98E;--green-fill:#1FC98E;--yellow-fill:#F0B03A;
+    --panel:#12151C;--panel-ink:#F1F3F7;--panel-muted:#9AA1AE;--panel-line:#2A2F3A;
+    --shadow:0 24px 60px -28px rgba(0,0,0,.7);
+    --phone-shadow:0 40px 90px -30px rgba(0,0,0,.85);
+  }
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:84px}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 17px/1.55 "Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%;height:auto}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{width:100%;max-width:1200px;margin:0 auto;padding:0 20px}
+@media (min-width:768px){.wrap{padding:0 32px}}
+.skip{position:absolute;left:-9999px;top:8px;z-index:100;background:var(--accent);color:var(--on-accent);padding:10px 14px;border-radius:var(--r-btn);font-weight:600;text-decoration:none}
+.skip:focus{left:12px}
+
+/* typografie */
+.display{font-family:"Barlow Condensed","Barlow",system-ui,sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:-.005em;line-height:.95;margin:0}
+h1.display{font-size:clamp(46px,10.5vw,80px)}
+@media (min-width:960px){h1.display{font-size:clamp(50px,4.5vw,68px)}}
+h2.display{font-size:clamp(36px,4.8vw,60px)}
+h3{font-size:20px;line-height:1.25;margin:0 0 6px;font-weight:600}
+.lead{font-size:clamp(18px,1.6vw,21px);line-height:1.5;color:var(--muted);max-width:34ch;margin:20px 0 0}
+.body{color:var(--muted);max-width:60ch;margin:14px 0 0}
+.eyebrow{display:inline-block;font-weight:600;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-ink);margin-bottom:18px}
+.tnum{font-variant-numeric:tabular-nums}
+
+/* knoppen: 12px hoeken, kaarten 20px, overal hetzelfde */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;font:600 16px/1 "Barlow",system-ui,sans-serif;text-decoration:none;border-radius:var(--r-btn);padding:15px 22px;border:1.5px solid transparent;transition:transform .18s cubic-bezier(.16,1,.3,1),background-color .18s,border-color .18s,box-shadow .18s}
+.btn:active{transform:translateY(1px) scale(.985)}
+.btn-primary{background:var(--accent);color:var(--on-accent);box-shadow:0 10px 24px -12px color-mix(in srgb,var(--accent) 70%,transparent)}
+.btn-primary:hover{transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--muted)}
+.btn-small{padding:11px 16px;font-size:15px}
+
+/* navigatie */
+.nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 82%,transparent);-webkit-backdrop-filter:saturate(160%) blur(14px);backdrop-filter:saturate(160%) blur(14px);border-bottom:1px solid transparent;transition:border-color .2s}
+.nav.scrolled{border-bottom-color:var(--line)}
+.nav .wrap{height:68px;display:flex;align-items:center;gap:28px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:600;font-size:20px;letter-spacing:-.01em}
+.nav-links{display:none;gap:26px;margin-left:auto}
+.nav-links a{text-decoration:none;color:var(--muted);font-weight:500;font-size:15px}
+.nav-links a:hover{color:var(--ink)}
+.nav-cta{display:flex;align-items:center;gap:14px;margin-left:auto}
+.nav-login{display:none;text-decoration:none;font-weight:500;font-size:15px;color:var(--muted)}
+.nav-login:hover{color:var(--ink)}
+@media (min-width:900px){.nav-links{display:flex}.nav-cta{margin-left:0}.nav-login{display:inline}}
+
+/* hero */
+.hero{padding:40px 0 72px;overflow:hidden}
+.hero .wrap{display:grid;gap:48px;align-items:center}
+@media (min-width:960px){.hero{padding:48px 0 96px}.hero .wrap{grid-template-columns:1.25fr .75fr;gap:24px}}
+.hero-ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.phones{position:relative;height:clamp(470px,62vw,680px);max-width:560px;margin:0 auto;width:100%}
+.phone{position:absolute;width:min(300px,56%);aspect-ratio:390/844;border-radius:44px;padding:9px;background:#0B0D11;box-shadow:var(--phone-shadow),inset 0 0 0 1.5px #2B303B}
+.phone picture,.phone img{width:100%;height:100%;border-radius:35px;object-fit:cover;object-position:top}
+.phone-front{right:4%;top:0;z-index:2}
+.phone-back{left:2%;top:11%;z-index:1;transform:rotate(-4deg)}
+@media (min-width:960px){.phones{margin-right:0}}
+
+/* opbouw bij laden en scrollen; zonder beweging als de gebruiker dat wil */
+@media (prefers-reduced-motion: no-preference){
+  .enter{animation:enter .9s cubic-bezier(.16,1,.3,1) both}
+  .enter-2{animation-delay:.08s}.enter-3{animation-delay:.16s}.enter-4{animation-delay:.24s}
+  .phone-front.enter{animation-name:enterPhone;animation-delay:.18s}
+  .phone-back.enter{animation-name:enterPhoneBack;animation-delay:.3s}
+  .reveal{opacity:0;transform:translateY(28px);transition:opacity .8s cubic-bezier(.16,1,.3,1),transform .8s cubic-bezier(.16,1,.3,1)}
+  .reveal.in{opacity:1;transform:none}
+}
+@keyframes enter{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes enterPhone{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
+@keyframes enterPhoneBack{from{opacity:0;transform:translateY(40px) rotate(-4deg)}to{opacity:1;transform:rotate(-4deg)}}
+
+section{position:relative}
+.section{padding:88px 0}
+@media (min-width:960px){.section{padding:120px 0}}
+
+/* tegenstelling: teller tegenover coach */
+.contrast{display:grid;gap:20px;margin-top:48px}
+@media (min-width:860px){.contrast{grid-template-columns:.85fr 1.15fr;gap:24px}}
+.contrast-col{border-radius:var(--r-card);padding:28px}
+.contrast-col h3{font-size:17px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:18px}
+.col-tracker{border:1px dashed var(--line);color:var(--muted)}
+.col-nexa{background:var(--surface);box-shadow:var(--shadow);border:1px solid var(--line-soft)}
+.col-nexa h3{color:var(--accent-ink)}
+.contrast-col ul{list-style:none;padding:0;margin:0;display:grid;gap:14px}
+.contrast-col li{display:grid;grid-template-columns:22px 1fr;gap:12px;align-items:start;line-height:1.45}
+.mark-no,.mark-yes{width:22px;height:22px;border-radius:11px;display:grid;place-items:center;font-size:12px;font-weight:700;margin-top:1px}
+.mark-no{border:1.5px solid var(--line);color:var(--muted)}
+.mark-yes{background:var(--green-fill);color:#04140E}
+
+/* zo werkt het: tekst links, telefoon blijft rechts staan */
+.how{display:grid;gap:48px;margin-top:48px}
+@media (min-width:960px){.how{grid-template-columns:1fr 380px;gap:80px;align-items:start}}
+.steps{display:grid;gap:0;counter-reset:none}
+.step{padding:28px 0;border-top:1px solid var(--line)}
+.step:last-child{border-bottom:1px solid var(--line)}
+.step h3{font-family:"Barlow Condensed","Barlow",sans-serif;text-transform:uppercase;font-size:30px;letter-spacing:.005em;line-height:1;margin-bottom:10px}
+.step p{margin:0;color:var(--muted);max-width:52ch}
+.how-phone{position:relative;display:none}
+@media (min-width:960px){.how-phone{display:block;position:sticky;top:110px}}
+.how-phone .phone{position:relative;width:100%;max-width:340px;margin:0 auto}
+.how-phone-mobile{margin-top:8px}
+.how-phone-mobile .phone{position:relative;width:min(300px,78%);margin:0 auto}
+@media (min-width:960px){.how-phone-mobile{display:none}}
+
+/* bento met vijf onderdelen */
+.bento{display:grid;gap:16px;margin-top:48px}
+@media (min-width:900px){
+  .bento{grid-template-columns:1.1fr 1fr 1fr;grid-template-areas:"a b b" "a c d" "e e d"}
+  .cell-a{grid-area:a}.cell-b{grid-area:b}.cell-c{grid-area:c}.cell-d{grid-area:d}.cell-e{grid-area:e}
+}
+.cell{border-radius:var(--r-card);background:var(--surface);border:1px solid var(--line-soft);overflow:hidden;display:flex;flex-direction:column;min-height:240px}
+.cell-text{padding:26px 26px 24px}
+.cell-text p{margin:0;color:var(--muted);line-height:1.5}
+.shot{position:relative;flex:1;min-height:280px;overflow:hidden;background:var(--surface-2)}
+.shot picture,.shot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top center}
+.cell-a .shot{min-height:440px;background:linear-gradient(180deg,var(--surface-2),var(--surface))}
+.cell-a .shot-inner{position:absolute;left:50%;top:26px;bottom:0;width:min(340px,86%);transform:translateX(-50%);border-radius:30px 30px 0 0;overflow:hidden;border:8px solid #0B0D11;border-bottom:0}
+.cell-b{flex-direction:row;flex-wrap:wrap}
+.cell-b .cell-text{flex:1 1 260px}
+.cell-b .shot{flex:1 1 260px;min-height:300px}
+.cell-c{background:linear-gradient(150deg,#1B3BFF 0%,#1230C9 55%,#0C1F8A 100%);border:0;color:#F3F5FF}
+.cell-c p{color:rgba(243,245,255,.82)}
+.phases{display:flex;flex-wrap:wrap;gap:8px;padding:0 26px 26px;margin-top:auto}
+.phase{font-size:13px;font-weight:600;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.14);color:#fff}
+.cell-d{background:var(--surface-2)}
+.label-demo{margin:auto 26px;border-radius:14px;background:var(--surface);border:1px solid var(--line);padding:16px 18px;font-size:14px}
+.label-demo .row{display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid var(--line-soft)}
+.label-demo .row:first-of-type{border-top:0}
+.label-demo strong{font-weight:600}
+.label-demo .title{font-weight:600;margin-bottom:6px}
+.cell-e{flex-direction:row;flex-wrap:wrap}
+.cell-e .cell-text{flex:1 1 280px}
+.cell-e .shot{flex:1 1 280px;min-height:260px}
+.cell-e .shot img{object-position:center 58%}
+.cell-b .shot img{object-position:center 32%}
+
+/* prijsankers */
+.anchor{background:var(--panel);color:var(--panel-ink);border-radius:28px;padding:48px 28px;overflow:hidden;position:relative}
+@media (min-width:768px){.anchor{padding:72px 64px}}
+.anchor-line{font-family:"Barlow Condensed","Barlow",sans-serif;font-weight:700;text-transform:uppercase;font-size:clamp(30px,4.2vw,56px);line-height:1.02;margin:0}
+.anchor-line .nb{white-space:nowrap}
+.anchor .anchor-line{color:var(--panel-ink)}
+.anchor .anchor-line.dim{color:var(--panel-muted)}
+.anchor-line + .anchor-line{margin-top:14px}
+.anchor-line .hl{color:#8FA2FF}
+.anchor .anchor-sub{color:var(--panel-muted);margin:28px 0 0;max-width:52ch}
+.anchor-bars{position:absolute;right:28px;bottom:28px;display:none;gap:10px;align-items:flex-end;opacity:.9}
+@media (min-width:1000px){.anchor-bars{display:flex}}
+.anchor-bars span{width:30px;border-radius:7px}
+
+/* vergelijking */
+.compare-wrap{margin-top:40px;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r-card);border:1px solid var(--line);background:var(--surface)}
+.compare{width:100%;min-width:720px;border-collapse:collapse;font-size:15px}
+.compare th,.compare td{padding:16px 18px;text-align:left;vertical-align:middle}
+.compare thead th{font-weight:600;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)}
+.compare tbody th{font-weight:500;color:var(--ink);width:30%}
+.compare tbody tr + tr th,.compare tbody tr + tr td{border-top:1px solid var(--line-soft)}
+.compare .col-us{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.compare thead .col-us{color:var(--accent-ink)}
+.compare td{color:var(--muted)}
+.compare .col-us{color:var(--ink);font-weight:600}
+.note{font-size:13px;color:var(--muted);margin-top:12px}
+
+/* prijzen */
+.plans{display:grid;gap:18px;margin-top:48px;max-width:900px}
+@media (min-width:760px){.plans{grid-template-columns:1.1fr .9fr;align-items:stretch}}
+.plan{border-radius:var(--r-card);padding:30px;background:var(--surface);border:1px solid var(--line);display:flex;flex-direction:column}
+.plan-best{border:2px solid var(--accent);box-shadow:var(--shadow);position:relative}
+.plan-tag{position:absolute;top:-13px;left:28px;background:var(--green-fill);color:#04140E;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:5px 11px;border-radius:999px}
+.plan h3{font-size:18px;margin:0}
+.price{display:flex;align-items:baseline;gap:8px;margin:14px 0 4px}
+.price .amount{font-family:"Barlow Condensed","Barlow",sans-serif;font-weight:700;font-size:58px;line-height:1}
+.price .per{color:var(--muted);font-size:16px}
+.plan .sub{color:var(--muted);margin:0 0 22px;font-size:15px}
+.plan ul{list-style:none;padding:0;margin:0 0 26px;display:grid;gap:10px}
+.plan li{display:grid;grid-template-columns:22px 1fr;gap:10px;line-height:1.45;font-size:15.5px}
+.plan .btn{margin-top:auto;width:100%}
+.plans-foot{margin-top:22px;color:var(--muted);font-size:15px;max-width:70ch}
+.plans-foot a{color:var(--accent-ink);font-weight:600}
+
+/* vragen */
+.faq{margin-top:40px;display:grid;gap:12px;max-width:860px}
+.faq details{background:var(--surface);border:1px solid var(--line-soft);border-radius:16px;padding:0 22px}
+.faq summary{cursor:pointer;list-style:none;padding:20px 32px 20px 0;font-weight:600;font-size:17px;position:relative}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";position:absolute;right:4px;top:50%;width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);transition:transform .2s}
+.faq details[open] summary::after{transform:translateY(-30%) rotate(225deg)}
+.faq details p{margin:0 0 20px;color:var(--muted);max-width:68ch}
+
+/* slot */
+.final{text-align:left}
+.final .wrap{display:grid;gap:28px;align-items:end}
+@media (min-width:860px){.final .wrap{grid-template-columns:1fr auto}}
+
+footer{border-top:1px solid var(--line);padding:40px 0 48px;color:var(--muted);font-size:14px}
+footer .wrap{display:grid;gap:24px}
+@media (min-width:860px){footer .wrap{grid-template-columns:1fr auto;align-items:start}}
+.foot-links{display:flex;flex-wrap:wrap;gap:20px}
+.foot-links a{text-decoration:none;color:var(--muted)}
+.foot-links a:hover{color:var(--ink)}
+.disclaimer{max-width:70ch;margin:14px 0 0;line-height:1.5}
+</style>
+</head>
+<body>
+<a class="skip" href="#inhoud">Naar de inhoud</a>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Nexa, naar de startpagina">
+      <svg width="30" height="21" viewBox="0 0 20 14" aria-hidden="true"><defs><linearGradient id="m0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4D86FF"/><stop offset="1" stop-color="#1E48F5"/></linearGradient><linearGradient id="m1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#46F2BC"/><stop offset="1" stop-color="#0FBF86"/></linearGradient><linearGradient id="m2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFD24D"/><stop offset="1" stop-color="#FFA114"/></linearGradient></defs><rect x="0" y="4" width="6" height="10" rx="1.6" fill="url(#m0)"/><rect x="7" y="0" width="6" height="14" rx="1.6" fill="url(#m1)"/><rect x="14" y="5.5" width="6" height="8.5" rx="1.6" fill="url(#m2)"/></svg>
+      Nexa
+    </a>
+    <nav class="nav-links" aria-label="Pagina">
+      <a href="#zo-werkt-het">Zo werkt het</a>
+      <a href="#prijzen">Prijzen</a>
+      <a href="#vragen">Vragen</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="nav-login" href="/app/">Inloggen</a>
+      <a class="btn btn-primary btn-small" href="/app/?coach=1">Start 7 dagen gratis</a>
+    </div>
+  </div>
+</header>
+
+<main id="inhoud">
+
+  <section class="hero" aria-labelledby="kop">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow enter">Voeding en training in één app</span>
+        <h1 class="display enter enter-2" id="kop">Uw schema.<br>Elke week bijgestuurd.</h1>
+        <p class="lead enter enter-3">Nexa maakt uw voedings- en trainingsschema en past het elke week aan op uw resultaten. Zonder personal trainer.</p>
+        <div class="hero-ctas enter enter-4">
+          <a class="btn btn-primary" href="/app/?coach=1">Start 7 dagen gratis</a>
+          <a class="btn btn-ghost" href="#zo-werkt-het">Zo werkt het</a>
+        </div>
+      </div>
+      <div class="phones" role="img" aria-label="Twee schermen van de Nexa-app: de calorieën en macro's van vandaag, en een training met gewichten en een voorstel voor de volgende set">
+        <div class="phone phone-back enter">
+          <picture>
+            <source srcset="/assets/img/training-donker.jpg" media="(prefers-color-scheme: dark)">
+            <img src="/assets/img/training-licht.jpg" width="780" height="1688" alt="" decoding="async">
+          </picture>
+        </div>
+        <div class="phone phone-front enter">
+          <picture>
+            <source srcset="/assets/img/vandaag-donker.jpg" media="(prefers-color-scheme: dark)">
+            <img src="/assets/img/vandaag-licht.jpg" width="780" height="1688" alt="" fetchpriority="high" decoding="async">
+          </picture>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="verschil" style="padding-top:24px">
+    <div class="wrap">
+      <h2 class="display reveal" id="verschil">Een calorieteller telt.<br>Nexa denkt mee.</h2>
+      <p class="body reveal">De meeste apps laten u bijhouden wat u eet. Wat u daarna moet doen, zoekt u zelf uit. Nexa doet wat een coach doet: het plan maken en het bijsturen.</p>
+      <div class="contrast">
+        <div class="contrast-col col-tracker reveal">
+          <h3>Een calorieteller</h3>
+          <ul>
+            <li><span class="mark-no" aria-hidden="true">×</span><span>U logt wat u eet, tegen elke dag hetzelfde doel.</span></li>
+            <li><span class="mark-no" aria-hidden="true">×</span><span>Welke maaltijden en porties daarbij passen, bedenkt u zelf.</span></li>
+            <li><span class="mark-no" aria-hidden="true">×</span><span>Training staat los van uw voeding.</span></li>
+            <li><span class="mark-no" aria-hidden="true">×</span><span>Staat de weegschaal stil, dan moet u raden waarom.</span></li>
+          </ul>
+        </div>
+        <div class="contrast-col col-nexa reveal">
+          <h3>Nexa</h3>
+          <ul>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Calorieën en macro's per dag, met meer koolhydraten op trainingsdagen.</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Omgezet in maaltijden met porties, afgestemd op het tijdstip van uw training.</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Een trainingsschema dat elke sessie het juiste gewicht en aantal reps voorstelt.</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Elke week bijgestuurd op gewicht, taille en kracht, zodat vetverlies nooit voor stilstand wordt aangezien.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="zo-werkt-het" aria-labelledby="werkt" style="padding-top:24px">
+    <div class="wrap">
+      <h2 class="display reveal" id="werkt">Zo werkt het</h2>
+      <div class="how">
+        <div class="steps">
+          <div class="step reveal">
+            <h3>De intake</h3>
+            <p>Een paar vragen over uw lichaam, uw doel en wanneer u traint. Daarmee rekent Nexa uit wat u per dag nodig heeft.</p>
+          </div>
+          <div class="step reveal">
+            <h3>Uw plan</h3>
+            <p>Calorieën en macro's per dag, verdeeld over maaltijden met porties en een boodschappenlijst. Plus een trainingsschema met oefeningen, sets, reps en rusttijden.</p>
+          </div>
+          <div class="step reveal">
+            <h3>Elke week bijsturen</h3>
+            <p>U weegt zich en meet één keer per week uw taille. Nexa ziet of u vet verliest of spier opbouwt en past uw plan aan. Altijd als voorstel: u beslist.</p>
+          </div>
+          <div class="how-phone-mobile">
+            <div class="phone">
+              <picture>
+                <source srcset="/assets/img/maaltijden-donker.jpg" media="(prefers-color-scheme: dark)">
+                <img src="/assets/img/maaltijden-licht.jpg" width="780" height="1688" alt="Dagindeling in Nexa: maaltijden met tijden, calorieën, macro's en porties" loading="lazy" decoding="async">
+              </picture>
+            </div>
+          </div>
+        </div>
+        <div class="how-phone">
+          <div class="phone">
+            <picture>
+              <source srcset="/assets/img/maaltijden-donker.jpg" media="(prefers-color-scheme: dark)">
+              <img src="/assets/img/maaltijden-licht.jpg" width="780" height="1688" alt="Dagindeling in Nexa: maaltijden met tijden, calorieën, macro's en porties" loading="lazy" decoding="async">
+            </picture>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="alles" style="padding-top:24px">
+    <div class="wrap">
+      <h2 class="display reveal" id="alles">Alles wat een coach<br>voor u zou doen</h2>
+      <div class="bento">
+        <article class="cell cell-a reveal">
+          <div class="cell-text">
+            <h3>Training die meegroeit</h3>
+            <p>Na elke training weet Nexa wat de volgende keer het juiste gewicht en aantal reps is. Met rusttimer, supersets en een deload op het juiste moment.</p>
+          </div>
+          <div class="shot">
+            <div class="shot-inner">
+              <picture>
+                <source srcset="/assets/img/training-donker.jpg" media="(prefers-color-scheme: dark)">
+                <img src="/assets/img/training-licht.jpg" width="780" height="1688" alt="Een training in Nexa met doelgewicht, vorige prestatie en een voorstel voor meer reps" loading="lazy" decoding="async">
+              </picture>
+            </div>
+          </div>
+        </article>
+        <article class="cell cell-b reveal">
+          <div class="cell-text">
+            <h3>Vetverlies dat de weegschaal mist</h3>
+            <p>Staat uw gewicht stil terwijl uw taille daalt en uw kracht stijgt? Dan verliest u vet en bouwt u spier op. Nexa ziet dat, en laat uw calorieën staan.</p>
+          </div>
+          <div class="shot">
+            <picture>
+              <source srcset="/assets/img/samenstelling-donker.jpg" media="(prefers-color-scheme: dark)">
+              <img src="/assets/img/samenstelling-licht.jpg" width="780" height="1688" alt="Geschat vetpercentage, vetmassa en vetvrije massa met het verloop per week" loading="lazy" decoding="async">
+            </picture>
+          </div>
+        </article>
+        <article class="cell cell-c reveal">
+          <div class="cell-text">
+            <h3>Een plan voor maanden</h3>
+            <p>Afvallen, opbouwen of allebei na elkaar. Nexa rekent het week voor week door, met rustweken op tijd.</p>
+          </div>
+          <div class="phases" aria-label="Fases in een meerwekenplan">
+            <span class="phase">Cut</span><span class="phase">Dieetpauze</span><span class="phase">Opbouw</span><span class="phase">Minicut</span>
+          </div>
+        </article>
+        <article class="cell cell-d reveal">
+          <div class="cell-text">
+            <h3>Etiket scannen</h3>
+            <p>Een foto van de voedingswaardetabel en het product staat in uw lijst.</p>
+          </div>
+          <div class="label-demo" aria-hidden="true">
+            <div class="title">Voorbeeld: havermout, per 100 g</div>
+            <div class="row"><span>Energie</span><strong class="tnum">372 kcal</strong></div>
+            <div class="row"><span>Eiwit</span><strong class="tnum">13,5 g</strong></div>
+            <div class="row"><span>Koolhydraten</span><strong class="tnum">58,7 g</strong></div>
+            <div class="row"><span>Vet</span><strong class="tnum">7,0 g</strong></div>
+          </div>
+        </article>
+        <article class="cell cell-e reveal">
+          <div class="cell-text">
+            <h3>Precies genoeg trainen</h3>
+            <p>Per spiergroep ziet u of u genoeg sets doet om te groeien, en wanneer het te veel wordt om van te herstellen.</p>
+          </div>
+          <div class="shot">
+            <picture>
+              <source srcset="/assets/img/inzichten-donker.jpg" media="(prefers-color-scheme: dark)">
+              <img src="/assets/img/inzichten-licht.jpg" width="780" height="1688" alt="Werksets per spiergroep deze week, met ondergrens, groeizone en maximum" loading="lazy" decoding="async">
+            </picture>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="kosten" style="padding-top:24px">
+    <div class="wrap">
+      <div class="anchor reveal">
+        <h2 class="visually-hidden" id="kosten" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Wat begeleiding kost</h2>
+        <p class="anchor-line dim">Eén uur personal training: <span class="nb">€50 tot €90.</span></p>
+        <p class="anchor-line">Een jaar Nexa Coach: <span class="hl">€99,99.</span></p>
+        <p class="anchor-sub">Dat is ongeveer €1,92 per week, voor een plan dat elke dag klaarstaat en elke week wordt bijgestuurd.</p>
+        <div class="anchor-bars" aria-hidden="true">
+          <span style="height:60px;background:linear-gradient(#4D86FF,#1E48F5)"></span>
+          <span style="height:84px;background:linear-gradient(#46F2BC,#0FBF86)"></span>
+          <span style="height:51px;background:linear-gradient(#FFD24D,#FFA114)"></span>
+        </div>
+      </div>
+
+      <h2 class="display reveal" style="margin-top:88px">Wat u krijgt, en wat het kost</h2>
+      <div class="compare-wrap reveal">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th scope="col"><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Onderdeel</span></th>
+              <th scope="col">Calorieteller</th>
+              <th scope="col">Online coach</th>
+              <th scope="col">Personal trainer</th>
+              <th scope="col" class="col-us">Nexa Coach</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Kosten per maand</th><td class="tnum">€0 tot €20</td><td class="tnum">€50 tot €150</td><td class="tnum">€300 tot €600</td><td class="col-us tnum">€8,33</td></tr>
+            <tr><th scope="row">Voedingsschema met maaltijden</th><td>Nee</td><td>Meestal</td><td>Soms</td><td class="col-us">Ja</td></tr>
+            <tr><th scope="row">Trainingsschema met progressie</th><td>Nee</td><td>Meestal</td><td>Ja</td><td class="col-us">Ja</td></tr>
+            <tr><th scope="row">Elke week bijgestuurd</th><td>Nee</td><td>Soms</td><td>Ja</td><td class="col-us">Ja</td></tr>
+            <tr><th scope="row">Elke dag bij de hand</th><td>Ja</td><td>Via berichten</td><td>Tijdens de sessie</td><td class="col-us">Ja</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Indicatie op basis van openbare tarieven in 2026. Personal trainer: twee sessies per week. Nexa Coach: jaarabonnement.</p>
+    </div>
+  </section>
+
+  <section class="section" id="prijzen" aria-labelledby="prijzen-kop" style="padding-top:24px">
+    <div class="wrap">
+      <span class="eyebrow reveal">7 dagen gratis</span>
+      <h2 class="display reveal" id="prijzen-kop">Eén abonnement.<br>Alles erin.</h2>
+      <div class="plans">
+        <article class="plan plan-best reveal">
+          <span class="plan-tag">Beste keuze</span>
+          <h3>Per jaar</h3>
+          <div class="price"><span class="amount tnum">€99,99</span><span class="per">per jaar</span></div>
+          <p class="sub">€8,33 per maand, 44% voordeliger dan per maand.</p>
+          <ul>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Voedingsschema met maaltijden, porties en boodschappenlijst</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Trainingsschema met automatische progressie</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Meerwekenplan en wekelijkse bijsturing</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Lichaamssamenstelling en etiketten scannen</span></li>
+          </ul>
+          <a class="btn btn-primary" href="/app/?coach=1">Start 7 dagen gratis</a>
+        </article>
+        <article class="plan reveal">
+          <h3>Per maand</h3>
+          <div class="price"><span class="amount tnum">€14,99</span><span class="per">per maand</span></div>
+          <p class="sub">Maandelijks opzegbaar.</p>
+          <ul>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Alles uit het jaarabonnement</span></li>
+            <li><span class="mark-yes" aria-hidden="true">✓</span><span>Handig als u eerst een paar maanden wilt proberen</span></li>
+          </ul>
+          <a class="btn btn-ghost" href="/app/?coach=1">Start 7 dagen gratis</a>
+        </article>
+      </div>
+      <p class="plans-foot reveal">De proef duurt 7 dagen. U krijgt vóór het einde een herinnering en zegt op in de app, onder Profiel. Prijzen zijn inclusief btw. Alleen uw calorieën en macro's berekenen? Dat blijft altijd gratis: <a href="/app/">gratis beginnen</a>.</p>
+    </div>
+  </section>
+
+  <section class="section" id="vragen" aria-labelledby="vragen-kop" style="padding-top:24px">
+    <div class="wrap">
+      <h2 class="display reveal" id="vragen-kop">Vragen</h2>
+      <div class="faq">
+        <details class="reveal">
+          <summary>Heb ik ervaring nodig?</summary>
+          <p>Nee. Nexa kiest een startschema dat past bij het aantal dagen dat u kunt trainen, en vertelt per training welk gewicht en hoeveel reps. Voor uw voeding krijgt u maaltijden met porties. U hoeft zelf niets uit te rekenen.</p>
+        </details>
+        <details class="reveal">
+          <summary>Wat gebeurt er na de proefperiode?</summary>
+          <p>Na 7 dagen gaat uw gekozen abonnement in: €99,99 per jaar of €14,99 per maand. U krijgt vooraf een herinnering. Zegt u binnen de proef op, dan betaalt u niets.</p>
+        </details>
+        <details class="reveal">
+          <summary>Hoe zeg ik op?</summary>
+          <p>In de app, onder Profiel, Abonnement. Daar ziet u ook wanneer uw abonnement verlengt en kunt u van plan wisselen of uw betaalgegevens aanpassen.</p>
+        </details>
+        <details class="reveal">
+          <summary>Op welke telefoon werkt Nexa?</summary>
+          <p>Op iPhone en Android. U opent Nexa in de browser en zet de app op uw beginscherm; een download uit een appwinkel is niet nodig. Nexa werkt ook zonder internet.</p>
+        </details>
+        <details class="reveal">
+          <summary>Wat als ik een keer niet kan trainen?</summary>
+          <p>Dan verplaatst u de training naar een andere dag of slaat u hem over. Nexa past alleen die week aan: uw calorieën, en bij een vast schema ook de training. Uw vaste schema blijft staan.</p>
+        </details>
+        <details class="reveal">
+          <summary>Wat gebeurt er met mijn gegevens?</summary>
+          <p>Uw gegevens staan op uw telefoon en, met een account, in een beveiligde online opslag waar alleen u bij kunt. Betalen gaat via Stripe; Nexa ziet uw kaart- of bankgegevens niet.</p>
+        </details>
+        <details class="reveal">
+          <summary>Vervangt Nexa een arts of diëtist?</summary>
+          <p>Nee. Nexa is bedoeld voor gezonde volwassenen die willen afvallen, spier opbouwen of allebei. Heeft u een medische aandoening of een eetstoornis, of bent u zwanger? Overleg dan eerst met uw arts of diëtist.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="section final" aria-labelledby="slot" style="padding-top:24px">
+    <div class="wrap">
+      <div>
+        <h2 class="display reveal" id="slot">Begin vandaag<br>met een plan.</h2>
+        <p class="body reveal">7 dagen gratis. Daarna €8,33 per maand bij een jaarabonnement.</p>
+      </div>
+      <div class="reveal">
+        <a class="btn btn-primary" href="/app/?coach=1">Start 7 dagen gratis</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <a class="brand" href="/" aria-label="Nexa, naar de startpagina">
+        <svg width="26" height="18" viewBox="0 0 20 14" aria-hidden="true"><rect x="0" y="4" width="6" height="10" rx="1.6" fill="url(#m0)"/><rect x="7" y="0" width="6" height="14" rx="1.6" fill="url(#m1)"/><rect x="14" y="5.5" width="6" height="8.5" rx="1.6" fill="url(#m2)"/></svg>
+        Nexa
+      </a>
+      <p class="disclaimer">Your personal performance coach. Nexa geeft algemene adviezen over voeding en training en is geen medisch advies.</p>
+    </div>
+    <div>
+      <div class="foot-links">
+        <a href="#zo-werkt-het">Zo werkt het</a>
+        <a href="#prijzen">Prijzen</a>
+        <a href="#vragen">Vragen</a>
+        <a href="/app/">Inloggen</a>
+      </div>
+      <p class="disclaimer">© 2026 Nexa</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* Onderdelen komen in beeld bij het scrollen; de navigatiebalk krijgt een
+   rand zodra de pagina niet meer bovenaan staat. Beide met
+   IntersectionObserver, zonder scroll-luisteraar. */
+(function () {
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var items = document.querySelectorAll(".reveal");
+  if (reduce || !("IntersectionObserver" in window)) {
+    items.forEach(function (el) { el.classList.add("in"); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+    items.forEach(function (el) { io.observe(el); });
+  }
+  var nav = document.getElementById("nav");
+  var hero = document.querySelector(".hero");
+  if (nav && hero && "IntersectionObserver" in window) {
+    var top = document.createElement("div");
+    top.style.cssText = "position:absolute;top:0;left:0;height:8px;width:1px";
+    document.body.prepend(top);
+    new IntersectionObserver(function (entries) {
+      nav.classList.toggle("scrolled", !entries[0].isIntersecting);
+    }).observe(top);
+  }
+})();
+</script>
+</body>
+</html>

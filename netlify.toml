@@ -23,7 +23,29 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+[[headers]]
+  for = "/assets/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# de app woont op /app/; de landingspagina op /
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/app"
+  to = "/app/"
+  status = 301
+
+[[redirects]]
+  from = "/app/*"
+  to = "/app/index.html"
   status = 200

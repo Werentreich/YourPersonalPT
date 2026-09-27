@@ -741,9 +741,11 @@ async function readLabelWithClaude(file) {
   const data = await blobToBase64(blob);
   let r;
   try {
+    // met abonnementen aan controleert de server wie er scant
+    const token = window.nexaSync && window.nexaSync.accessToken ? await window.nexaSync.accessToken().catch(() => null) : null;
     r = await fetch(LABEL_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: JSON.stringify({ image: data, mediaType: blob.type || "image/jpeg" }),
     });
   } catch (e) {
@@ -7794,6 +7796,230 @@ const adjText = (a) =>
     ? `training van ${DAY_FULL[a.from].toLowerCase()} naar vandaag gehaald`
     : `training verplaatst naar ${DAY_FULL[a.to].toLowerCase()}`;
 
+/* ---------------- abonnement (Nexa Coach) ----------------
+   Gratis: de intake en de calorieën en macro's per dag. De begeleiding
+   (maaltijden, training, meerwekenplan, bijsturing, samenstelling,
+   etiketten) hoort bij Nexa Coach. De betaalmuur staat alleen aan als de
+   server dat meldt (Stripe ingesteld); in de Claude-weergave nooit. */
+const COACH_ACTIVE = new Set(["trialing", "active", "past_due", "comp"]);
+const COACH_PRICES = { maand: 14.99, jaar: 99.99 };
+function billingInfo(nx) {
+  const b = nx && nx.billing;
+  if (!b || !b.enabled) return { on: false, locked: false };
+  const sub = b.sub && nx.user && b.subUser === nx.user.id ? b.sub : null;
+  const active = !!sub && COACH_ACTIVE.has(sub.status);
+  const prices = { ...COACH_PRICES, ...(b.prices || {}) };
+  return {
+    on: true,
+    locked: !active,
+    active,
+    sub,
+    prices,
+    trialDays: b.trialDays || 7,
+    hadTrial: !!(sub && (sub.trial_end || sub.stripe_subscription_id)),
+    busy: !!b.busy,
+    error: b.error || null,
+    loggedIn: !!(nx && nx.user),
+  };
+}
+const eur = (v) => `€${Number(v).toFixed(2).replace(".", ",")}`;
+const dateLong = (iso) => (iso ? new Date(iso).toLocaleDateString("nl-NL", { day: "numeric", month: "long" }) : "");
+const daysUntil = (iso) => (iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / DAY_MS) : null);
+
+const COACH_FEATURES = [
+  ["Voedingsschema per dag", "maaltijden, porties en boodschappen, afgestemd op uw training"],
+  ["Trainingsschema dat meegroeit", "elke sessie het juiste gewicht en aantal reps, met deloads op tijd"],
+  ["Meerwekenplan", "cutten, opbouwen en minicuts, week voor week doorgerekend"],
+  ["Wekelijkse bijsturing", "op gewicht, taille en kracht, zodat vetverlies nooit voor stilstand wordt aangezien"],
+  ["Etiketten scannen", "foto van de verpakking en het product staat erin"],
+];
+
+const COACH_FEATURE_TITLE = {
+  plan: "Uw plan en de wekelijkse bijsturing",
+  training: "Uw trainingsschema dat meegroeit",
+  eten: "Uw maaltijden en boodschappen",
+  gezondheid: "Slaap, hormonen en vitamines",
+  vandaag: "Uw maaltijden voor vandaag",
+};
+
+function CoachPaywall({ bill, feature, onStart }) {
+  const [plan, setPlan] = useState("jaar");
+  const perMonth = bill.prices.jaar / 12;
+  const saving = Math.round((1 - bill.prices.jaar / (bill.prices.maand * 12)) * 100);
+  const trial = !bill.hadTrial;
+  const opt = (id, title, price, sub, badge) => {
+    const on = plan === id;
+    return (
+      <button
+        onClick={() => setPlan(id)}
+        className="tap w-full text-left px-3.5 py-3 relative"
+        style={{ borderRadius: R.field, border: `1.5px solid ${on ? "var(--accent)" : C.darkLine}`, background: on ? "rgba(43,75,255,.16)" : "rgba(255,255,255,.04)" }}
+        aria-pressed={on}
+      >
+        {badge && (
+          <span className="absolute text-[10px] font-bold uppercase tracking-wide px-2 py-0.5" style={{ top: -9, right: 12, background: "var(--carb-fill)", color: "#04140E", borderRadius: 999 }}>
+            {badge}
+          </span>
+        )}
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="text-sm font-semibold" style={{ color: C.darkInk }}>
+            {title}
+          </span>
+          <span className="disp text-xl font-bold tnum" style={{ color: C.darkInk }}>
+            {price}
+          </span>
+        </span>
+        <span className="text-xs block mt-0.5" style={{ color: C.darkMuted }}>
+          {sub}
+        </span>
+      </button>
+    );
+  };
+  return (
+    <div className="hero-in relative overflow-hidden mb-4 px-4 pt-5 pb-5" style={{ background: C.dark, color: C.darkInk, borderRadius: 18, boxShadow: C.shadow }}>
+      <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: C.darkMuted }}>
+        <NexaMark size={14} /> NEXA COACH
+      </div>
+      <h2 className="disp text-2xl font-bold uppercase leading-tight mt-2">{COACH_FEATURE_TITLE[feature] || "Uw persoonlijke begeleiding"}</h2>
+      <p className="text-sm mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+        Uw calorieën en macro's blijven gratis. De begeleiding die een coach u zou geven, zit in Nexa Coach.
+      </p>
+      <ul className="mt-4 space-y-2">
+        {COACH_FEATURES.map(([t, d]) => (
+          <li key={t} className="flex gap-2.5 text-sm leading-snug">
+            <span className="shrink-0 flex items-center justify-center font-bold" style={{ width: 18, height: 18, borderRadius: 9, background: "var(--carb-fill)", color: "#04140E", fontSize: 11, marginTop: 1 }}>
+              ✓
+            </span>
+            <span>
+              <strong>{t}</strong> <span style={{ color: C.darkMuted }}>· {d}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-5 space-y-2.5">
+        {opt("jaar", "Per jaar", eur(bill.prices.jaar), `${eur(perMonth)} per maand · ${saving}% voordeliger`, "Beste keuze")}
+        {opt("maand", "Per maand", eur(bill.prices.maand), "maandelijks opzegbaar")}
+      </div>
+      <button
+        onClick={() => onStart(plan)}
+        disabled={bill.busy}
+        className="tap w-full mt-4 py-3.5 disp text-xl font-bold uppercase"
+        style={{ background: "var(--accent)", color: "var(--on-accent)", borderRadius: R.field, opacity: bill.busy ? 0.6 : 1 }}
+      >
+        {bill.busy ? "Even geduld…" : trial ? `Start ${bill.trialDays} dagen gratis` : "Abonneren"}
+      </button>
+      <p className="text-xs mt-2.5 leading-relaxed text-center" style={{ color: C.darkMuted }}>
+        {trial
+          ? `Daarna ${eur(bill.prices[plan])} per ${plan === "jaar" ? "jaar" : "maand"}, incl. btw. U krijgt vooraf een herinnering en zegt op wanneer u wilt, gewoon in de app.`
+          : `${eur(bill.prices[plan])} per ${plan === "jaar" ? "jaar" : "maand"}, incl. btw. Opzeggen kan altijd, gewoon in de app.`}
+        {!bill.loggedIn ? " U maakt eerst een gratis account, zodat uw abonnement ook op een nieuwe telefoon werkt." : ""}
+      </p>
+      {bill.error && (
+        <p className="text-sm mt-2 text-center" style={{ color: "#FF8A6B" }} role="alert">
+          {bill.error}
+        </p>
+      )}
+      <div className="mt-4 pt-3 text-xs leading-relaxed" style={{ borderTop: `1px solid ${C.darkLine}`, color: C.darkMuted }}>
+        Eén uur personal training kost €50 tot €90. Een heel jaar Nexa Coach kost {eur(bill.prices.jaar)}: ongeveer {eur(bill.prices.jaar / 52)} per week.
+      </div>
+    </div>
+  );
+}
+
+/* Klein blok op de plek van een afgeschermd onderdeel. */
+function CoachTeaser({ title, text, onOpen }) {
+  return (
+    <div className="mb-6 px-4 py-3.5 flex items-center gap-3" style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: R.card }}>
+      <span className="shrink-0 flex items-center justify-center" style={{ width: 34, height: 34, borderRadius: 17, background: C.surface2 }}>
+        <NexaMark size={16} />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="text-sm font-semibold block">{title}</span>
+        <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+          {text}
+        </span>
+      </span>
+      <TBtn small onClick={onOpen}>
+        Bekijk
+      </TBtn>
+    </div>
+  );
+}
+
+function SubscriptionSection({ bill, onStart }) {
+  if (!bill.on) return null;
+  const sync = window.nexaSync;
+  const sub = bill.sub;
+  const planTxt = sub && sub.plan === "jaar" ? `${eur(bill.prices.jaar)} per jaar` : sub && sub.plan === "maand" ? `${eur(bill.prices.maand)} per maand` : "";
+  let status;
+  if (!bill.loggedIn) status = { state: "oplet", value: "geen", note: "Log in of maak een account om Nexa Coach te starten." };
+  else if (!sub || !COACH_ACTIVE.has(sub.status))
+    status = { state: "oplet", value: sub && sub.status === "canceled" ? "beëindigd" : "gratis versie", note: "U gebruikt de gratis versie: calorieën en macro's per dag." };
+  else if (sub.status === "comp") status = { state: "goed", value: "gratis toegang", note: "U heeft blijvend toegang tot Nexa Coach." };
+  else if (sub.status === "trialing")
+    status = { state: "goed", value: "proefperiode", note: `Gratis tot ${dateLong(sub.trial_end)}. ${sub.cancel_at_period_end ? "Daarna stopt het abonnement." : `Daarna ${planTxt}.`}` };
+  else if (sub.status === "past_due") status = { state: "risico", value: "betaling mislukt", note: "Werk uw betaalgegevens bij om Nexa Coach te houden." };
+  else
+    status = {
+      state: "goed",
+      value: "actief",
+      note: sub.cancel_at_period_end ? `Opgezegd; loopt tot ${dateLong(sub.current_period_end)}.` : `${planTxt}, verlengt op ${dateLong(sub.current_period_end)}.`,
+    };
+  const canManage = bill.loggedIn && sub && sub.stripe_customer_id && sub.status !== "comp";
+  return (
+    <Section title="Abonnement" sub="Nexa Coach: uw voeding, training en wekelijkse bijsturing. Opzeggen kan altijd, hier in de app.">
+      <Status label="Nexa Coach" value={status.value} state={status.state} note={status.note} />
+      <div className="px-4 py-3 flex flex-wrap gap-2">
+        {bill.locked && (
+          <TBtn small onClick={() => onStart()}>
+            {bill.hadTrial ? "Abonneren" : `${bill.trialDays} dagen gratis proberen`}
+          </TBtn>
+        )}
+        {canManage && (
+          <TBtn small kind="secondary" disabled={bill.busy} onClick={() => sync.portal().catch(() => {})}>
+            {sub.status === "past_due" ? "Betaalgegevens bijwerken" : "Abonnement beheren of opzeggen"}
+          </TBtn>
+        )}
+      </div>
+      {bill.error && (
+        <p className="px-4 pb-3 text-sm" style={{ color: C.train }} role="alert">
+          {bill.error}
+        </p>
+      )}
+    </Section>
+  );
+}
+
+/* Melding op Vandaag: proef bijna voorbij, betaling mislukt of opgezegd. */
+function BillingBanner({ bill, onManage }) {
+  if (!bill.on || !bill.sub) return null;
+  const sub = bill.sub;
+  let text = null;
+  let warn = false;
+  if (sub.status === "past_due") {
+    text = "Uw betaling is niet gelukt. Werk uw betaalgegevens bij om Nexa Coach te houden.";
+    warn = true;
+  } else if (sub.status === "trialing" && daysUntil(sub.trial_end) != null && daysUntil(sub.trial_end) <= 3) {
+    const d = daysUntil(sub.trial_end);
+    text = sub.cancel_at_period_end
+      ? `Uw proefperiode eindigt ${d <= 1 ? "morgen" : `over ${d} dagen`}; daarna stopt Nexa Coach.`
+      : `Uw proefperiode eindigt ${d <= 1 ? "morgen" : `over ${d} dagen`}, op ${dateLong(sub.trial_end)}. Daarna ${sub.plan === "maand" ? `${eur(bill.prices.maand)} per maand` : `${eur(bill.prices.jaar)} per jaar`}.`;
+  } else if (sub.status === "active" && sub.cancel_at_period_end && daysUntil(sub.current_period_end) <= 7) {
+    text = `Nexa Coach loopt af op ${dateLong(sub.current_period_end)}.`;
+  }
+  if (!text) return null;
+  return (
+    <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: warn ? C.warnBg : C.panel, border: `1px solid ${warn ? C.warn : C.line}`, borderRadius: R.field }}>
+      <span className="text-xs flex-1 leading-snug" style={{ color: warn ? C.warn : C.muted }}>
+        {text}
+      </span>
+      <TBtn small kind="secondary" onClick={onManage}>
+        Beheren
+      </TBtn>
+    </div>
+  );
+}
+
 /* Vangnet: één fout in de weergave mag nooit een leeg scherm opleveren.
    De gebruiker krijgt de melding plus een knop om de opgeslagen instellingen
    te wissen, want een onverwachte fout komt vrijwel altijd uit oude opslag. */
@@ -7969,6 +8195,111 @@ function MacroApp() {
   const [T, setT, tLoaded] = useTrainingStore();
   const nx = useNexaSync();
   const [accountOpen, setAccountOpen] = useState(null);
+
+  /* abonnement */
+  const bill = billingInfo(nx);
+  const [paywallOpen, setPaywallOpen] = useState(null);
+  const [billNotice, setBillNotice] = useState(null);
+  const [pendingPlan, setPendingPlan] = useState(() => {
+    try {
+      return window.sessionStorage.getItem("nexa:pending-plan");
+    } catch (e) {
+      return null;
+    }
+  });
+  const rememberPlan = (plan) => {
+    setPendingPlan(plan);
+    try {
+      if (plan) window.sessionStorage.setItem("nexa:pending-plan", plan);
+      else window.sessionStorage.removeItem("nexa:pending-plan");
+    } catch (e) {
+      /* alleen voor deze pagina */
+    }
+  };
+  const startCoach = (plan = "jaar") => {
+    if (!window.nexaSync) return;
+    if (!nx || !nx.user) {
+      rememberPlan(plan);
+      setPaywallOpen(null);
+      setAccountOpen("signup");
+      return;
+    }
+    window.nexaSync.checkout(plan).catch(() => {});
+  };
+  // net ingelogd of een account gemaakt vanuit de betaalmuur: door naar betalen
+  const userId = nx && nx.user ? nx.user.id : null;
+  useEffect(() => {
+    if (!userId || !pendingPlan || !window.nexaSync) return;
+    const plan = pendingPlan;
+    rememberPlan(null);
+    setAccountOpen(null);
+    window.nexaSync.refreshBilling().then((b) => {
+      const sub = b && b.sub;
+      if (!(b && b.enabled) || (sub && COACH_ACTIVE.has(sub.status))) return;
+      window.nexaSync.checkout(plan).catch(() => {});
+    });
+  }, [userId, pendingPlan]);
+  /* Via "Start 7 dagen gratis" op de landingspagina (?coach=1): na de intake
+     meteen het aanbod tonen, zodra bekend is dat abonnementen aanstaan. */
+  const [wantCoach, setWantCoach] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("coach") === "1" || window.sessionStorage.getItem("nexa:want-coach") === "1";
+    } catch (e) {
+      return false;
+    }
+  });
+  useEffect(() => {
+    if (!wantCoach) return;
+    try {
+      window.sessionStorage.setItem("nexa:want-coach", "1");
+      const q = new URLSearchParams(window.location.search);
+      if (q.has("coach")) {
+        q.delete("coach");
+        const rest = q.toString();
+        window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+      }
+    } catch (e) {
+      /* adres laten staan */
+    }
+  }, []);
+  useEffect(() => {
+    if (!wantCoach || !loaded || onboarding !== null || !bill.on) return;
+    if (bill.locked) setPaywallOpen("vandaag");
+    setWantCoach(false);
+    try {
+      window.sessionStorage.removeItem("nexa:want-coach");
+    } catch (e) {
+      /* niets */
+    }
+  }, [wantCoach, loaded, onboarding, bill.on, bill.locked]);
+  // terug van Stripe: melding tonen en de status ophalen tot de webhook binnen is
+  useEffect(() => {
+    let q = null;
+    try {
+      q = new URLSearchParams(window.location.search).get("abonnement");
+    } catch (e) {
+      q = null;
+    }
+    if (!q || !window.nexaSync) return;
+    setBillNotice(q);
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    } catch (e) {
+      /* adres laten staan */
+    }
+    let n = 0;
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      const b = await window.nexaSync.refreshBilling();
+      const ok = b && b.sub && COACH_ACTIVE.has(b.sub.status);
+      if (q === "gelukt" && !ok && ++n < 12) setTimeout(tick, 2500);
+    };
+    tick();
+    return () => {
+      stop = true;
+    };
+  }, []);
   const [accountHint, setAccountHint] = useState(() => {
     try {
       return !window.localStorage.getItem("nexa:account-hint");
@@ -9771,6 +10102,30 @@ function MacroApp() {
             )}
 
             <SyncNotices s={nx} />
+            {billNotice && (
+              <div
+                className="mb-3 px-3 py-2.5 flex items-center gap-3"
+                style={{ background: billNotice === "gelukt" ? C.surface2 : C.panel, border: `1px solid ${billNotice === "gelukt" ? C.carb : C.line}`, borderRadius: R.field }}
+                role="status"
+              >
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  {billNotice === "gelukt" ? (
+                    <>
+                      <strong style={{ color: C.carb }}>Welkom bij Nexa Coach.</strong>{" "}
+                      {bill.active ? "Alles staat voor u klaar: begin bij Plan of Training." : "Uw abonnement wordt verwerkt; dat duurt meestal een paar seconden."}
+                    </>
+                  ) : billNotice === "geannuleerd" ? (
+                    "De betaling is afgebroken. Er is niets afgeschreven; u kunt het later opnieuw proberen."
+                  ) : (
+                    "Uw abonnementsgegevens zijn bijgewerkt."
+                  )}
+                </span>
+                <button onClick={() => setBillNotice(null)} className="tap text-xs underline shrink-0" style={{ color: C.muted }}>
+                  Sluiten
+                </button>
+              </div>
+            )}
+            <BillingBanner bill={bill} onManage={() => window.nexaSync && window.nexaSync.portal().catch(() => {})} />
             {nx && !nx.user && !nx.notice && !nx.recovery && loaded && accountHint && (
               <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
                 <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
@@ -9786,7 +10141,7 @@ function MacroApp() {
                 </div>
               </div>
             )}
-            {checkinDue && (
+            {checkinDue && !bill.locked && (
               <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
                 <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
                   <strong style={{ color: C.ink }}>{lastCheckin ? "Tijd voor uw wekelijkse meting." : "Meet ook uw taille."}</strong>{" "}
@@ -9804,10 +10159,12 @@ function MacroApp() {
                 </div>
               </div>
             )}
-            <TrainingBoundary quiet>
-              <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
-            </TrainingBoundary>
-            {loaded && !T.active && (() => {
+            {!bill.locked && (
+              <TrainingBoundary quiet>
+                <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
+              </TrainingBoundary>
+            )}
+            {loaded && !T.active && !bill.locked && (() => {
               const trainedToday = T.sessions.some((x) => x.date === localISO() && x.end);
               const isTrain = !!wk[todayIdx].session;
               const canPull = !isTrain && wk.some((d, k) => k > todayIdx && d.session);
@@ -10022,6 +10379,14 @@ function MacroApp() {
         </div>
 
         {/* ---------------- dagindeling ---------------- */}
+        {bill.locked && (
+          <CoachTeaser
+            title={`Dagindeling ${DAY_FULL[selDay].toLowerCase()}`}
+            text="Uw maaltijden met porties, afgestemd op het tijdstip van uw training. Onderdeel van Nexa Coach."
+            onOpen={() => setPaywallOpen("vandaag")}
+          />
+        )}
+        {!bill.locked && (
         <Section
           title={`Dagindeling ${DAY_FULL[selDay].toLowerCase()}`}
           sub="Koolhydraten schuiven naar de maaltijden rond de training, vet schuift daar juist vanaf. Eiwit blijft gelijkmatig verdeeld."
@@ -10680,6 +11045,7 @@ function MacroApp() {
             </div>
           )}
         </Section>
+        )}
 
         {warnings.length > 0 && (
           <div className="px-4 py-3 mb-8 relative overflow-hidden" style={{ background: C.warnBg, borderRadius: R.card }}>
@@ -10697,7 +11063,8 @@ function MacroApp() {
 
           </>
         )}
-        {tab === "training" && (
+        {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
+        {tab === "training" && !bill.locked && (
           <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
             <TrainingTab
               T={T}
@@ -10712,7 +11079,8 @@ function MacroApp() {
             />
           </TrainingBoundary>
         )}
-        {tab === "eten" && (
+        {tab === "eten" && bill.locked && <CoachPaywall bill={bill} feature="eten" onStart={startCoach} />}
+        {tab === "eten" && !bill.locked && (
           <>
         {/* ---------------- variatie deze week ---------------- */}
         <Section
@@ -11176,7 +11544,8 @@ function MacroApp() {
 
           </>
         )}
-        {tab === "plan" && (
+        {tab === "plan" && bill.locked && <CoachPaywall bill={bill} feature="plan" onStart={startCoach} />}
+        {tab === "plan" && !bill.locked && (
           <>
         {/* ---------------- actief plan ---------------- */}
         {autopilot && (
@@ -11979,7 +12348,8 @@ function MacroApp() {
 
           </>
         )}
-        {tab === "gezondheid" && (
+        {tab === "gezondheid" && bill.locked && <CoachPaywall bill={bill} feature="gezondheid" onStart={startCoach} />}
+        {tab === "gezondheid" && !bill.locked && (
           <>
         {/* ---------------- micronutriënten en hormonen ---------------- */}
         <Section
@@ -12195,6 +12565,7 @@ function MacroApp() {
         {tab === "profiel" && (
           <>
         <AccountSection s={nx} />
+        <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
         {/* ---------------- invoer ---------------- */}
         <Section title="Weekschema" sub="Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen.">
           {week.map((d, i) => (
@@ -12659,7 +13030,18 @@ function MacroApp() {
               ? "Met een account bewaart Nexa uw gegevens online. Verwijdert u de app of krijgt u een nieuwe telefoon, dan logt u in en staat alles er weer."
               : "Log in om de gegevens uit uw account op dit apparaat te zetten."}
           </p>
+          {pendingPlan && (
+            <p className="text-sm mb-3 leading-relaxed" style={{ color: C.ink }}>
+              Na het aanmaken of inloggen gaat u direct door naar de betaalpagina van Nexa Coach.
+            </p>
+          )}
           <AccountForm initial={accountOpen} onDone={() => setAccountOpen(null)} />
+        </Sheet>
+      )}
+
+      {paywallOpen && bill.locked && (
+        <Sheet title="Nexa Coach" onClose={() => setPaywallOpen(null)}>
+          <CoachPaywall bill={bill} feature={paywallOpen} onStart={startCoach} />
         </Sheet>
       )}
 
@@ -12678,7 +13060,7 @@ function MacroApp() {
       {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} />}
 
       <TrainingBoundary quiet>
-        <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />
+        {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
       </TrainingBoundary>
 
       {/* ---------------- tabbalk ---------------- */}
@@ -12724,6 +13106,12 @@ function MacroApp() {
                       className="absolute rounded-full"
                       style={{ top: -1, right: -3, width: 8, height: 8, background: C.train, border: `2px solid ${C.panel}` }}
                     />
+                  )}
+                  {bill.locked && ["training", "eten", "plan", "gezondheid"].includes(t.id) && (
+                    <svg className="absolute" style={{ top: -3, right: -7 }} width="11" height="12" viewBox="0 0 11 12" aria-hidden="true">
+                      <rect x="1" y="5" width="9" height="6.5" rx="1.5" fill="currentColor" />
+                      <path d="M3 5.2V3.8a2.5 2.5 0 0 1 5 0v1.4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
                   )}
                 </span>
                 <span className="text-xs" style={{ fontWeight: on ? 600 : 500 }}>

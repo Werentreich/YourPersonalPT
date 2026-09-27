@@ -1,4 +1,5 @@
-/* Bouwt de PWA vanuit src/App.jsx naar dist/. Vier stappen:
+/* Bouwt de site naar dist/: de landingspagina op / (uit landing/) en de
+   PWA op /app/ (uit src/App.jsx). Voor de app vier stappen:
    1. Tailwind-utility-klassen compileren op basis van wat App.jsx gebruikt
    2. React + App.jsx bundelen en minifiëren tot één script
    3. Iconen en service worker naar dist/ kopiëren
@@ -13,11 +14,11 @@
    laatste voorkomen (rfind), zoals hieronder.
 */
 import { execSync } from "node:child_process";
-import { mkdirSync, copyFileSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, copyFileSync, writeFileSync, readFileSync, existsSync, cpSync } from "node:fs";
 
 const run = (cmd) => execSync(cmd, { stdio: "inherit" });
 
-mkdirSync("dist", { recursive: true });
+mkdirSync("dist/app", { recursive: true });
 
 run("npx tailwindcss -i ./build-input.css -o ./dist/tailwind.css --minify");
 run(
@@ -25,9 +26,14 @@ run(
   '--define:process.env.NODE_ENV=\\"production\\" --outfile=./dist/app.js'
 );
 
-for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "favicon-32.png"]) {
+for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "favicon-32.png", "robots.txt", "404.html"]) {
   copyFileSync(`public/${f}`, `dist/${f}`);
 }
+
+// landingspagina: statische HTML met eigen lettertypen en schermafbeeldingen
+copyFileSync("landing/index.html", "dist/index.html");
+cpSync("landing/fonts", "dist/assets/fonts", { recursive: true });
+cpSync("landing/img", "dist/assets/img", { recursive: true });
 
 const css = readFileSync("dist/tailwind.css", "utf8");
 const js = readFileSync("dist/app.js", "utf8");
@@ -55,7 +61,7 @@ let html = `<!doctype html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Nexa">
-<link rel="manifest" href="/manifest.webmanifest?v=nexa2">
+<link rel="manifest" href="/manifest.webmanifest?v=nexa3">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=nexa1">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=nexa1">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=nexa1">
@@ -83,5 +89,5 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 const last = html.lastIndexOf("</body>");
 html = html.slice(0, last) + swReg + html.slice(last);
 
-writeFileSync("dist/index.html", html);
-console.log(`dist/index.html geschreven, ${Math.round(html.length / 1024)} kB`);
+writeFileSync("dist/app/index.html", html);
+console.log(`dist/app/index.html geschreven, ${Math.round(html.length / 1024)} kB`);

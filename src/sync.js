@@ -18,6 +18,10 @@ const TABLE = "nexa_data";
 const PREFIX = "macroverdeling:"; // alleen app-gegevens synchroniseren, geen sessie of hulpgegevens
 const META_KEY = "nexa:sync-meta";
 const PUSH_DELAY = 1500;
+const BILLING_KEY = "nexa:billing"; // laatst bekende abonnementsstatus, voor gebruik zonder internet
+const BILLING_URL = "/.netlify/functions/billing";
+const SUB_TABLE = "nexa_subscriptions";
+export const ACTIVE_STATUSES = ["trialing", "active", "past_due", "comp"];
 const BOOT_TIMEOUT = 3500;
 
 const FRIENDLY = {
@@ -92,7 +96,30 @@ export function createSync(local) {
     },
   });
 
-  let state = { user: null, status: "uit", lastSync: meta.lastSync, error: null, recovery: false, notice: null };
+  /* Abonnement (Nexa Coach). enabled komt van de server: zolang Stripe daar
+     niet is ingesteld, staat de betaalmuur uit. De laatst bekende status
+     blijft op het apparaat, zodat een betalende gebruiker zonder internet
+     niet wordt buitengesloten. */
+  const readBilling = () => {
+    try {
+      const b = JSON.parse(local.get(BILLING_KEY) || "null");
+      if (b && typeof b === "object") return { enabled: !!b.enabled, sub: b.sub || null, subUser: b.subUser || null, prices: b.prices || null, trialDays: b.trialDays || 7 };
+    } catch (e) {
+      /* opnieuw ophalen */
+    }
+    return { enabled: false, sub: null, subUser: null, prices: null, trialDays: 7 };
+  };
+  const billing0 = readBilling();
+
+  let state = {
+    user: null,
+    status: "uit",
+    lastSync: meta.lastSync,
+    error: null,
+    recovery: false,
+    notice: null,
+    billing: { ...billing0, checked: false, busy: false, error: null },
+  };
   const listeners = new Set();
   const emit = (patch) => {
     state = { ...state, ...patch };
@@ -261,9 +288,70 @@ export function createSync(local) {
     meta.user = user.id;
     saveMeta();
     emit({ user: { id: user.id, email: user.email }, notice: null });
+    refreshBilling();
     const r = await syncNow({ preferRemote });
     if (r.changed && typeof location !== "undefined") location.reload();
     return r;
+  }
+
+  const saveBilling = (b) => {
+    try {
+      local.set(BILLING_KEY, JSON.stringify({ enabled: b.enabled, sub: b.sub, subUser: b.subUser, prices: b.prices, trialDays: b.trialDays }));
+    } catch (e) {
+      /* alleen voor deze sessie */
+    }
+  };
+  const setBilling = (patch) => {
+    const b = { ...state.billing, ...patch };
+    emit({ billing: b });
+    saveBilling(b);
+  };
+  let billingAt = 0;
+  async function refreshBilling() {
+    billingAt = Date.now();
+    try {
+      const r = await fetch(BILLING_URL, { cache: "no-store" });
+      const d = r.ok ? await r.json() : null;
+      const patch = { checked: true, error: null };
+      if (d && typeof d.enabled === "boolean") Object.assign(patch, { enabled: d.enabled, prices: d.prices || null, trialDays: d.trialDays || 7 });
+      else if (r.status === 404) patch.enabled = false; // geen serverfunctie (bijvoorbeeld lokaal testen)
+      if (state.user) {
+        const { data, error } = await rest.from(SUB_TABLE).select("*").eq("user_id", state.user.id).maybeSingle();
+        if (!error) Object.assign(patch, { sub: data || null, subUser: state.user.id });
+      } else {
+        Object.assign(patch, { sub: null, subUser: null });
+      }
+      setBilling(patch);
+    } catch (e) {
+      // zonder internet: laatst bekende status aanhouden
+      emit({ billing: { ...state.billing, checked: true } });
+    }
+    return state.billing;
+  }
+  const accessToken = async () => {
+    const { data } = await auth.getSession();
+    return data && data.session ? data.session.access_token : null;
+  };
+  async function billingCall(body) {
+    const token = await accessToken();
+    if (!token) {
+      const e = new Error("Log eerst in met uw Nexa-account.");
+      e.code = "inloggen";
+      throw e;
+    }
+    let r;
+    try {
+      r = await fetch(BILLING_URL, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+    } catch (e) {
+      throw new Error("Geen verbinding. Controleer uw internet en probeer het opnieuw.");
+    }
+    const d = await r.json().catch(() => null);
+    if (!d || !d.ok || !d.url) {
+      const e = new Error((d && d.message) || "Er ging iets mis. Probeer het later opnieuw.");
+      e.code = d && d.code;
+      throw e;
+    }
+    return d.url;
   }
 
   const api = {
@@ -276,7 +364,7 @@ export function createSync(local) {
       return () => listeners.delete(fn);
     },
     async signUp(email, password) {
-      const { data, error } = await auth.signUp({ email, password, options: { emailRedirectTo: `${location.origin}/` } });
+      const { data, error } = await auth.signUp({ email, password, options: { emailRedirectTo: `${location.origin}/app/` } });
       if (error) throw friendly(error);
       if (data.session) {
         await afterLogin(data.session.user, { preferRemote: false });
@@ -297,9 +385,10 @@ export function createSync(local) {
       meta.user = null;
       saveMeta();
       emit({ user: null, status: "uit", error: null });
+      setBilling({ sub: null, subUser: null });
     },
     async resetPassword(email) {
-      const { error } = await auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/` });
+      const { error } = await auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/app/` });
       if (error) throw friendly(error);
     },
     async updatePassword(password) {
@@ -310,6 +399,30 @@ export function createSync(local) {
     },
     dismissNotice() {
       emit({ notice: null });
+    },
+    accessToken,
+    refreshBilling,
+    /* Naar Stripe Checkout (proef starten of opnieuw abonneren). */
+    async checkout(plan) {
+      setBilling({ busy: true, error: null });
+      try {
+        const url = await billingCall({ action: "checkout", plan });
+        location.href = url;
+      } catch (e) {
+        setBilling({ busy: false, error: e.message });
+        throw e;
+      }
+    },
+    /* Naar het Stripe-klantportaal: betaalgegevens, plan wisselen, opzeggen. */
+    async portal() {
+      setBilling({ busy: true, error: null });
+      try {
+        const url = await billingCall({ action: "portal" });
+        location.href = url;
+      } catch (e) {
+        setBilling({ busy: false, error: e.message });
+        throw e;
+      }
     },
     syncNow: async () => {
       const r = await syncNow();
@@ -344,6 +457,8 @@ export function createSync(local) {
     }
   })();
 
+  ready.then(() => refreshBilling());
+
   auth.onAuthStateChange((event, session) => {
     if (event === "PASSWORD_RECOVERY") emit({ recovery: true });
     if (event === "SIGNED_OUT" && !state.recovery) emit({ user: null, status: "uit" });
@@ -361,6 +476,7 @@ export function createSync(local) {
       } else if (Date.now() - (meta.lastSync || 0) > 20000) {
         api.syncNow();
       }
+      if (document.visibilityState === "visible" && Date.now() - billingAt > 60000) refreshBilling();
     });
     window.addEventListener("online", () => state.user && syncNow());
   }

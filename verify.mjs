@@ -1,4 +1,4 @@
-/* Regressietest voor dist/index.html: laadt het bestand in een
+/* Regressietest voor dist/app/index.html (de app): laadt het bestand in een
    browserachtige omgeving (jsdom) en controleert dat de app echt opstart.
    Dit is precies de controle die een eerdere versie miste: die versie
    compileerde foutloos maar toonde bij het openen alleen onopgemaakte,
@@ -12,9 +12,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const file = path.join(dir, "dist/index.html");
+const file = path.join(dir, "dist/app/index.html");
 if (!fs.existsSync(file)) {
-  console.error("dist/index.html ontbreekt. Draai eerst: npm run build");
+  console.error("dist/app/index.html ontbreekt. Draai eerst: npm run build");
   process.exit(1);
 }
 const html = fs.readFileSync(file, "utf8");
@@ -23,7 +23,7 @@ const errors = [];
 const dom = new JSDOM(html, {
   runScripts: "dangerously",
   pretendToBeVisual: true,
-  url: "https://nexa-performance.netlify.app/",
+  url: "https://nexa-performance.netlify.app/app/",
   beforeParse(w) {
     w.scrollTo = () => {};
     w.matchMedia = w.matchMedia || (() => ({ matches: false, addListener() {}, removeListener() {} }));
@@ -48,6 +48,19 @@ const checks = [
   ["ontwerpsysteem-CSS geladen (--accent aanwezig)", [...doc.querySelectorAll("style")].some((s) => s.textContent.includes("--accent"))],
   ["geen fouten tijdens uitvoeren", errors.length === 0],
 ];
+
+/* Landingspagina (dist/index.html): statisch, dus alleen controleren of hij
+   er is, naar de app verwijst en of alle bestanden waarnaar hij verwijst
+   bestaan. */
+const landingFile = path.join(dir, "dist/index.html");
+const landing = fs.existsSync(landingFile) ? fs.readFileSync(landingFile, "utf8") : "";
+const assetRefs = [...landing.matchAll(/\/assets\/[^"'?#\s,)]+/g)].map((m) => m[0]);
+const missing = [...new Set(assetRefs)].filter((r) => !fs.existsSync(path.join(dir, "dist", r)));
+checks.push(
+  ["landingspagina aanwezig met kop", /<h1[\s>]/.test(landing)],
+  ["landingspagina verwijst naar de app", landing.includes('href="/app/')],
+  [`alle bestanden van de landingspagina bestaan${missing.length ? ` (ontbreekt: ${missing.join(", ")})` : ""}`, assetRefs.length > 0 && missing.length === 0]
+);
 
 let ok = true;
 for (const [label, pass] of checks) {

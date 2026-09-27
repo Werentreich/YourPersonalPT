@@ -6,6 +6,7 @@
    POST -> body { image: <base64 zonder data:-voorvoegsel>, mediaType }
            antwoord { ok: true, result } of { ok: false, code, message } */
 import Anthropic from "@anthropic-ai/sdk";
+import { billingEnabled, entitled, getSub, userFromRequest } from "../lib/billing-core.mjs";
 
 const MODEL = "claude-opus-5";
 const MAX_BASE64 = 5_000_000; // ruim onder de 6 MB-grens van Netlify Functions
@@ -81,6 +82,14 @@ export default async (req) => {
   if (req.method !== "POST") return json(405, { ok: false, code: "methode" });
   if (!sameOrigin(req)) return json(403, { ok: false, code: "herkomst", message: "Alleen de app zelf mag deze functie gebruiken." });
   if (!key) return json(503, { ok: false, code: "geen_sleutel", message: "Er is geen API-sleutel ingesteld op de server." });
+
+  /* Elke analyse kost geld; met abonnementen aan alleen voor Nexa Coach. */
+  if (billingEnabled()) {
+    const user = await userFromRequest(req).catch(() => null);
+    if (!user) return json(401, { ok: false, code: "inloggen", message: "Log in met uw Nexa-account om etiketten te scannen." });
+    const row = await getSub(user.id).catch(() => null);
+    if (!entitled(row)) return json(402, { ok: false, code: "abonnement", message: "Etiketten scannen hoort bij Nexa Coach." });
+  }
 
   let body;
   try {

@@ -9,7 +9,8 @@ en ondersteunt meerwekenplannen voor cutten, bulken en minicuts. Het
 tabblad Training bevat trainingsschema's, live loggen met rusttimer,
 automatische progressie, periodisering met deload en analyses.
 
-**Live:** https://nexa-performance.netlify.app
+**Live:** https://nexa-performance.netlify.app (landingspagina) en
+https://nexa-performance.netlify.app/app/ (de app)
 
 De opslagsleutels (`macroverdeling:v1` en `macroverdeling:training:v1`)
 behouden bewust hun oude naam, zodat bestaande gegevens bewaard blijven.
@@ -17,12 +18,17 @@ behouden bewust hun oude naam, zodat bestaande gegevens bewaard blijven.
 ## Structuur
 
 ```
-src/App.jsx       de volledige app: rekenkern, UI, alles in één bestand
-public/           statische PWA-bestanden (manifest, service worker, iconen)
-build.mjs         bouwt src/App.jsx naar dist/index.html
-build-entry.jsx    opslaglaag (account/apparaat/geheugen) + React-opstart
-build-input.css    Tailwind-invoer
-netlify.toml       Netlify-configuratie (headers, SPA-redirect)
+src/App.jsx          de volledige app: rekenkern, UI, alles in één bestand
+src/sync.js          account, synchronisatie en abonnementsstatus (Supabase)
+landing/             landingspagina (statische HTML, lettertypen, schermafbeeldingen)
+public/              statische bestanden (manifest, service worker, iconen, 404, robots)
+netlify/functions/   serverfuncties: etiket, billing, stripe-webhook
+netlify/lib/         gedeelde servercode (billing-core.mjs), geen eigen functie
+supabase/migrations/ SQL van de tabellen (ter documentatie, al toegepast)
+design/              iconen, schermafbeeldingen en deelafbeelding opnieuw maken
+build.mjs            bouwt landing/ naar dist/ en src/App.jsx naar dist/app/
+build-entry.jsx      opslaglaag (account/apparaat/geheugen) + React-opstart
+netlify.toml         Netlify-configuratie (headers, redirects, functies)
 ```
 
 `src/App.jsx` is bewust één bestand: de app draait ook als zelfstandig
@@ -97,6 +103,60 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
 
+## Abonnement (Nexa Coach)
+
+Gratis: de intake en de calorieën en macro's per dag (Vandaag). Nexa Coach
+(€14,99 per maand of €99,99 per jaar, incl. btw, 7 dagen gratis met
+betaalgegevens vooraf, één proef per account): maaltijden, Eten, Plan,
+Training, Gezondheid en etiketten scannen.
+
+- **Betalen via Stripe.** `netlify/functions/billing.mjs` start Stripe
+  Checkout (abonnement, proef, iDEAL/kaart volgens de instellingen in
+  Stripe) en opent het klantportaal (opzeggen, plan wisselen,
+  betaalgegevens). `stripe-webhook.mjs` zet elke wijziging in
+  `public.nexa_subscriptions` (Supabase). Product en prijzen maakt de functie
+  zelf aan via de lookup keys `nexa_coach_maand` en `nexa_coach_jaar`.
+- **Status in de app.** `src/sync.js` leest de eigen rij (row level
+  security: alleen lezen, alleen de eigen rij) en bewaart de laatste status
+  op het apparaat, zodat een betalende gebruiker offline niet wordt
+  buitengesloten. Toegang bij `trialing`, `active`, `past_due` en `comp`.
+- **Uit tot het is ingesteld.** Zolang de omgevingsvariabelen ontbreken,
+  meldt `GET /.netlify/functions/billing` `enabled: false` en is alles
+  open, zoals voorheen. In de Claude-weergave is er nooit een betaalmuur.
+- **Etiketten** kosten API-geld; met abonnementen aan controleert
+  `etiket.mjs` op de server of de gebruiker Nexa Coach heeft.
+- **Gratis toegang geven:** een rij met `status = 'comp'` (zie de SQL in
+  `supabase/migrations/`). Het account van de eigenaar heeft die al.
+
+### Inschakelen
+
+1. Stripe-account aanmaken en activeren (bedrijfsgegevens, bankrekening).
+2. Stripe, Developers > API keys: de geheime sleutel.
+3. Stripe, Developers > Webhooks: endpoint
+   `https://nexa-performance.netlify.app/.netlify/functions/stripe-webhook`
+   met `checkout.session.completed` en `customer.subscription.created`,
+   `.updated`, `.deleted`, `.paused`, `.resumed`; het ondertekeningsgeheim
+   (`whsec_...`) noteren.
+4. Supabase, Project Settings > API Keys: een geheime sleutel (`sb_secret_...`).
+5. Netlify, Site configuration > Environment variables, alle drie als
+   geheim en alleen voor Functions: `STRIPE_SECRET_KEY`,
+   `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`. Daarna opnieuw
+   deployen.
+6. Stripe, Settings > Billing > Subscriptions and emails: herinnering vóór
+   het einde van de proef aanzetten, en het klantportaal inschakelen
+   (opzeggen, plan wisselen, betaalmethode bijwerken).
+7. Eerst testen met test-sleutels (`sk_test_...`) en kaart 4242 4242 4242 4242.
+
+## Landingspagina
+
+`landing/index.html`: statische HTML met eigen CSS, licht en donker volgens
+het toestel, lettertype Barlow zelf gehost (geen Google Fonts op de
+landingspagina). De afbeeldingen zijn echte schermafbeeldingen uit de app,
+gemaakt met `design/maak-schermen.cjs`; de deelafbeelding met
+`design/maak-og.cjs`. Een geïnstalleerde app, `?pwa=1` en links uit mails
+(`#access_token=...`) gaan direct door naar `/app/`. "Start 7 dagen gratis"
+opent `/app/?coach=1`: na de intake verschijnt dan meteen het aanbod.
+
 ## Gemiste of verplaatste training
 
 Op Vandaag staat "Vandaag niet trainen?" (op een trainingsdag) of "Vandaag
@@ -164,6 +224,8 @@ blijft ongewijzigd.
 - **Supabase-instellingen** (Authentication, URL Configuration): Site URL
   `https://nexa-performance.netlify.app` en dezelfde URL met `/**` als
   toegestane redirect, anders wijzen de links in de mails naar localhost.
+  Nieuwe mails verwijzen naar `/app/`; oude links naar `/` stuurt de
+  landingspagina door.
 - **E-mail**: de ingebouwde maildienst van Supabase mailt alleen naar leden
   van het Supabase-team en maar enkele berichten per uur. Voor andere
   gebruikers is een eigen SMTP-dienst nodig.
