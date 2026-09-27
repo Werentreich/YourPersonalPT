@@ -1,3 +1,5 @@
+# Kopteksten en doorverwijzingen staan in public/_headers en
+# public/_redirects (worden meegekopieerd naar dist/).
 [build]
   command = "npm run build"
   publish = "dist"
@@ -5,47 +7,3 @@
 
 [functions]
   node_bundler = "esbuild"
-
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "no-cache"
-    Service-Worker-Allowed = "/"
-
-[[headers]]
-  for = "/manifest.webmanifest"
-  [headers.values]
-    Cache-Control = "no-cache"
-    Content-Type = "application/manifest+json"
-
-[[headers]]
-  for = "/icon-*.png"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/assets/fonts/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/assets/img/*"
-  [headers.values]
-    Cache-Control = "public, max-age=604800"
-
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-
-# de app woont op /app/; de landingspagina op /
-[[redirects]]
-  from = "/app"
-  to = "/app/"
-  status = 301
-
-[[redirects]]
-  from = "/app/*"
-  to = "/app/index.html"
-  status = 200

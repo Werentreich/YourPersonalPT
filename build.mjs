@@ -26,7 +26,7 @@ run(
   '--define:process.env.NODE_ENV=\\"production\\" --outfile=./dist/app.js'
 );
 
-for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "favicon-32.png", "robots.txt", "404.html"]) {
+for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png", "icon-512.png", "icon-512-maskable.png", "favicon-32.png", "robots.txt", "404.html", "_redirects", "_headers"]) {
   copyFileSync(`public/${f}`, `dist/${f}`);
 }
 

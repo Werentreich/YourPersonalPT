@@ -28,7 +28,8 @@ supabase/migrations/ SQL van de tabellen (ter documentatie, al toegepast)
 design/              iconen, schermafbeeldingen en deelafbeelding opnieuw maken
 build.mjs            bouwt landing/ naar dist/ en src/App.jsx naar dist/app/
 build-entry.jsx      opslaglaag (account/apparaat/geheugen) + React-opstart
-netlify.toml         Netlify-configuratie (headers, redirects, functies)
+netlify.toml         Netlify-buildinstellingen (build, publish-map, functies)
+public/_redirects    doorverwijzingen (app op /app/, 404) en public/_headers kopteksten
 ```
 
 `src/App.jsx` is bewust één bestand: de app draait ook als zelfstandig
