@@ -76,10 +76,31 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
 - **Deload-detectie** (`fatigueCheck`): e1RM-daling bij minstens 30 procent
   van de vergelijkingen in twee weken, of drie keer een lage herstelscore
   met dalende prestaties.
-- **Koppeling met voeding** (`TRAIN_PHASE`): in een minicut gaat het volume
-  ongeveer een derde omlaag en blijven de gewichten gelijk; in een cut
-  telt stilstand niet als vermoeidheid. Schema's op weekdagen kunnen de
-  trainingsdagen van de voedingsweek gelijktrekken.
+- **Koppeling met voeding** (`TRAIN_PHASE`): in een cut telt stilstand
+  niet als vermoeidheid. Schema's op weekdagen kunnen de trainingsdagen
+  van de voedingsweek gelijktrekken.
+- **Faseovergang** (`TRAIN_PHASE_ADVICE`, `PHASE_OPTIONS`, `phaseOptions`,
+  `PhaseSheet`): zodra de voedingsfase wisselt (doel of autopilot-rij),
+  vraagt de app of de training meebeweegt. Per fase een aanbevolen optie:
+  | Fase | Aanbevolen | Alternatief |
+  |---|---|---|
+  | bulk, reverse | schema gelijk houden (alleen uitleg) | |
+  | cut | gelijk houden | iets minder volume (~15%) |
+  | slotcut | iets minder volume | gelijk houden |
+  | minicut | minicut-schema (⅓ minder sets, gewichten vasthouden) | gelijk houden |
+  | onderhoud na cut, bulk of minicut | herstelfase (⅓ minder sets, zware gewichten) | gelijk houden |
+  | onderhoud anders | gelijk houden | herstelfase |
+
+  De vraag verschijnt als sheet buiten het trainingstabblad en als kaart
+  in het trainingsoverzicht; toont per trainingsdag het aantal werksets
+  voor en na. De keuze staat in `T.phaseChoice` (`{phase, option, at}`),
+  de laatst geziene fase in `T.phaseSeen` en de fase daarvoor in
+  `T.phasePrev`. Het schema zelf verandert niet: `plannedSetsFor` en
+  `targetFor` passen alleen toe zolang de fase duurt. "Later beslissen"
+  geldt tot de app opnieuw opent; tot een keuze blijft het schema gelijk
+  (in de automatische stand geldt de aanbeveling alvast). Bestaande
+  gebruikers zonder eerdere keuze krijgen alleen een vraag als de
+  aanbeveling afwijkt van "gelijk houden".
 - **Analyses**: werksets per spiergroep tegen MEV/MAV/MRV (Renaissance
   Periodization), volume per week, e1RM-verloop, records en therapietrouw.
 - **Technieken** (blok `technieken`, vóór `historyFor`):

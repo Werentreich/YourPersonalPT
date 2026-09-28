@@ -3078,6 +3078,57 @@ function blockPosition(block, today, profile) {
 
 /* Voedingsfase naar trainingsinstelling. De minicut volgt het advies dat
    de app al gaf: gewichten gelijk houden, volume ongeveer een derde omlaag. */
+/* Hoe de training per voedingsfase kan meebewegen. vf = deel van de
+   werksets (minder sets gaat eerst van de laatste oefeningen af, meestal
+   isolatie; elke oefening houdt minstens één set), load = mag het gewicht
+   omhoog. "gelijk" laat het schema ongemoeid. */
+const PHASE_OPTIONS = {
+  gelijk: { id: "gelijk", label: "Schema gelijk houden", vf: 1, load: true, text: "Zelfde oefeningen, sets en gewichten." },
+  minder: { id: "minder", label: "Iets minder volume", vf: 0.85, load: true, text: "Ongeveer 15% minder werksets, vooral bij de isolatieoefeningen; gewichten en intensiteit blijven." },
+  herstel: {
+    id: "herstel",
+    label: "Herstelfase",
+    vf: 2 / 3,
+    load: true,
+    text: "Ongeveer een derde minder werksets bij dezelfde zware gewichten. Vermoeidheid zakt weg en de spieren reageren daarna weer beter op meer volume.",
+  },
+  minicut: {
+    id: "minicut",
+    label: "Minicut-schema",
+    vf: 2 / 3,
+    load: false,
+    text: "Ongeveer een derde minder werksets en de gewichten vasthouden. Behoud is in een kort, fors tekort de winst.",
+  },
+};
+const TRAIN_PHASE_ADVICE = {
+  bulk: { options: ["gelijk"], why: "In een surplus is uw herstel het best: dit is de fase om te progressen. Het schema blijft gelijk; gewicht en reps gaan omhoog." },
+  reverse: { options: ["gelijk"], why: "De calorieën lopen op en het herstel verbetert. Train normaal door." },
+  cut: {
+    options: ["gelijk", "minder"],
+    why: "In een tekort houden dezelfde zware oefeningen en gewichten de spieren vast. Overstappen op lichte gewichten met veel reps kost juist spier. Meer volume beschermt niet beter dan een gematigd volume; herstelt u slecht, dan mag het iets minder.",
+  },
+  slotcut: {
+    options: ["minder", "gelijk"],
+    why: "Het tekort is dieper en het herstel neemt af. Iets minder sets bij dezelfde gewichten houdt de kwaliteit hoog; kracht vasthouden is het doel.",
+  },
+  minicut: {
+    options: ["minicut", "gelijk"],
+    why: "Een minicut is kort en fors. Met een derde minder sets en dezelfde gewichten behoudt u de prikkel zonder het herstel te overvragen.",
+  },
+  onderhoud: {
+    options: ["herstel", "gelijk"],
+    why: "Een onderhoudsfase na een lange cut of opbouw is het moment voor een herstelfase: minder sets, zware gewichten. Een derde van het volume is genoeg om spiermassa te behouden, en daarna groeit u weer beter op meer volume.",
+  },
+};
+/* Opties voor een fase, de aanbevolen eerst. Onderhoud na een korte
+   periode of zonder voorgaande fase: gewoon doortrainen aanbevolen. */
+function phaseOptions(phase, prev) {
+  const adv = TRAIN_PHASE_ADVICE[phase] || TRAIN_PHASE_ADVICE.onderhoud;
+  let ids = adv.options;
+  if (phase === "onderhoud" && !["cut", "slotcut", "bulk", "minicut"].includes(prev)) ids = ["gelijk", "herstel"];
+  return ids.map((id, i) => ({ ...PHASE_OPTIONS[id], rec: i === 0 }));
+}
+
 const TRAIN_PHASE = {
   bulk: {
     label: "Opbouw",
@@ -3667,6 +3718,7 @@ function buildSession({ program, day, D, T, rotPos = null, bw }) {
     blockWeek: D.pos.week,
     nutritionPhase: D.phase,
     volumeCut: D.pos.phase !== "deload" && D.phaseOn && D.tp.vf < 1,
+    phaseNote: D.pos.phase !== "deload" && D.phaseOn ? `${D.tp.option.label} (${D.tp.label.toLowerCase()}): ${D.tp.option.text}` : null,
     readiness: null,
     light: false,
     note: "",
@@ -4589,12 +4641,22 @@ function trainDerive(T, ctx, today) {
   const program = T.programs.find((p) => p.id === T.activeProgramId) || null;
   const pos = blockPosition(T.block, today, T.settings.intensity);
   const phase = TRAIN_PHASE[ctx.phase] ? ctx.phase : "onderhoud";
-  const tp = TRAIN_PHASE[phase];
-  const phaseOn = tp.vf === 1 && tp.load ? true : T.settings.autoProgress || T.phaseAccept === phase;
+  /* Keuze voor deze fase: zelf gekozen, anders (oude akkoordknop of
+     automatische stand) het aanbevolen voorstel, anders gelijk houden tot
+     de gebruiker kiest. */
+  const opts = phaseOptions(phase, T.phaseSeen && T.phaseSeen !== phase ? T.phaseSeen : T.phasePrev);
+  const rec = opts[0];
+  const saved = T.phaseChoice && T.phaseChoice.phase === phase ? opts.find((o) => o.id === T.phaseChoice.option) || null : null;
+  const chosen = saved || (T.phaseAccept === phase || T.settings.autoProgress ? rec : null);
+  const opt = chosen || PHASE_OPTIONS.gelijk;
+  const tp = { ...TRAIN_PHASE[phase], vf: opt.vf, load: opt.load, option: opt, options: opts, chosen: !!chosen };
+  const phaseOn = opt.vf < 1 || !opt.load;
+  // nieuwe fase waarover nog niet is gekozen
+  const phasePending = !saved && T.phaseSeen !== phase && !(T.phaseSeen == null && rec.id === "gelijk");
   const sessions = T.sessions;
   const plan = todayPlan(program, sessions, today, ctx.adjList);
   const fatigue = fatigueCheck({ sessions, pos, today, tp, block: T.block });
-  return { exIndex, program, pos, phase, tp, phaseOn, sessions, plan, fatigue, today, adjList: ctx.adjList || [] };
+  return { exIndex, program, pos, phase, tp, phaseOn, phasePending, sessions, plan, fatigue, today, adjList: ctx.adjList || [] };
 }
 
 /* ---------------- geluid, trilling en melding bij einde rust ---------------- */
@@ -5505,7 +5567,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
         )}
         {a.volumeCut && (
           <p className="text-xs mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
-            {TRAIN_PHASE.minicut.note}
+            {a.phaseNote || TRAIN_PHASE.minicut.note}
           </p>
         )}
         {a.light && (
@@ -6078,6 +6140,7 @@ function BlockBar({ pos }) {
 
 function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
   const [other, setOther] = useState("");
+  const [phaseSheet, setPhaseSheet] = useState(false);
   const scale = T.settings.effort;
   const program = D.program;
   const plan = D.plan;
@@ -6147,8 +6210,10 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
             : "Deload: halve werksets, zelfde gewicht, ver van falen. Vermoeidheid zakt weg zodat het volgende blok hoger begint."}
         </p>
         <p className="text-xs mt-1 leading-relaxed" style={{ color: C.darkMuted }}>
-          Voeding: <strong style={{ color: C.darkInk }}>{D.tp.label}</strong>
-          {D.tp.vf < 1 ? (D.phaseOn ? " · volume een derde omlaag, gewichten vasthouden" : " · aanpassing wacht op uw akkoord") : ""}
+          Voeding: <strong style={{ color: C.darkInk }}>{D.tp.label}</strong> · training: {D.phasePending ? "nog niet gekozen" : D.tp.option.label.toLowerCase()}{" "}
+          <button onClick={() => setPhaseSheet(true)} className="underline" style={{ color: C.darkInk }}>
+            {D.phasePending ? "Kiezen" : "Wijzigen"}
+          </button>
         </p>
 
         <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.darkLine}` }}>
@@ -6257,28 +6322,21 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
           </div>
         </div>
       )}
-      {D.tp.vf < 1 && !D.phaseOn && (
+      {D.phasePending && (
         <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
           <span className="rail" style={{ background: "var(--fat-fill)" }} />
-          <div className="disp text-lg font-bold uppercase leading-none">{D.tp.label} actief in uw voeding</div>
+          <div className="disp text-lg font-bold uppercase leading-none">Nieuwe fase: {D.tp.label}</div>
           <p className="text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
-            {D.tp.note}
+            Kies of uw training meebeweegt met de nieuwe voedingsfase. Advies: {D.tp.options[0].label.toLowerCase()}.
           </p>
           <div className="mt-2">
-            <TBtn small onClick={() => setT((t) => ({ ...t, phaseAccept: D.phase }))}>
-              Toepassen op mijn training
+            <TBtn small onClick={() => setPhaseSheet(true)}>
+              Bekijk en kies
             </TBtn>
           </div>
         </div>
       )}
-      {D.tp.vf < 1 && D.phaseOn && !T.settings.autoProgress && T.phaseAccept === D.phase && (
-        <p className="text-xs mb-6 -mt-3" style={{ color: C.muted }}>
-          {D.tp.label}-aanpassing staat aan.{" "}
-          <button className="underline" onClick={() => setT((t) => ({ ...t, phaseAccept: null }))}>
-            Terugdraaien
-          </button>
-        </p>
-      )}
+      {phaseSheet && <PhaseSheet T={T} setT={setT} D={D} pending={D.phasePending} onClose={() => setPhaseSheet(false)} />}
 
       {nextDay && targets.some((x) => x.tg.prop.last) && (
         <Section
@@ -6579,6 +6637,113 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
         </div>
       )}
     </div>
+  );
+}
+
+/* Keuze bij een nieuwe voedingsfase: hoe de training meebeweegt. Toont
+   per trainingsdag wat er met het aantal werksets gebeurt. */
+function PhaseSheet({ T, setT, D, onClose, pending }) {
+  const opts = D.tp.options;
+  const current = T.phaseChoice && T.phaseChoice.phase === D.phase ? T.phaseChoice.option : null;
+  const [sel, setSel] = useState(current || opts[0].id);
+  const days = D.program ? D.program.days.filter((d) => d.slots.length) : [];
+  const setsWith = (o, day) =>
+    sum(plannedSetsFor(day, { ...D, pos: { ...D.pos, phase: "opbouw" }, phaseOn: o.vf < 1 || !o.load, tp: { ...D.tp, vf: o.vf } }));
+  const chosen = opts.find((o) => o.id === sel) || opts[0];
+  const save = (id) => {
+    setT((t) => ({
+      ...t,
+      phaseChoice: { phase: D.phase, option: id, at: D.today },
+      phasePrev: t.phaseSeen && t.phaseSeen !== D.phase ? t.phaseSeen : t.phasePrev,
+      phaseSeen: D.phase,
+      phaseAccept: null,
+    }));
+    onClose();
+  };
+  const adv = TRAIN_PHASE_ADVICE[D.phase] || TRAIN_PHASE_ADVICE.onderhoud;
+  return (
+    <Sheet title={pending ? `Nieuwe fase: ${D.tp.label}` : `Training in de fase ${D.tp.label.toLowerCase()}`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm leading-relaxed" style={{ color: C.muted }}>
+          {pending ? "Uw voeding gaat naar een nieuwe fase. " : ""}
+          {adv.why}
+        </p>
+        {opts.length > 1 && (
+          <div className="space-y-2">
+            {opts.map((o) => {
+              const on = sel === o.id;
+              return (
+                <button
+                  key={o.id}
+                  onClick={() => setSel(o.id)}
+                  className="tap w-full text-left px-3 py-2.5"
+                  style={{ border: `1.5px solid ${on ? C.accent : C.line}`, borderRadius: R.field, background: on ? C.surface2 : "transparent" }}
+                  aria-pressed={on}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">{o.label}</span>
+                    {o.rec && (
+                      <span className="text-[11px] font-bold uppercase px-2 py-0.5" style={{ background: "var(--carb-fill)", color: "#04140E", borderRadius: 999 }}>
+                        Aanbevolen
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-xs block leading-snug mt-0.5" style={{ color: C.muted }}>
+                    {o.text}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {days.length > 0 && (
+          <div className="px-3 py-2.5 text-xs leading-relaxed" style={{ background: C.surface2, borderRadius: R.field }}>
+            <div className="font-semibold text-sm mb-1" style={{ color: C.ink }}>
+              Wat er verandert
+            </div>
+            {days.map((d) => {
+              const a = setsWith(PHASE_OPTIONS.gelijk, d);
+              const b = setsWith(chosen, d);
+              return (
+                <div key={d.id} className="flex justify-between gap-3 tnum" style={{ color: C.muted }}>
+                  <span>{d.name}</span>
+                  <span style={{ color: a === b ? C.muted : C.ink, fontWeight: a === b ? 400 : 600 }}>{a === b ? `${a} werksets, gelijk` : `${a} → ${b} werksets`}</span>
+                </div>
+              );
+            })}
+            <div className="mt-1" style={{ color: C.muted }}>
+              Gewichten: {chosen.load ? "omhoog zodra u de reps haalt, zoals altijd." : "vasthouden; de app stelt geen hoger gewicht voor."}
+            </div>
+            <div className="mt-1" style={{ color: C.muted }}>
+              Uw schema zelf verandert niet: de aanpassing geldt zolang deze fase duurt.
+            </div>
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          {opts.length === 1 ? (
+            <TBtn full onClick={() => save(opts[0].id)}>
+              Begrepen
+            </TBtn>
+          ) : (
+            <>
+              <TBtn full onClick={() => save(chosen.id)}>
+                {chosen.id === "gelijk" ? "Bij mijn huidige schema blijven" : "Doorvoeren"}
+              </TBtn>
+              {chosen.id !== "gelijk" && (
+                <TBtn full kind="ghost" onClick={() => save("gelijk")}>
+                  Bij mijn huidige schema blijven
+                </TBtn>
+              )}
+            </>
+          )}
+          {pending && (
+            <button onClick={onClose} className="tap text-xs underline py-1" style={{ color: C.muted }}>
+              Later beslissen
+            </button>
+          )}
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -9261,6 +9426,16 @@ function MacroApp() {
   const trainToday = localISO();
   const trainPhase = planNow.active ? planNow.row.phase : effGoal;
   const D = useMemo(() => trainDerive(T, { phase: trainPhase, adjList }, trainToday), [T, trainPhase, trainToday, adjList]);
+
+  /* Nieuwe voedingsfase: vragen of de training meebeweegt. Bestaande
+     gebruikers zonder eerdere keuze en zonder aanbevolen wijziging worden
+     stil bijgewerkt. "Later" geldt tot de app opnieuw opent. */
+  const [phaseLater, setPhaseLater] = useState(false);
+  useEffect(() => {
+    if (tLoaded && T.phaseSeen == null && !D.phasePending) setT((t) => ({ ...t, phaseSeen: D.phase }));
+  }, [tLoaded, T.phaseSeen, D.phasePending, D.phase]);
+  const phasePrompt =
+    tLoaded && loaded && onboarding === null && !!D.program && !T.active && !bill.locked && D.phasePending && !phaseLater && tab !== "training";
 
   const startTraining = (day, rotPos = null) => {
     primeAudio();
@@ -13747,6 +13922,8 @@ function MacroApp() {
           <AccountForm initial={accountOpen} onDone={() => setAccountOpen(null)} />
         </Sheet>
       )}
+
+      {phasePrompt && <PhaseSheet T={T} setT={setT} D={D} pending onClose={() => setPhaseLater(true)} />}
 
       {paywallOpen && bill.locked && (
         <Sheet title="Nexa Coach" onClose={() => setPaywallOpen(null)}>
