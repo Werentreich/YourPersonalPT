@@ -853,6 +853,28 @@ function planPosition(auto, today = new Date()) {
   };
 }
 
+/* Wie zonder plan zelf het doel instelt, kan eindeloos in een tekort of
+   surplus blijven. Net als in het plan: na cutWeeks weken tekort een
+   dieetpauze van cutPause weken, na zestien weken surplus vier weken
+   onderhoud. Na de pauze stelt de app voor om terug te gaan. */
+const BULK_BLOCK_WEEKS = 16;
+const BULK_PAUSE_WEEKS = 4;
+function phaseLengthAdvice({ goal, since, from, brk, today, cutWeeks = 10, cutPause = 3, snooze }) {
+  if (!since || !since.date || since.goal !== goal) return null;
+  const start = from && from > since.date ? from : since.date;
+  const weeks = Math.floor((dayNum(today) - dayNum(start)) / 7);
+  let a = null;
+  if (goal === "cut" && weeks >= cutWeeks) a = { kind: "pauze", from: "cut", weeks, pause: cutPause, max: cutWeeks };
+  else if (goal === "bulk" && weeks >= BULK_BLOCK_WEEKS) a = { kind: "pauze", from: "bulk", weeks, pause: BULK_PAUSE_WEEKS, max: BULK_BLOCK_WEEKS };
+  else if (goal === "onderhoud" && brk && brk.from && weeks >= brk.weeks) a = { kind: "hervatten", from: brk.from, rate: brk.rate, weeks };
+  if (!a) return null;
+  a.start = start;
+  a.est = !!since.est && start === since.date;
+  a.key = `${a.kind}:${goal}:${start}`;
+  if (snooze && snooze.key === a.key && snooze.until > today) return null;
+  return a;
+}
+
 function calorieCorrection({ trend, targetKgPerWeek, goal }) {
   if (!trend.ok) return null;
   const gap = targetKgPerWeek - trend.kgPerWeek; // positief = we verliezen te snel
@@ -6640,6 +6662,67 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
   );
 }
 
+/* Herinnering na een lange cut of bulk zonder plan, en na afloop van de
+   pauze. De startdatum is aan te passen als de schatting niet klopt. */
+function PhaseLengthCard({ a, onStart, onEnd, onSnooze, onSince }) {
+  const [edit, setEdit] = useState(false);
+  const fmt = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
+  const cut = a.from === "cut";
+  const title = a.kind === "hervatten" ? (cut ? "Dieetpauze voorbij" : "Onderhoudsfase voorbij") : cut ? "Tijd voor een dieetpauze" : "Tijd voor een onderhoudsfase";
+  return (
+    <div className="mb-3 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }} role="status">
+      <span className="rail" style={{ background: cut ? "var(--pro)" : "var(--carb)" }} />
+      <div className="disp text-lg font-bold uppercase leading-none">{title}</div>
+      {a.kind === "pauze" ? (
+        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: C.muted }}>
+          U zit {a.est ? "sinds ongeveer" : "sinds"} {fmt(a.start)} onafgebroken in {cut ? "een tekort" : "een surplus"}: {a.weeks} weken.{" "}
+          {cut
+            ? `Na zo'n ${a.max} weken zakken energie, trainingskwaliteit en herstel. ${a.pause} weken op onderhoud laten dat terugveren; daarna gaat de cut verder en verloopt die weer soepeler.`
+            : `Na ${a.max} weken surplus hebben eetlust en spijsvertering rust nodig, en de spieren reageren minder op hetzelfde volume. ${a.pause} weken onderhoud met minder trainingsvolume zetten dat terug; daarna groeit u weer beter.`}{" "}
+          Heeft u een trainingsschema, dan stelt de app er een herstelfase bij voor.
+        </p>
+      ) : (
+        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: C.muted }}>
+          U staat sinds {fmt(a.start)} op onderhoud ({a.weeks} weken). Tijd om verder te gaan met {cut ? "vetverlies" : "opbouw"}, in hetzelfde tempo als
+          ervoor.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2 mt-3 items-center">
+        {a.kind === "pauze" ? (
+          <TBtn small onClick={() => onStart(a)}>
+            {a.pause} weken onderhoud starten
+          </TBtn>
+        ) : (
+          <TBtn small onClick={() => onEnd(a)}>
+            Terug naar {cut ? "vetverlies" : "opbouw"}
+          </TBtn>
+        )}
+        <button onClick={() => onSnooze(a, 7)} className="tap text-xs underline px-1" style={{ color: C.muted }}>
+          {a.kind === "pauze" ? "Over een week" : "Nog een week"}
+        </button>
+        {a.kind === "pauze" && (
+          <button onClick={() => setEdit((v) => !v)} className="tap text-xs underline px-1" style={{ color: C.muted }}>
+            Startdatum klopt niet
+          </button>
+        )}
+      </div>
+      {edit && (
+        <label className="flex items-center gap-2 mt-2 text-xs" style={{ color: C.muted }}>
+          {cut ? "Tekort" : "Surplus"} begonnen op
+          <input
+            type="date"
+            defaultValue={a.start}
+            max={localISO()}
+            onChange={(e) => e.target.value && onSince(e.target.value)}
+            className="px-2 py-1"
+            style={{ border: `1px solid ${C.line}`, borderRadius: R.field, background: C.surface2, color: C.ink }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 /* Keuze bij een nieuwe voedingsfase: hoe de training meebeweegt. Toont
    per trainingsdag wat er met het aantal werksets gebeurt. */
 function PhaseSheet({ T, setT, D, onClose, pending }) {
@@ -9377,6 +9460,65 @@ function MacroApp() {
   const effGoal = planNow.active ? goalFromRate(planNow.row.rate) : f.goal;
   const effRate = planNow.active ? planNow.row.rate : f.goal === "onderhoud" ? 0 : Number(f.rate);
 
+  /* Sinds wanneer geldt het huidige doel? Bij bestaande gebruikers zonder
+     datum is de eerste weging de beste schatting. Een pauze die de app
+     voorstelde, vervalt zodra het doel iets anders dan onderhoud wordt. */
+  useEffect(() => {
+    if (!loaded) return;
+    const gs = f.goalSince;
+    if (gs && gs.goal === f.goal) {
+      if (f.phaseBreak && f.goal !== "onderhoud") setF((s) => ({ ...s, phaseBreak: null }));
+      return;
+    }
+    const first = !gs && log.length ? log[0].date : null;
+    setF((s) => ({
+      ...s,
+      goalSince: { goal: s.goal, date: first && first < localISO() ? first : localISO(), est: !!first },
+      phaseBreak: s.goal === "onderhoud" ? s.phaseBreak || null : null,
+    }));
+  }, [loaded, f.goal, f.goalSince, f.phaseBreak]);
+  const planEnd = autopilot && autopilot.start && Array.isArray(autopilot.rows) ? isoOfNum(dayNum(autopilot.start) + autopilot.rows.length * 7) : null;
+  const lengthAdv =
+    loaded && !planNow.active && !planNow.pending
+      ? phaseLengthAdvice({
+          goal: f.goal,
+          since: f.goalSince,
+          from: planEnd,
+          brk: f.phaseBreak,
+          today: localISO(),
+          cutWeeks: Number(phaseCfg.cutBlockWeeks) || 10,
+          cutPause: Number(phaseCfg.maintWeeks) || 3,
+          snooze: f.phaseSnooze,
+        })
+      : null;
+  const startBreak = (a) =>
+    setF((s) => ({
+      ...s,
+      phaseBreak: { from: a.from, rate: Number(s.rate), weeks: a.pause, start: localISO() },
+      goal: "onderhoud",
+      rate: 0,
+      goalSince: { goal: "onderhoud", date: localISO() },
+    }));
+  const endBreak = (a) =>
+    setF((s) => ({
+      ...s,
+      goal: a.from,
+      rate: Number.isFinite(a.rate) && a.rate !== 0 ? a.rate : RATES[a.from][1].v,
+      phaseBreak: null,
+      goalSince: { goal: a.from, date: localISO() },
+    }));
+  const goalSinceHint = (() => {
+    const gs = f.goalSince;
+    if (!gs || gs.goal !== f.goal || planNow.active) return undefined;
+    const w = Math.max(0, Math.floor((todayNum - dayNum(gs.date)) / 7));
+    const d = new Date(gs.date + "T00:00:00").toLocaleDateString("nl-NL", { day: "numeric", month: "long" });
+    const b = f.phaseBreak && f.goal === "onderhoud" ? ` Pauze van ${f.phaseBreak.weeks} weken, daarna terug naar ${f.phaseBreak.from === "cut" ? "vetverlies" : "opbouw"}.` : "";
+    return `Sinds ${gs.est ? "ongeveer " : ""}${d}: ${w} ${w === 1 ? "week" : "weken"}.${b}`;
+  })();
+  const snoozeLength = (a, days) => setF((s) => ({ ...s, phaseSnooze: { key: a.key, until: isoOfNum(dayNum(localISO()) + days) } }));
+  const setGoalSince = (date) =>
+    date && date <= localISO() && setF((s) => ({ ...s, goalSince: { goal: s.goal, date } }));
+
   const core = useMemo(() => {
     const weight = Math.max(20, num(f.weight, 80));
     const input = {
@@ -10984,6 +11126,8 @@ function MacroApp() {
                 </span>
               </button>
             )}
+
+            {lengthAdv && !bill.locked && <PhaseLengthCard a={lengthAdv} onStart={startBreak} onEnd={endBreak} onSnooze={snoozeLength} onSince={setGoalSince} />}
 
             <SyncNotices s={nx} />
             {billNotice && (
@@ -13745,7 +13889,7 @@ function MacroApp() {
               </p>
             </div>
           )}
-          <Row label="Richting" stack>
+          <Row label="Richting" stack hint={goalSinceHint}>
             <Seg
               value={f.goal}
               onChange={(v) => {

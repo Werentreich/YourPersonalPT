@@ -101,6 +101,19 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   (in de automatische stand geldt de aanbeveling alvast). Bestaande
   gebruikers zonder eerdere keuze krijgen alleen een vraag als de
   aanbeveling afwijkt van "gelijk houden".
+- **Lange cut of bulk zonder plan** (`phaseLengthAdvice`,
+  `PhaseLengthCard`): de app houdt bij sinds wanneer het doel geldt
+  (`f.goalSince`, bij bestaande gebruikers geschat op de eerste weging,
+  `est: true`; na een plan telt het einde van het plan). Na
+  `phaseCfg.cutBlockWeeks` (standaard 10) weken tekort stelt een kaart op
+  Vandaag een dieetpauze van `phaseCfg.maintWeeks` (3) weken voor, na 16
+  weken surplus 4 weken onderhoud. Starten zet het doel op onderhoud en
+  bewaart de pauze in `f.phaseBreak` (`{from, rate, weeks, start}`); de
+  faseovergang vraagt dan om de herstelfase in de training. Na de pauze
+  volgt "Terug naar vetverlies/opbouw" in het oude tempo. "Over een week"
+  bewaart `f.phaseSnooze`; de startdatum is aan te passen op de kaart,
+  en staat als hint bij Richting in het profiel. Met een actief plan
+  zwijgt de kaart: het plan plant de pauzes zelf.
 - **Analyses**: werksets per spiergroep tegen MEV/MAV/MRV (Renaissance
   Periodization), volume per week, e1RM-verloop, records en therapietrouw.
 - **Technieken** (blok `technieken`, vóór `historyFor`):
