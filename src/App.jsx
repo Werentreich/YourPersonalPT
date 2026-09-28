@@ -2946,10 +2946,10 @@ const TEMPLATES = [
     name: "Upper / Lower",
     sub: "4 dagen, elke spiergroep twee keer per week. Past op het standaardschema ma, di, do, vr.",
     days: [
-      ["Upper A", ["bankdrukken", "db_row", "db_shoulder_press", "cable_fly", "lateral_raise", "bayesian_curl", "overhead_ext"]],
-      ["Lower A", ["squat", "rdl", "leg_extension", "seated_leg_curl", "standing_calf"]],
-      ["Upper B", ["schuin_db", "lat_pulldown", "chest_supported_row", "pec_deck", "cable_lateral", "incline_curl", "pushdown"]],
-      ["Lower B", ["hack_squat", "bulgarian_split_squat", "lying_leg_curl", "leg_extension", "seated_calf", "hanging_leg_raise"]],
+      ["Upper A", ["bankdrukken", "db_row", "pulldown_1arm", "cable_fly", ["lateral_raise", 3], "bayesian_curl", "overhead_ext"]],
+      ["Lower A", ["squat", "rdl", "leg_extension", "seated_leg_curl", ["standing_calf", 3]]],
+      ["Upper B", ["schuin_db", "lat_pulldown", "chest_supported_row", ["cable_lateral", 3], ["reverse_pec_deck", 3], "incline_curl", "pushdown"]],
+      ["Lower B", ["hack_squat", "bulgarian_split_squat", "lying_leg_curl", "leg_extension", ["seated_calf", 3], "hanging_leg_raise"]],
     ],
     week: [0, 1, null, 2, 3, null, null],
     rotation: [0, 1, "rust", 2, 3, "rust"],
@@ -2959,9 +2959,9 @@ const TEMPLATES = [
     name: "Push / Pull / Legs",
     sub: "Zes dagen per week, of als rotatie van drie trainingen en een rustdag.",
     days: [
-      ["Push", ["schuin_db", "machine_shoulder_press", "cable_fly", "cable_lateral", "overhead_ext", "pushdown"]],
+      ["Push", ["schuin_db", "machine_shoulder_press", "cable_fly", ["cable_lateral", 3], "overhead_ext", "pushdown"]],
       ["Pull", ["pulldown_1arm", "chest_supported_row", "pullover", "reverse_pec_deck", "incline_curl", "hammer_curl"]],
-      ["Legs", ["hack_squat", "rdl", "seated_leg_curl", "leg_extension", "standing_calf", "cable_crunch"]],
+      ["Legs", ["hack_squat", "rdl", "seated_leg_curl", "leg_extension", ["standing_calf", 3], "cable_crunch"]],
     ],
     week: [0, 1, 2, null, 0, 1, 2],
     rotation: [0, 1, 2, "rust"],
@@ -2971,9 +2971,9 @@ const TEMPLATES = [
     name: "Full body",
     sub: "3 dagen, drie verschillende trainingen. Veel frequentie met weinig tijd.",
     days: [
-      ["Full body A", ["squat", "bankdrukken", "lat_pulldown", "seated_leg_curl", "lateral_raise", "incline_curl"]],
-      ["Full body B", ["rdl", "schuin_db", "cable_row", "leg_extension", "cable_fly", "overhead_ext", "standing_calf"]],
-      ["Full body C", ["hack_squat", "machine_shoulder_press", "pulldown_1arm", "lying_leg_curl", "reverse_pec_deck", "pushdown", "cable_crunch"]],
+      ["Full body A", ["squat", "bankdrukken", "lat_pulldown", "seated_leg_curl", ["lateral_raise", 3], ["incline_curl", 3], ["seated_calf", 3]]],
+      ["Full body B", ["rdl", "schuin_db", ["cable_row", 3], "leg_extension", "cable_fly", "overhead_ext", ["standing_calf", 3]]],
+      ["Full body C", ["hack_squat", "pulldown_1arm", "lying_leg_curl", ["cable_lateral", 3], ["reverse_pec_deck", 3], "pushdown", "cable_crunch"]],
     ],
     week: [0, null, 1, null, 2, null, null],
     rotation: [0, "rust", 1, "rust", 2, "rust"],
@@ -2995,17 +2995,19 @@ function makeSlot(ex, opts = {}) {
   };
 }
 
+/* Een oefening in een sjabloon is een id, of [id, sets] voor een oefening
+   die meer sets krijgt (kleine spiergroepen met maar één oefening). */
 function programFromTemplate(tpl, { mode = "week", sets = 2, exIndex }) {
   const days = tpl.days.map(([name, ids]) => {
     const seen = new Set();
     const slots = ids
-      .map((id) => exIndex[id])
-      .filter(Boolean)
-      .map((ex) => {
+      .map((e) => (Array.isArray(e) ? { ex: exIndex[e[0]], n: e[1] } : { ex: exIndex[e], n: null }))
+      .filter((x) => x.ex)
+      .map(({ ex, n }) => {
         const first = !ex.pri.some((m) => seen.has(m));
         ex.pri.forEach((m) => seen.add(m));
         const warm = ex.kind === "compound" ? (first ? 2 : 1) : first ? 1 : 0;
-        return makeSlot(ex, { sets, warmups: warm });
+        return makeSlot(ex, { sets: n ? Math.max(n, sets) : sets, warmups: warm });
       });
     return { id: uid(), name, slots };
   });
@@ -3417,7 +3419,8 @@ function historyFor(sessions, slot) {
     });
     return out;
   };
-  const bySlot = pick((e) => e.slotId === slot.id);
+  // alleen dezelfde oefening op dit slot: na een wissel begint de progressie schoon
+  const bySlot = pick((e) => e.slotId === slot.id && e.exId === slot.exId);
   return bySlot.length ? bySlot : pick((e) => e.exId === slot.exId);
 }
 
@@ -3797,7 +3800,7 @@ function programCheck(program, exIndex) {
   const uni = exs.filter((e) => e.unilateral).length;
   const avgSets = sum(slots.map((s) => num(s.sets, 2))) / slots.length;
   const planned = plannedMuscleSets(program, exIndex);
-  const under = MUSCLE_IDS.filter((k) => MUSCLES[k].mev > 0 && planned[k] < MUSCLES[k].mev);
+  const under = MUSCLE_IDS.filter((k) => k !== "onderarmen" && MUSCLES[k].mev > 0 && lowVolume(k, planned[k]));
   const over = MUSCLE_IDS.filter((k) => planned[k] > MUSCLES[k].mrv);
   const pc = Math.round(comp * 100);
   return [
@@ -3849,6 +3852,570 @@ function programCheck(program, exIndex) {
         ]
       : []),
   ];
+}
+
+/* ---------------- schema-advies ----------------
+   Toetst het schema aan vaste trainingsprincipes en doet concrete
+   voorstellen die met één knop zijn toe te passen. Elk voorstel heeft een
+   vaste id (om te kunnen negeren) en een apply(program) die alleen de
+   genoemde slots aanpast; bestaat een slot niet meer, dan verandert er
+   niets. Volume telt zoals plannedMuscleSets: hoofdspier 1, hulpspier ½,
+   technieken naar hun extra sets, gewogen naar hoe vaak een dag per week
+   voorkomt. */
+
+const ADVICE_LEVEL = {
+  hoog: { label: "Belangrijk", rank: 0 },
+  middel: { label: "Aanbevolen", rank: 1 },
+  laag: { label: "Optioneel", rank: 2 },
+};
+const MAJOR_MUSCLES = new Set(["borst", "rug", "schouder_zij", "quadriceps", "hamstrings"]);
+const SESSION_MAX_SETS = 10; // productieve sets per spiergroep per training
+/* Met twee sets tot (bijna) falen ligt het echte minimum lager dan de
+   richtwaarde; pas onder dit deel ervan is het volume duidelijk te laag. */
+const MEV_FLOOR = 0.75;
+// een halve set speling: geen advies voor een verschil van één hulpspierset
+const lowVolume = (m, v) => v < MUSCLES[m].mev * MEV_FLOOR - 0.5;
+const regionOf = (m) => (UPPER.has(m) ? "boven" : LOWER.has(m) ? "onder" : "romp");
+const setsTxt = (n) => `${n} ${n === 1 ? "set" : "sets"}`;
+
+function dayWeights(program) {
+  const w = {};
+  daysPerWeek(program).forEach(({ day, weight }) => (w[day.id] = (w[day.id] || 0) + weight));
+  return w;
+}
+const slotShare = (slot, ex, m) => {
+  if (!ex) return 0;
+  const k = num(slot.sets, 2) + techExtraSets(slot);
+  return ex.pri.includes(m) ? k : ex.sec.includes(m) ? k / 2 : 0;
+};
+function dayRegion(day, exIndex) {
+  let up = 0;
+  let low = 0;
+  day.slots.forEach((s) => {
+    const ex = exIndex[s.exId];
+    if (!ex) return;
+    ex.pri.forEach((m) => (UPPER.has(m) ? up++ : LOWER.has(m) ? low++ : null));
+  });
+  const t = up + low;
+  if (!t) return "heel";
+  if (up / t >= 0.75) return "boven";
+  if (low / t >= 0.75) return "onder";
+  return "heel";
+}
+
+/* Beste oefening voor een spiergroep: zelfde soort, bij voorkeur in de
+   gerekte positie, met materiaal dat al in het schema zit, en nog niet in
+   gebruik. */
+function pickExercise(exIndex, program, { muscle, kind, lengthened, unilateral, exclude }) {
+  const used = new Set(program.days.flatMap((d) => d.slots.map((s) => s.exId)));
+  const equip = new Set(program.days.flatMap((d) => d.slots.map((s) => (exIndex[s.exId] || {}).equip)).filter(Boolean));
+  let best = null;
+  let bestScore = -Infinity;
+  Object.values(exIndex).forEach((e) => {
+    if (!e || e.missing || !e.pri || e.pri[0] !== muscle) return;
+    if (exclude && exclude.has(e.id)) return;
+    if (kind && e.kind !== kind) return;
+    let sc = 0;
+    if (lengthened) sc += e.lengthened ? 3 : 0;
+    if (unilateral) sc += e.unilateral ? 3 : -5;
+    if (equip.has(e.equip)) sc += 2;
+    if (!used.has(e.id)) sc += 1;
+    if (!e.custom) sc += 0.5;
+    // lichaamsgewicht (optrekken, dips) is voor veel mensen te zwaar als standaard
+    if (e.equip === "lichaam") sc -= kind === "isolation" ? 1 : 2.5;
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = e;
+    }
+  });
+  return best;
+}
+
+const swapSlotTo = (slot, ex) => ({
+  ...slot,
+  id: uid(), // nieuw slot: de progressie begint schoon voor de nieuwe oefening
+  exId: ex.id,
+  repMin: ex.repMin,
+  repMax: ex.repMax,
+  startWeight: null,
+  rest: ex.kind === "compound" ? Math.max(num(slot.rest, 120), 150) : num(slot.rest, 120),
+  tech: slot.tech && heavyFree(ex) ? null : slot.tech,
+});
+const mapSlots = (program, fn) => ({ ...program, days: program.days.map((d) => ({ ...d, slots: d.slots.map((s) => fn(s, d)) })) });
+const patchSlots = (program, patches) => mapSlots(program, (s) => (patches[s.id] ? { ...s, ...patches[s.id] } : s));
+function addSlotTo(program, dayId, ex, sets) {
+  return {
+    ...program,
+    days: program.days.map((d) => {
+      if (d.id !== dayId) return d;
+      return { ...d, slots: [...d.slots, makeSlot(ex, { sets, warmups: ex.kind === "compound" ? 2 : 1 })] };
+    }),
+  };
+}
+function moveSlot(program, slotId, toDayId) {
+  let moved = null;
+  const days = program.days.map((d) => {
+    const i = d.slots.findIndex((s) => s.id === slotId);
+    if (i < 0) return d;
+    moved = { ...d.slots[i], ss: false };
+    return { ...d, slots: unlinkAt(d.slots, i).filter((s) => s.id !== slotId) };
+  });
+  if (!moved) return program;
+  return { ...program, days: days.map((d) => (d.id === toDayId ? { ...d, slots: [...d.slots, moved] } : d)) };
+}
+
+function programAdvice(program, exIndex) {
+  const out = [];
+  if (!program || !program.days.some((d) => d.slots.length)) return out;
+  const W = dayWeights(program);
+  const weekDays = program.days.filter((d) => (W[d.id] || 0) > 0 && d.slots.length);
+  if (!weekDays.length) return out;
+  const planned = plannedMuscleSets(program, exIndex);
+  const nm = (id) => exOf(exIndex, id).name;
+  const label = (m) => MUSCLES[m].label;
+  const lower = (m) => MUSCLES[m].label.toLowerCase();
+  const slotsOf = (pred) => weekDays.flatMap((d) => d.slots.map((s, i) => ({ s, d, i, ex: exIndex[s.exId] }))).filter((x) => x.ex && pred(x));
+  const round1 = (v) => Math.round(v * 10) / 10;
+  const daySetsFor = (d, m) => sum(d.slots.map((s) => slotShare(s, exIndex[s.exId], m)));
+  const totalSets = (d) => sum(d.slots.map((s) => num(s.sets, 2)));
+  // dag om iets aan toe te voegen: passend lichaamsdeel, zo min mogelijk sets
+  const dayFor = (m, excludeDay, strict = false) => {
+    const r = regionOf(m);
+    const fit = weekDays.filter((d) => d.id !== excludeDay && (r === "romp" || dayRegion(d, exIndex) === r || dayRegion(d, exIndex) === "heel"));
+    // verplaatsen alleen naar een dag voor hetzelfde lichaamsdeel
+    const pool = fit.length || strict ? fit : weekDays.filter((d) => d.id !== excludeDay);
+    // bij voorkeur een dag waar deze spier nog niet getraind wordt, dan de lichtste
+    return [...pool].sort((a, b) => daySetsFor(a, m) - daySetsFor(b, m) || totalSets(a) - totalSets(b))[0] || null;
+  };
+  const touched = new Set();
+
+  /* 1. spiergroepen zonder eigen oefening (alleen als hulpspier telt niet) */
+  MUSCLE_IDS.forEach((m) => {
+    if (m === "onderarmen" || !(MUSCLES[m].mev > 0)) return;
+    if (slotsOf((x) => x.ex.pri.includes(m)).length) return;
+    if (!lowVolume(m, planned[m])) return; // genoeg via andere oefeningen
+    // grote spiergroep: eerst een zware basisoefening; kleine: een isolatieoefening
+    const first = MAJOR_MUSCLES.has(m) ? "compound" : "isolation";
+    const ex = pickExercise(exIndex, program, { muscle: m, kind: first, lengthened: true }) || pickExercise(exIndex, program, { muscle: m, lengthened: true });
+    const d = ex && dayFor(m);
+    if (!ex || !d) return;
+    const target = MUSCLES[m].mev * MEV_FLOOR;
+    const adds = [{ ex, d, sets: MUSCLES[m].mev >= 6 && (W[d.id] || 1) < 1.5 ? 3 : 2 }];
+    let cur = planned[m] + adds[0].sets * (W[d.id] || 1);
+    // nog te weinig: een tweede oefening, bij voorkeur op een andere dag
+    if (cur < target) {
+      const ex2 =
+        pickExercise(exIndex, program, { muscle: m, kind: "isolation", lengthened: true, exclude: new Set([ex.id]) }) ||
+        pickExercise(exIndex, program, { muscle: m, lengthened: true, exclude: new Set([ex.id]) });
+      const d2 = ex2 && (dayFor(m, d.id, true) || d);
+      if (ex2 && d2) {
+        const sets2 = cur + 2 * (W[d2.id] || 1) >= target ? 2 : 3;
+        adds.push({ ex: ex2, d: d2, sets: sets2 });
+        cur += sets2 * (W[d2.id] || 1);
+      }
+    }
+    touched.add(m);
+    out.push({
+      id: `ontbreekt:${m}`,
+      level: MAJOR_MUSCLES.has(m) ? "hoog" : "middel",
+      area: "Volume",
+      title: `${label(m)} krijgt geen directe training`,
+      why: `Zonder eigen oefening groeit ${lower(m)} nauwelijks mee; werk als hulpspier telt maar half. ${ex.kind === "compound" ? "Een basisoefening" : "Een isolatieoefening"} die de spier in de gerekte positie belast, is de efficiëntste start${adds.length > 1 ? ", met een tweede oefening op een andere dag voor meer frequentie" : ""}.`,
+      changes: adds.map((a) => `${a.ex.name} toevoegen aan ${a.d.name}: ${setsTxt(a.sets)} van ${a.ex.repMin} tot ${a.ex.repMax} reps`),
+      apply: (p) => adds.reduce((q, a) => addSlotTo(q, a.d.id, a.ex, a.sets), p),
+    });
+  });
+
+  /* 2. boven het maximum: sets eraf tot binnen het groeigebied */
+  MUSCLE_IDS.forEach((m) => {
+    const L = MUSCLES[m];
+    if (!(planned[m] > L.mrv)) return;
+    let cur = planned[m];
+    const target = L.mav[1];
+    const cand = slotsOf((x) => x.ex.pri.includes(m)).sort((a, b) => num(b.s.sets, 2) - num(a.s.sets, 2));
+    const patches = {};
+    const lines = [];
+    let guard = 40;
+    while (cur > target && guard-- > 0) {
+      const c = cand.find((x) => num((patches[x.s.id] || x.s).sets, 2) > 1);
+      if (!c) break;
+      const from = num((patches[c.s.id] || c.s).sets, 2);
+      patches[c.s.id] = { sets: from - 1 };
+      cur -= (W[c.d.id] || 1) * (c.ex.pri.includes(m) ? 1 : 0.5);
+      cand.push(cand.shift());
+    }
+    Object.entries(patches).forEach(([id, pt]) => {
+      const c = cand.find((x) => x.s.id === id);
+      lines.push(`${nm(c.s.exId)} (${c.d.name}): ${c.s.sets} → ${pt.sets} sets`);
+    });
+    if (!lines.length) return;
+    touched.add(m);
+    out.push({
+      id: `boven:${m}`,
+      level: "hoog",
+      area: "Volume",
+      title: `Te veel sets voor ${lower(m)}`,
+      why: `${round1(planned[m])} sets per week is meer dan u waarschijnlijk kunt herstellen (ongeveer ${L.mrv}). Daarboven stapelt vermoeidheid zich op zonder extra groei; minder sets met meer kwaliteit levert meer op.`,
+      changes: lines,
+      apply: (p) => patchSlots(p, patches),
+    });
+  });
+
+  /* 3. onder het minimum: eerst sets erbij op bestaande oefeningen, dan
+     hoogstens twee extra oefeningen; doel is de ondergrens, zodat het
+     advies na toepassen verdwijnt */
+  MUSCLE_IDS.forEach((m) => {
+    const L = MUSCLES[m];
+    if (touched.has(m) || m === "onderarmen" || !(L.mev > 0) || !(planned[m] > 0) || !lowVolume(m, planned[m])) return;
+    const target = L.mev * MEV_FLOOR;
+    let cur = planned[m];
+    const cand = slotsOf((x) => x.ex.pri.includes(m) && !x.s.ss).sort((a, b) => num(a.s.sets, 2) - num(b.s.sets, 2));
+    const patches = {};
+    let guard = 20;
+    while (cur < target && guard-- > 0) {
+      const c = cand.find((x) => num((patches[x.s.id] || x.s).sets, 2) < 3);
+      if (!c) break;
+      patches[c.s.id] = { sets: num((patches[c.s.id] || c.s).sets, 2) + 1 };
+      cur += W[c.d.id] || 1;
+      cand.push(cand.shift());
+    }
+    const lines = Object.entries(patches).map(([id, pt]) => {
+      const c = cand.find((x) => x.s.id === id);
+      return `${nm(c.s.exId)} (${c.d.name}): ${c.s.sets} → ${pt.sets} sets`;
+    });
+    const extras = [];
+    const usedEx = new Set(slotsOf((x) => x.ex.pri.includes(m)).map((x) => x.s.exId));
+    while (cur < target && extras.length < 2) {
+      const ex =
+        pickExercise(exIndex, program, { muscle: m, kind: "isolation", lengthened: true, exclude: usedEx }) ||
+        pickExercise(exIndex, program, { muscle: m, lengthened: true, exclude: usedEx });
+      const d = ex && dayFor(m);
+      if (!ex || !d) break;
+      usedEx.add(ex.id);
+      const sets = cur + 2 * (W[d.id] || 1) >= target ? 2 : 3;
+      extras.push({ d, ex, sets });
+      cur += sets * (W[d.id] || 1);
+      lines.push(`${ex.name} toevoegen aan ${d.name}: ${setsTxt(sets)} van ${ex.repMin} tot ${ex.repMax} reps`);
+    }
+    if (!lines.length) return;
+    touched.add(m);
+    out.push({
+      id: `onder:${m}`,
+      level: "middel",
+      area: "Volume",
+      title: `Weinig sets voor ${lower(m)}`,
+      why: `${round1(planned[m])} sets per week is weinig voor ${lower(m)}. De meeste mensen groeien pas duidelijk vanaf ongeveer ${Math.round(target)} tot ${L.mev} zware sets per week. Groeit u toch goed, dan kunt u dit negeren.`,
+      changes: lines,
+      apply: (p) => extras.reduce((q, x) => addSlotTo(q, x.d.id, x.ex, x.sets), patchSlots(p, patches)),
+    });
+  });
+
+  /* 4. te veel sets voor één spiergroep in één training */
+  weekDays.forEach((d) => {
+    MUSCLE_IDS.forEach((m) => {
+      if (touched.has(m)) return;
+      const inDay = d.slots.filter((s) => exIndex[s.exId] && exIndex[s.exId].pri.includes(m));
+      if (inDay.length < 2 || daySetsFor(d, m) <= SESSION_MAX_SETS) return;
+      const mv = inDay[inDay.length - 1];
+      const to = dayFor(m, d.id, true);
+      if (!to || daySetsFor(to, m) + num(mv.sets, 2) > SESSION_MAX_SETS) return;
+      touched.add(m);
+      out.push({
+        id: `spreiden:${d.id}:${m}`,
+        level: "middel",
+        area: "Volume",
+        title: `${label(m)}: te veel in één training`,
+        why: `${round1(daySetsFor(d, m))} sets voor ${lower(m)} op ${d.name}. Na ongeveer ${SESSION_MAX_SETS} zware sets per spiergroep levert een extra set weinig meer op. Verdeeld over twee trainingen haalt u meer uit dezelfde sets.`,
+        changes: [`${nm(mv.exId)} verplaatsen van ${d.name} naar ${to.name}`],
+        apply: (p) => moveSlot(p, mv.id, to.id),
+      });
+    });
+  });
+
+  /* 5. grote spiergroep maar één keer per week, met twee oefeningen op die dag */
+  const trainDays = sum(weekDays.map((d) => W[d.id] || 0));
+  if (trainDays >= 3) {
+    MAJOR_MUSCLES.forEach((m) => {
+      if (touched.has(m)) return;
+      const ds = weekDays.filter((d) => d.slots.some((s) => exIndex[s.exId] && exIndex[s.exId].pri.includes(m)));
+      if (ds.length !== 1 || (W[ds[0].id] || 0) > 1.2) return;
+      const inDay = ds[0].slots.filter((s) => exIndex[s.exId] && exIndex[s.exId].pri.includes(m));
+      if (inDay.length < 2) return;
+      const mv = inDay[inDay.length - 1];
+      const to = dayFor(m, ds[0].id, true);
+      if (!to) return;
+      touched.add(m);
+      out.push({
+        id: `frequentie:${m}`,
+        level: "laag",
+        area: "Volume",
+        title: `${label(m)} maar één keer per week`,
+        why: `Twee keer per week per spiergroep werkt voor de meeste mensen beter dan alles op één dag: de sets zijn frisser en de spier krijgt vaker een groeiprikkel.`,
+        changes: [`${nm(mv.exId)} verplaatsen van ${ds[0].name} naar ${to.name}`],
+        apply: (p) => moveSlot(p, mv.id, to.id),
+      });
+    });
+  }
+
+  /* 6. volgorde: geen isolatie vóór een compoundoefening voor dezelfde spier */
+  weekDays.forEach((d) => {
+    if (d.slots.some((s) => s.ss)) return; // supersets niet door elkaar halen
+    const exs = d.slots.map((s) => exIndex[s.exId]);
+    const bad = exs.some((e, i) => e && e.kind === "compound" && exs.slice(0, i).some((o) => o && o.kind === "isolation" && o.pri.some((m) => e.pri.includes(m))));
+    if (!bad) return;
+    const order = d.slots.map((s, i) => ({ s, i, c: exs[i] && exs[i].kind === "compound" ? 0 : 1 })).sort((a, b) => a.c - b.c || a.i - b.i);
+    const ids = order.map((o) => o.s.id);
+    out.push({
+      id: `volgorde:${d.id}`,
+      level: "middel",
+      area: "Opbouw",
+      title: `Volgorde op ${d.name}`,
+      why: "Een isolatieoefening vóór een zware oefening voor dezelfde spier maakt die zware oefening zwakker. Doet u dat niet bewust, zet dan de compoundoefeningen eerst: fris gaat u zwaarder en progressie is beter te volgen.",
+      changes: [`Nieuwe volgorde: ${order.map((o) => nm(o.s.exId)).join(", ")}`],
+      apply: (p) => ({
+        ...p,
+        days: p.days.map((x) => {
+          if (x.id !== d.id) return x;
+          const byId = Object.fromEntries(x.slots.map((s) => [s.id, s]));
+          const sorted = ids.map((id) => byId[id]).filter(Boolean);
+          const rest = x.slots.filter((s) => !ids.includes(s.id));
+          return { ...x, slots: [...sorted, ...rest] };
+        }),
+      }),
+    });
+  });
+
+  /* 7. oefenkeuze: gerekte positie */
+  const all = slotsOf(() => true);
+  const lenShare = all.filter((x) => x.ex.lengthened).length / all.length;
+  let unilateralSwap = false;
+  if (lenShare < 0.4) {
+    const swaps = [];
+    const taken = new Set();
+    all
+      .filter((x) => !x.ex.lengthened)
+      .sort((a, b) => (a.ex.kind === "isolation" ? 0 : 1) - (b.ex.kind === "isolation" ? 0 : 1))
+      .forEach((x) => {
+        if (swaps.length >= 3) return;
+        const alt = pickExercise(exIndex, program, { muscle: x.ex.pri[0], kind: x.ex.kind, lengthened: true, exclude: new Set([x.ex.id, ...taken]) });
+        if (!alt || !alt.lengthened || x.d.slots.some((s) => s.exId === alt.id)) return;
+        taken.add(alt.id);
+        if (alt.unilateral) unilateralSwap = true;
+        swaps.push({ id: x.s.id, from: x.ex.name, to: alt, day: x.d.name });
+      });
+    if (swaps.length) {
+      out.push({
+        id: `gerekt:${swaps.map((w) => w.id).join(",")}`,
+        level: lenShare < 0.25 ? "middel" : "laag",
+        area: "Oefenkeuze",
+        title: "Meer oefeningen in de gerekte positie",
+        why: `${Math.round(lenShare * 100)}% van uw oefeningen belast de spier het zwaarst in de gerekte positie. Zulke oefeningen geven per set meer groei; een wissel binnen dezelfde spiergroep is de makkelijkste winst.`,
+        changes: swaps.map((w) => `${w.from} → ${w.to.name} (${w.day})`),
+        apply: (p) => mapSlots(p, (s) => {
+          const w = swaps.find((x) => x.id === s.id);
+          return w ? swapSlotTo(s, w.to) : s;
+        }),
+      });
+    }
+  }
+
+  /* 8. eenzijdig werk */
+  if (!unilateralSwap && !all.some((x) => x.ex.unilateral)) {
+    const cand = all
+      .filter((x) => !x.s.ss)
+      .map((x) => ({ x, alt: pickExercise(exIndex, program, { muscle: x.ex.pri[0], kind: x.ex.kind, unilateral: true, lengthened: true, exclude: new Set([x.ex.id]) }) }))
+      .filter((c) => c.alt && c.alt.unilateral)
+      .sort((a, b) => (a.x.ex.kind === "isolation" ? 0 : 1) - (b.x.ex.kind === "isolation" ? 0 : 1))[0];
+    if (cand) {
+      out.push({
+        id: `eenzijdig:${cand.x.s.id}`,
+        level: "laag",
+        area: "Oefenkeuze",
+        title: "Geen eenzijdige oefening",
+        why: "Met één arm of been tegelijk traint u beide kanten even hard, corrigeert u verschil tussen links en rechts en komt u per kant dichter bij falen.",
+        changes: [`${cand.x.ex.name} → ${cand.alt.name} (${cand.x.d.name})`],
+        apply: (p) => mapSlots(p, (s) => (s.id === cand.x.s.id ? swapSlotTo(s, cand.alt) : s)),
+      });
+    }
+  }
+
+  /* 9. verhouding compound / isolatie */
+  const comp = all.filter((x) => x.ex.kind === "compound").length / all.length;
+  if (comp > 0.55) {
+    const count = {};
+    all.forEach((x) => x.ex.kind === "compound" && (count[x.ex.pri[0]] = (count[x.ex.pri[0]] || 0) + 1));
+    const c = [...all]
+      .reverse()
+      .filter((x) => x.ex.kind === "compound" && count[x.ex.pri[0]] >= 2 && !x.s.ss)
+      .map((x) => ({ x, alt: pickExercise(exIndex, program, { muscle: x.ex.pri[0], kind: "isolation", lengthened: true, exclude: new Set(all.map((y) => y.ex.id)) }) }))
+      .find((y) => y.alt);
+    if (c) {
+      out.push({
+        id: `isolatie:${c.x.s.id}`,
+        level: "laag",
+        area: "Oefenkeuze",
+        title: "Veel compoundoefeningen",
+        why: `${Math.round(comp * 100)}% van uw oefeningen is compound. Met ongeveer 40% compound en 60% isolatie traint u dichter bij falen met minder vermoeidheid per set; de zware basis blijft staan.`,
+        changes: [`${c.x.ex.name} → ${c.alt.name} (${c.x.d.name}); ${lower(c.x.ex.pri[0])} houdt een andere compoundoefening`],
+        apply: (p) => mapSlots(p, (s) => (s.id === c.x.s.id ? swapSlotTo(s, c.alt) : s)),
+      });
+    }
+  } else if (comp < 0.25) {
+    const hasComp = new Set(all.filter((x) => x.ex.kind === "compound").map((x) => x.ex.pri[0]));
+    const c = all
+      .filter((x) => x.ex.kind === "isolation" && !hasComp.has(x.ex.pri[0]) && MAJOR_MUSCLES.has(x.ex.pri[0]) && !x.s.ss)
+      .map((x) => ({ x, alt: pickExercise(exIndex, program, { muscle: x.ex.pri[0], kind: "compound", lengthened: true, exclude: new Set([x.ex.id]) }) }))
+      .find((y) => y.alt);
+    if (c) {
+      out.push({
+        id: `compound:${c.x.s.id}`,
+        level: "laag",
+        area: "Oefenkeuze",
+        title: "Weinig compoundoefeningen",
+        why: `${Math.round(comp * 100)}% van uw oefeningen is compound. Een paar zware basisoefeningen per week houden kracht en totale belasting op peil.`,
+        changes: [`${c.x.ex.name} → ${c.alt.name} (${c.x.d.name})`],
+        apply: (p) => mapSlots(p, (s) => (s.id === c.x.s.id ? swapSlotTo(s, c.alt) : s)),
+      });
+    }
+  }
+
+  /* 10. balans: trekken tegenover duwen, hamstrings tegenover quadriceps */
+  const balance = [
+    ["rug", "borst", 1, "Minstens evenveel sets voor de rug als voor de borst houdt de schouders gezond en de houding in balans."],
+    ["hamstrings", "quadriceps", 0.6, "Sterke hamstrings naast sterke quadriceps beschermen de knie; houd ze op minstens ongeveer 60% van het volume van de quadriceps."],
+  ];
+  balance.forEach(([m, vs, ratio, why]) => {
+    if (touched.has(m) || !(planned[vs] > 0) || !(planned[m] > 0) || planned[m] >= planned[vs] * ratio - 0.5) return;
+    let cur = planned[m];
+    const cand = slotsOf((x) => x.ex.pri.includes(m) && !x.s.ss).sort((a, b) => num(a.s.sets, 2) - num(b.s.sets, 2));
+    const patches = {};
+    let guard = 12;
+    while (cur < planned[vs] * ratio - 0.5 && guard-- > 0) {
+      const c = cand.find((x) => num((patches[x.s.id] || x.s).sets, 2) < 3);
+      if (!c) break;
+      patches[c.s.id] = { sets: num((patches[c.s.id] || c.s).sets, 2) + 1 };
+      cur += W[c.d.id] || 1;
+      cand.push(cand.shift());
+    }
+    const lines = Object.entries(patches).map(([id, pt]) => {
+      const c = cand.find((x) => x.s.id === id);
+      return `${nm(c.s.exId)} (${c.d.name}): ${c.s.sets} → ${pt.sets} sets`;
+    });
+    if (!lines.length) return;
+    touched.add(m);
+    out.push({
+      id: `balans:${m}`,
+      level: "laag",
+      area: "Balans",
+      title: `${label(m)} tegenover ${lower(vs)}`,
+      why: `${why} Nu: ${round1(planned[m])} tegenover ${round1(planned[vs])} sets per week.`,
+      changes: lines,
+      apply: (p) => patchSlots(p, patches),
+    });
+  });
+
+  /* 11. meer dan drie werksets per oefening */
+  const many = all.filter((x) => num(x.s.sets, 2) > 3 && !touched.has(x.ex.pri[0]));
+  if (many.length) {
+    const patches = {};
+    many.forEach((x) => {
+      const drop = num(x.s.sets, 2) - 3;
+      const after = planned[x.ex.pri[0]] - drop * (W[x.d.id] || 1);
+      if (after >= (MUSCLES[x.ex.pri[0]] ? MUSCLES[x.ex.pri[0]].mev : 0)) patches[x.s.id] = { sets: 3 };
+    });
+    const lines = many.filter((x) => patches[x.s.id]).map((x) => `${x.ex.name} (${x.d.name}): ${x.s.sets} → 3 sets`);
+    if (lines.length) {
+      out.push({
+        id: `sets:${Object.keys(patches).join(",")}`,
+        level: "laag",
+        area: "Opbouw",
+        title: "Veel sets per oefening",
+        why: "Na twee of drie zware sets daalt de kwaliteit per set duidelijk. Wilt u meer volume, voeg dan liever een tweede oefening voor die spier toe.",
+        changes: lines,
+        apply: (p) => patchSlots(p, patches),
+      });
+    }
+  }
+
+  /* 12. rust tussen de sets */
+  const shortRest = all.filter((x) => !x.s.ss && ((x.ex.kind === "compound" && num(x.s.rest, 120) < 150) || (x.ex.kind === "isolation" && num(x.s.rest, 120) < 90)));
+  if (shortRest.length) {
+    const patches = Object.fromEntries(shortRest.map((x) => [x.s.id, { rest: x.ex.kind === "compound" ? 180 : 120 }]));
+    out.push({
+      id: `rust:${shortRest.map((x) => x.s.id).join(",")}`,
+      level: "laag",
+      area: "Opbouw",
+      title: "Korte rust tussen de sets",
+      why: "Met langere rust (twee tot drie minuten bij zware oefeningen) haalt u meer reps per set, en dat telt voor groei zwaarder dan een kortere training.",
+      changes: shortRest.map((x) => `${x.ex.name} (${x.d.name}): ${mmss(num(x.s.rest, 120))} → ${mmss(patches[x.s.id].rest)}`),
+      apply: (p) => patchSlots(p, patches),
+    });
+  }
+
+  /* 13. warming-up voor de eerste zware oefening per spiergroep */
+  const warm = [];
+  weekDays.forEach((d) => {
+    const seen = new Set();
+    d.slots.forEach((s) => {
+      const ex = exIndex[s.exId];
+      if (!ex) return;
+      const first = !ex.pri.some((m) => seen.has(m));
+      ex.pri.forEach((m) => seen.add(m));
+      if (first && ex.kind === "compound" && num(s.warmups, 0) === 0) warm.push({ s, d, ex });
+    });
+  });
+  if (warm.length) {
+    const patches = Object.fromEntries(warm.map((w) => [w.s.id, { warmups: 2 }]));
+    out.push({
+      id: `warmup:${warm.map((w) => w.s.id).join(",")}`,
+      level: "laag",
+      area: "Opbouw",
+      title: "Geen warming-up voor een zware oefening",
+      why: "Twee opbouwende sets vóór de eerste zware oefening voor een spiergroep verkleinen de kans op blessures en maken de werksets zwaarder.",
+      changes: warm.map((w) => `${w.ex.name} (${w.d.name}): 2 warming-upsets`),
+      apply: (p) => patchSlots(p, patches),
+    });
+  }
+
+  /* 14. lange trainingen: supersets van tegengestelde spieren */
+  weekDays.forEach((d) => {
+    if (estMinutes(d) <= 85) return;
+    const sg = suggestSupersets(d, exIndex);
+    if (!sg) return;
+    const after = estMinutes({ ...d, slots: sg.slots });
+    if (after >= estMinutes(d)) return;
+    out.push({
+      id: `duur:${d.id}`,
+      level: "laag",
+      area: "Duur",
+      title: `${d.name} duurt lang (± ${estMinutes(d)} min)`,
+      why: "In een lange training lijden de laatste oefeningen onder vermoeidheid. Supersets van tegengestelde spieren besparen tijd zonder kwaliteitsverlies.",
+      changes: sg.pairs.map(([a, b]) => `Superset: ${nm(a.exId)} met ${nm(b.exId)}`).concat([`Geschatte duur ${estMinutes(d)} → ${after} min`]),
+      apply: (p) => ({ ...p, days: p.days.map((x) => (x.id === d.id ? { ...x, slots: suggestSupersets(x, exIndex) ? suggestSupersets(x, exIndex).slots : x.slots } : x)) }),
+    });
+  });
+
+  const dismissed = new Set(program.adviceDismissed || []);
+  return out
+    .map((a) => ({ ...a, dismissed: dismissed.has(a.id) }))
+    .sort((a, b) => ADVICE_LEVEL[a.level].rank - ADVICE_LEVEL[b.level].rank);
+}
+
+/* Alle openstaande voorstellen na elkaar toepassen. Na elke stap opnieuw
+   beoordelen, zodat een voorstel nooit op een verouderd schema werkt. */
+function applyAllAdvice(program, exIndex, max = 30) {
+  let p = program;
+  const done = new Set();
+  const applied = [];
+  for (let i = 0; i < max; i++) {
+    const next = programAdvice(p, exIndex).find((a) => !a.dismissed && !done.has(a.id));
+    if (!next) break;
+    done.add(next.id);
+    const q = next.apply(p);
+    if (JSON.stringify(q.days) !== JSON.stringify(p.days)) applied.push(next.title);
+    p = q;
+  }
+  return { program: p, applied };
 }
 
 /* ---------------- dagplanning ---------------- */
@@ -6015,6 +6582,129 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
   );
 }
 
+/* Programmacheck met concrete voorstellen. Elk voorstel is los toe te
+   passen of te negeren; "Alles toepassen" loopt ze na elkaar door. De
+   laatste wijziging is ongedaan te maken zolang het schema daarna niet
+   verder is aangepast. */
+function AdviceSection({ program, D, updProg, check }) {
+  const [undo, setUndo] = useState(null);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [open, setOpen] = useState(null);
+  const advice = programAdvice(program, D.exIndex);
+  const active = advice.filter((a) => !a.dismissed);
+  const dismissed = advice.filter((a) => a.dismissed);
+  const list = showDismissed ? advice : active;
+  const undoValid = undo && JSON.stringify(program.days) === undo.after;
+  const apply = (id) => {
+    const a = advice.find((x) => x.id === id);
+    if (!a) return;
+    const next = a.apply(program);
+    setUndo({ prev: program, after: JSON.stringify(next.days), text: a.title });
+    updProg(() => next);
+  };
+  const applyAll = () => {
+    const r = applyAllAdvice(program, D.exIndex);
+    if (!r.applied.length) return;
+    setUndo({ prev: program, after: JSON.stringify(r.program.days), text: `${r.applied.length} ${r.applied.length === 1 ? "voorstel" : "voorstellen"}` });
+    updProg(() => r.program);
+  };
+  const dismiss = (id, on = true) =>
+    updProg((p) => {
+      const cur = new Set(p.adviceDismissed || []);
+      if (on) cur.add(id);
+      else cur.delete(id);
+      return { ...p, adviceDismissed: [...cur] };
+    });
+  const tone = { hoog: C.train, middel: C.accent, laag: C.muted };
+  return (
+    <div id="programmacheck" style={{ scrollMarginTop: 16 }}>
+    <Section title="Programmacheck" accent={C.carb} sub="Uw schema getoetst op volume, oefenkeuze en opbouw, met concrete voorstellen die u met één tik toepast.">
+      {undoValid && (
+        <div className="px-4 py-2.5 flex items-center gap-3 text-xs" style={{ background: C.surface2, borderBottom: `1px solid ${C.lineSoft}` }} role="status">
+          <span className="flex-1" style={{ color: C.muted }}>
+            <strong style={{ color: C.carb }}>Toegepast:</strong> {undo.text}.
+          </span>
+          <button
+            onClick={() => {
+              updProg(() => undo.prev);
+              setUndo(null);
+            }}
+            className="tap underline shrink-0"
+            style={{ color: C.muted }}
+          >
+            Ongedaan maken
+          </button>
+        </div>
+      )}
+      {active.length === 0 ? (
+        <div className="px-4 py-3.5 text-sm" style={{ color: C.carb, borderBottom: `1px solid ${C.lineSoft}` }}>
+          Geen voorstellen: uw schema voldoet aan alle punten hieronder.
+        </div>
+      ) : (
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+          <span className="text-sm font-semibold">
+            {active.length} {active.length === 1 ? "voorstel" : "voorstellen"}
+          </span>
+          {active.length > 1 && (
+            <TBtn small onClick={applyAll}>
+              Alles toepassen
+            </TBtn>
+          )}
+        </div>
+      )}
+      {list.map((a) => {
+        const isOpen = open === a.id;
+        return (
+          <div key={a.id} className="px-4 py-3" style={{ borderBottom: `1px solid ${C.lineSoft}`, opacity: a.dismissed ? 0.55 : 1 }}>
+            <div className="flex items-center gap-2 text-xs font-semibold">
+              <span style={{ color: tone[a.level] }}>{ADVICE_LEVEL[a.level].label}</span>
+              <span style={{ color: C.muted, fontWeight: 500 }}>{a.area}</span>
+            </div>
+            <div className="text-sm font-semibold mt-0.5">{a.title}</div>
+            <ul className="mt-1.5 space-y-1">
+              {a.changes.map((c, i) => (
+                <li key={i} className="text-sm leading-snug flex gap-2">
+                  <span aria-hidden="true" style={{ color: C.accent }}>
+                    →
+                  </span>
+                  <span>{c}</span>
+                </li>
+              ))}
+            </ul>
+            {isOpen && (
+              <p className="text-xs leading-relaxed mt-2" style={{ color: C.muted }}>
+                {a.why}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2 mt-2.5">
+              {!a.dismissed && (
+                <TBtn small onClick={() => apply(a.id)}>
+                  Toepassen
+                </TBtn>
+              )}
+              <button onClick={() => setOpen(isOpen ? null : a.id)} className="tap text-xs underline px-1" style={{ color: C.muted }} aria-expanded={isOpen}>
+                {isOpen ? "Minder" : "Waarom?"}
+              </button>
+              <button onClick={() => dismiss(a.id, !a.dismissed)} className="tap text-xs underline px-1" style={{ color: C.muted }}>
+                {a.dismissed ? "Weer tonen" : "Negeren"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {dismissed.length > 0 && (
+        <button onClick={() => setShowDismissed(!showDismissed)} className="tap w-full text-left px-4 py-2.5 text-xs underline" style={{ color: C.muted, borderBottom: `1px solid ${C.lineSoft}` }}>
+          {showDismissed ? "Genegeerde voorstellen verbergen" : `${dismissed.length} genegeerd ${dismissed.length === 1 ? "voorstel" : "voorstellen"} tonen`}
+        </button>
+      )}
+      {check.map((c) => (
+        <Status key={c.label} label={c.label} value={c.value} state={c.state} note={c.note} />
+      ))}
+    </Section>
+    </div>
+  );
+}
+
 function TrainSchema({ T, setT, D, week, setWeek }) {
   const [picker, setPicker] = useState(null);
   const [editEx, setEditEx] = useState(null);
@@ -6051,6 +6741,9 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
   const nutriDays = week.filter((d) => d.session).length;
   const perWeek = program ? sessionsPerWeek(program) : 0;
   const check = program ? programCheck(program, D.exIndex) : [];
+  const openAdvice = program ? programAdvice(program, D.exIndex).filter((a) => !a.dismissed) : [];
+  const adviceCount = openAdvice.length;
+  const adviceHigh = openAdvice.some((a) => a.level === "hoog");
 
   return (
     <>
@@ -6060,6 +6753,28 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
 
       {program && (
         <>
+          {adviceCount > 0 && (
+            <button
+              onClick={() => {
+                const el = document.getElementById("programmacheck");
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className="tap w-full text-left mb-4 px-4 py-3 flex items-center gap-3"
+              style={{ background: C.panel, border: `1px solid ${adviceHigh ? C.train : C.line}`, borderRadius: R.card }}
+            >
+              <span className="flex-1 min-w-0">
+                <span className="text-sm font-semibold block">
+                  {adviceCount} {adviceCount === 1 ? "voorstel" : "voorstellen"} voor uw schema
+                </span>
+                <span className="text-xs block" style={{ color: C.muted }}>
+                  {adviceHigh ? "Waaronder belangrijke punten over het volume." : "Kleine verbeteringen, met één tik toe te passen."}
+                </span>
+              </span>
+              <span className="text-xs font-semibold shrink-0" style={{ color: C.accent }}>
+                Bekijk
+              </span>
+            </button>
+          )}
           <Section title="Schema" sub="Uw trainingen, de volgorde en welke dagen u traint.">
             {T.programs.length > 1 && (
               <Row label="Actief schema" stack>
@@ -6343,13 +7058,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
             </TBtn>
           </div>
 
-          {check.length > 0 && (
-            <Section title="Programmacheck" accent={C.carb} sub="Uw schema getoetst op oefenkeuze, verhouding compound/isolatie en volume per spiergroep.">
-              {check.map((c) => (
-                <Status key={c.label} label={c.label} value={c.value} state={c.state} note={c.note} />
-              ))}
-            </Section>
-          )}
+          {check.length > 0 && <AdviceSection program={program} D={D} updProg={updProg} check={check} />}
         </>
       )}
 

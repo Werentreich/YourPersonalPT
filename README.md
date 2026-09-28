@@ -100,6 +100,28 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
     volume telt elke subset als een halve set, hoogstens één extra per
     werkset (`effSets`, `techExtraSets`). In een deload en een minicut
     vervallen de technieken automatisch (`techOff`); supersets blijven.
+- **Schema-advies** (`programAdvice`, blok `schema-advies`): toetst het
+  schema en doet concrete voorstellen die met één tik zijn toe te passen,
+  te negeren (`program.adviceDismissed`) of in één keer allemaal door te
+  voeren (`applyAllAdvice`); de laatste wijziging is ongedaan te maken.
+  Regels, op volgorde van belang:
+  - volume per spiergroep: geen eigen oefening (grote spiergroep: eerst een
+    basisoefening, zo nodig een tweede op een andere dag), boven het
+    maximum (MRV: sets eraf tot binnen de groeizone), duidelijk onder het
+    minimum (onder 75% van MEV, omdat sets tot bijna falen meer opleveren:
+    sets erbij tot 3 per oefening, daarna hoogstens twee oefeningen erbij);
+  - meer dan 10 sets voor één spiergroep in één training, of een grote
+    spiergroep maar één keer per week: een oefening verplaatsen, alleen naar
+    een dag voor hetzelfde lichaamsdeel;
+  - volgorde (geen isolatie vóór een compoundoefening voor dezelfde spier),
+    rust (compound 3 min, isolatie 2 min), warming-up voor de eerste zware
+    oefening per spiergroep, hoogstens 3 sets per oefening;
+  - oefenkeuze: gerekte positie (minder dan 40%), eenzijdig werk,
+    verhouding compound/isolatie rond 40/60, rug tegenover borst en
+    hamstrings tegenover quadriceps, supersets bij trainingen boven 85 min.
+  Een gewisselde oefening krijgt een nieuw slot, en `historyFor` koppelt
+  historie per slot alleen aan dezelfde oefening, zodat de progressie na
+  een wissel schoon begint. De sjablonen geven zelf geen voorstellen.
 - **Rusttimer**: geluid, trillen (Android) en een melding als de app op de
   achtergrond staat. iOS pauzeert webapps op de achtergrond, dus daar komt
   de melding pas bij terugkeer.
