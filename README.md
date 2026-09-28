@@ -101,6 +101,23 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
   (in de automatische stand geldt de aanbeveling alvast). Bestaande
   gebruikers zonder eerdere keuze krijgen alleen een vraag als de
   aanbeveling afwijkt van "gelijk houden".
+- **Herstelblok** (`resensCheck`, `resensState`, `endResens`,
+  `RESENS_OPTION`, `ResensCard`, `ResensSheet`): los van de voeding.
+  Vanaf het begin van de huidige zware periode (na de laatste pauze van
+  twee weken of langer, na een reeks sessies met minder volume van minstens
+  tien dagen, of na een vorig herstelblok) telt de app de weken. Voorstel
+  na 20 weken, of al na 12 weken als de kracht stilstaat (beste e1RM van de
+  laatste zes weken niet hoger dan de zes weken ervoor bij minstens 60% van
+  de oefeningen). Voorwaarden: minstens 1,5 training per week in die
+  periode, vier in de laatste vier weken, geen deload en geen fase die al
+  minder volume geeft. Advies 3 weken, 4 bij stilstand of na 26 weken.
+  Tijdens het blok: de helft van de werksets (`vf` 0,5), zware gewichten,
+  geen deload-melding; daarna begint automatisch een nieuw blok bij de
+  opbouw met een melding "Herstelblok klaar". Opslag: `T.resens`
+  (`{start, weeks, reasons, done, stopped, ack}`) en `T.resensSnooze`.
+- **Minder volume, welke sets eerst** (`plannedSetsFor`): isolatie-
+  oefeningen leveren eerst sets in, van achteren naar voren; pas daarna de
+  basisoefeningen. Elke oefening houdt minstens één werkset.
 - **Lange cut of bulk zonder plan** (`phaseLengthAdvice`,
   `PhaseLengthCard`): de app houdt bij sinds wanneer het doel geldt
   (`f.goalSince`, bij bestaande gebruikers geschat op de eerste weging,

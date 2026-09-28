@@ -3640,12 +3640,22 @@ function plannedSetsFor(day, D, light = false) {
   let out = day.slots.map((s) => Math.max(1, Math.round(num(s.sets, 2))));
   if (D.pos.phase === "deload") out = out.map((c) => Math.max(1, Math.ceil(c / 2)));
   else if (D.phaseOn && D.tp.vf < 1) {
+    /* Minder volume: eerst leveren de isolatieoefeningen sets in (van
+       achteren naar voren), pas daarna de basisoefeningen. */
     const total = sum(out);
     const goal = Math.max(out.length, Math.round(total * D.tp.vf));
+    const comp = (k) => {
+      const ex = D.exIndex && D.exIndex[day.slots[k].exId];
+      return !!ex && ex.kind === "compound";
+    };
+    const back = out.map((_, k) => out.length - 1 - k);
+    const pools = [back.filter((k) => !comp(k)), back.filter((k) => comp(k))];
     let cur = total;
-    let guard = 50;
+    let guard = 100;
     while (cur > goal && out.some((c) => c > 1) && guard-- > 0) {
-      for (let k = out.length - 1; k >= 0 && cur > goal; k--) {
+      const pool = pools.find((p) => p.some((k) => out[k] > 1));
+      for (const k of pool) {
+        if (cur <= goal) break;
         if (out[k] > 1) {
           out[k]--;
           cur--;
@@ -3740,7 +3750,12 @@ function buildSession({ program, day, D, T, rotPos = null, bw }) {
     blockWeek: D.pos.week,
     nutritionPhase: D.phase,
     volumeCut: D.pos.phase !== "deload" && D.phaseOn && D.tp.vf < 1,
-    phaseNote: D.pos.phase !== "deload" && D.phaseOn ? `${D.tp.option.label} (${D.tp.label.toLowerCase()}): ${D.tp.option.text}` : null,
+    phaseNote:
+      D.pos.phase === "deload" || !D.phaseOn
+        ? null
+        : D.resens && D.resens.active
+        ? `Herstelblok, week ${D.resens.week} van ${D.resens.weeks}: ${D.tp.option.text}`
+        : `${D.tp.option.label} (${D.tp.label.toLowerCase()}): ${D.tp.option.text}`,
     readiness: null,
     light: false,
     note: "",
@@ -4534,8 +4549,110 @@ function rotPosFor(program, dayId, from = 0) {
    bij minstens 30 procent van de vergelijkbare oefeningen dalen (e1RM,
    gecorrigeerd voor reps in reserve), of als de herstelscore voor de
    training drie keer laag was en er ook prestaties dalen. */
-function fatigueCheck({ sessions, pos, today, tp, block }) {
-  if (pos.phase === "deload") return null;
+/* ---------------- herstelblok (resensitisatie) ----------------
+   Een deload haalt acute vermoeidheid weg; na maanden zwaar trainen reageren
+   de spieren ook minder op hetzelfde volume. Een coach plant dan een paar
+   weken met de helft van de werksets bij zware gewichten, en begint daarna
+   een vers blok. Rustiger periodes tellen mee: twee weken of langer niet
+   getraind, een fase met minder volume, of een eerder herstelblok. */
+const RESENS_OPTION = {
+  id: "herstelblok",
+  label: "Herstelblok",
+  vf: 0.5,
+  load: true,
+  text: "De helft van de werksets, zware gewichten, reps zoals altijd. Genoeg om kracht en spier te behouden; de vermoeidheid zakt weg en daarna werkt uw normale volume weer als nieuwe prikkel.",
+};
+const RESENS = { due: 20, stallDue: 12, gapDays: 14, lowRunDays: 10 };
+
+function resensState(r, today) {
+  if (!r || !r.start || r.done) return { active: false };
+  const t = dayNum(today);
+  const s = dayNum(r.start);
+  const end = s + r.weeks * 7;
+  if (t < s || t >= end) return { active: false, ended: t >= end };
+  return { active: true, week: Math.floor((t - s) / 7) + 1, weeks: r.weeks, end: isoOfNum(end), left: end - t };
+}
+
+/* Kracht in de laatste zes weken tegen de zes weken daarvoor, per oefening. */
+function strengthStall(done, t, exIndex) {
+  const best = (from, to) => {
+    const m = {};
+    done.forEach((s) => {
+      const d = dayNum(s.date);
+      if (d < from || d >= to || s.deload) return;
+      s.exercises.forEach((e) => {
+        const v = bestE1rm(e);
+        if (v > 0) m[e.exId] = Math.max(m[e.exId] || 0, v);
+      });
+    });
+    return m;
+  };
+  const now = best(t - 42, t + 1);
+  const before = best(t - 84, t - 42);
+  const ids = Object.keys(now).filter((id) => before[id]);
+  const stalled = ids.filter((id) => now[id] <= before[id] * 1.01);
+  return {
+    n: ids.length,
+    stalled: stalled.map((id) => (exIndex && exIndex[id] ? exIndex[id].name : id)),
+    on: ids.length >= 3 && stalled.length / ids.length >= 0.6,
+  };
+}
+
+function resensCheck({ sessions, today, pos, resens, snooze, exIndex, lowNow }) {
+  if (resensState(resens, today).active || lowNow || pos.phase === "deload") return null;
+  const t = dayNum(today);
+  if (snooze && snooze > today) return null;
+  const done = sessions.filter((s) => s.end && dayNum(s.date) <= t);
+  if (done.length < 12) return null;
+  const days = done.map((s) => dayNum(s.date));
+  // begin van de huidige zware periode
+  let hs = days[0];
+  let why = null;
+  for (let k = 1; k < days.length; k++) if (days[k] - days[k - 1] >= RESENS.gapDays) (hs = days[k]), (why = "pauze");
+  let runStart = null;
+  let runEnd = null;
+  const closeRun = () => {
+    if (runStart != null && runEnd - runStart >= RESENS.lowRunDays && runEnd + 1 > hs) (hs = runEnd + 1), (why = "laag");
+    runStart = runEnd = null;
+  };
+  done.forEach((s, k) => {
+    if (s.volumeCut) {
+      if (runStart == null) runStart = days[k];
+      runEnd = days[k];
+    } else if (!s.deload) closeRun();
+  });
+  closeRun();
+  if (resens && resens.done && resens.start) {
+    const e = resens.stopped ? dayNum(resens.stopped) : dayNum(resens.start) + resens.weeks * 7;
+    if (e > hs) (hs = e), (why = "herstelblok");
+  }
+  if (days[days.length - 1] < t - RESENS.gapDays) return null; // traint momenteel niet
+  const weeks = Math.floor((t - hs) / 7);
+  const inRange = days.filter((d) => d >= hs).length;
+  const recent = days.filter((d) => d > t - 28).length;
+  if (weeks < RESENS.stallDue || inRange / Math.max(1, weeks) < 1.5 || recent < 4) return null;
+  const stall = strengthStall(done, t, exIndex);
+  if (weeks < RESENS.due && !stall.on) return null;
+  const reasons = [
+    `${weeks} weken zwaar trainen sinds ${why === "herstelblok" ? "uw vorige herstelblok" : why === "pauze" ? "uw laatste pauze van twee weken of langer" : why === "laag" ? "uw laatste periode met minder volume" : "u begon met loggen"}.`,
+  ];
+  if (stall.on) reasons.push(`Geen vooruitgang in zes weken bij ${stall.stalled.length} van ${stall.n} oefeningen: ${stall.stalled.slice(0, 4).join(", ")}${stall.stalled.length > 4 ? " en meer" : ""}.`);
+  else if (stall.n >= 3) reasons.push(`Uw kracht loopt nog op; toch is dit het moment, voordat de vooruitgang stilvalt.`);
+  return { weeks, stall: stall.on, blockWeeks: stall.on || weeks >= 26 ? 4 : 3, reasons };
+}
+
+/* Einde van een herstelblok (afgelopen of gestopt): een vers blok begint
+   bij de opbouw. */
+function endResens(t, today, number, stopped = false) {
+  return {
+    ...t,
+    resens: { ...t.resens, done: true, stopped: stopped ? today : t.resens.stopped || null },
+    block: { ...t.block, start: mondayOf(today), number: number + 1, deloadFrom: null, dismissedAt: null, auto: null },
+  };
+}
+
+function fatigueCheck({ sessions, pos, today, tp, block, resting }) {
+  if (pos.phase === "deload" || resting) return null;
   const t = dayNum(today);
   if (t - pos.cycleStart < 7) return null;
   if (block.dismissedAt && t - dayNum(block.dismissedAt) < 7) return null;
@@ -4671,14 +4788,17 @@ function trainDerive(T, ctx, today) {
   const saved = T.phaseChoice && T.phaseChoice.phase === phase ? opts.find((o) => o.id === T.phaseChoice.option) || null : null;
   const chosen = saved || (T.phaseAccept === phase || T.settings.autoProgress ? rec : null);
   const opt = chosen || PHASE_OPTIONS.gelijk;
-  const tp = { ...TRAIN_PHASE[phase], vf: opt.vf, load: opt.load, option: opt, options: opts, chosen: !!chosen };
-  const phaseOn = opt.vf < 1 || !opt.load;
+  const resens = resensState(T.resens, today);
+  const useOpt = resens.active && opt.vf > RESENS_OPTION.vf ? { ...RESENS_OPTION, load: opt.load } : opt;
+  const tp = { ...TRAIN_PHASE[phase], vf: useOpt.vf, load: useOpt.load, option: useOpt, options: opts, chosen: !!chosen, phaseOption: opt };
+  const phaseOn = useOpt.vf < 1 || !useOpt.load;
   // nieuwe fase waarover nog niet is gekozen
   const phasePending = !saved && T.phaseSeen !== phase && !(T.phaseSeen == null && rec.id === "gelijk");
   const sessions = T.sessions;
   const plan = todayPlan(program, sessions, today, ctx.adjList);
-  const fatigue = fatigueCheck({ sessions, pos, today, tp, block: T.block });
-  return { exIndex, program, pos, phase, tp, phaseOn, phasePending, sessions, plan, fatigue, today, adjList: ctx.adjList || [] };
+  const fatigue = fatigueCheck({ sessions, pos, today, tp, block: T.block, resting: resens.active });
+  const resensAdv = program ? resensCheck({ sessions, today, pos, resens: T.resens, snooze: T.resensSnooze, exIndex, lowNow: opt.vf < 1 }) : null;
+  return { exIndex, program, pos, phase, tp, phaseOn, phasePending, sessions, plan, fatigue, today, adjList: ctx.adjList || [], resens, resensAdv };
 }
 
 /* ---------------- geluid, trilling en melding bij einde rust ---------------- */
@@ -6163,6 +6283,7 @@ function BlockBar({ pos }) {
 function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
   const [other, setOther] = useState("");
   const [phaseSheet, setPhaseSheet] = useState(false);
+  const [resensSheet, setResensSheet] = useState(false);
   const scale = T.settings.effort;
   const program = D.program;
   const plan = D.plan;
@@ -6232,11 +6353,19 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
             : "Deload: halve werksets, zelfde gewicht, ver van falen. Vermoeidheid zakt weg zodat het volgende blok hoger begint."}
         </p>
         <p className="text-xs mt-1 leading-relaxed" style={{ color: C.darkMuted }}>
-          Voeding: <strong style={{ color: C.darkInk }}>{D.tp.label}</strong> · training: {D.phasePending ? "nog niet gekozen" : D.tp.option.label.toLowerCase()}{" "}
+          Voeding: <strong style={{ color: C.darkInk }}>{D.tp.label}</strong> · training: {D.phasePending ? "nog niet gekozen" : (D.tp.phaseOption || D.tp.option).label.toLowerCase()}{" "}
           <button onClick={() => setPhaseSheet(true)} className="underline" style={{ color: C.darkInk }}>
             {D.phasePending ? "Kiezen" : "Wijzigen"}
           </button>
         </p>
+        {D.resens.active && (
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: C.darkMuted }}>
+            <strong style={{ color: C.darkInk }}>Herstelblok</strong> · week {D.resens.week} van {D.resens.weeks} · halve werksets, zware gewichten ·{" "}
+            <button onClick={() => setT((t) => endResens(t, D.today, D.pos.number, true))} className="underline" style={{ color: C.darkInk }}>
+              Stoppen
+            </button>
+          </p>
+        )}
 
         <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.darkLine}` }}>
           {plan && plan.day && !plan.doneToday ? (
@@ -6304,6 +6433,23 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
         </div>
       </div>
 
+      {D.resensAdv && <ResensCard adv={D.resensAdv} onOpen={() => setResensSheet(true)} />}
+      {resensSheet && <ResensSheet T={T} setT={setT} D={D} onClose={() => setResensSheet(false)} />}
+      {T.resens && T.resens.done && !T.resens.ack && (
+        <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
+          <span className="rail" style={{ background: "var(--carb)" }} />
+          <div className="disp text-lg font-bold uppercase leading-none">Herstelblok klaar</div>
+          <p className="text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
+            Een vers blok is begonnen, weer op uw volledige volume. De eerste weken voelen de gewichten licht en gaat de vooruitgang snel: de spieren
+            reageren weer op het volume. Bouw rustig op met een of twee reps in reserve.
+          </p>
+          <div className="mt-2">
+            <TBtn small onClick={() => setT((t) => ({ ...t, resens: { ...t.resens, ack: true } }))}>
+              Gezien
+            </TBtn>
+          </div>
+        </div>
+      )}
       {D.fatigue && !T.block.deloadFrom && !T.settings.autoProgress && (
         <div className="mb-6 px-4 py-3 relative overflow-hidden" style={{ background: C.warnBg, borderRadius: R.card }}>
           <span className="rail" style={{ background: C.train }} />
@@ -6659,6 +6805,110 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
         </div>
       )}
     </div>
+  );
+}
+
+/* Voorstel voor een herstelblok, als kaart en als venster met de gevolgen
+   per trainingsdag. */
+function ResensCard({ adv, onOpen }) {
+  return (
+    <div className="mb-3 px-4 py-3 relative overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }} role="status">
+      <span className="rail" style={{ background: "var(--carb)" }} />
+      <div className="disp text-lg font-bold uppercase leading-none">Tijd voor een herstelblok</div>
+      <p className="text-xs mt-1.5 leading-relaxed" style={{ color: C.muted }}>
+        {adv.reasons[0]} {adv.stall ? "En uw kracht staat stil." : ""} Een paar weken met minder sets zorgt dat uw training daarna weer aanslaat.
+      </p>
+      <div className="mt-2">
+        <TBtn small onClick={onOpen}>
+          Bekijk voorstel
+        </TBtn>
+      </div>
+    </div>
+  );
+}
+
+function ResensSheet({ T, setT, D, onClose }) {
+  const adv = D.resensAdv;
+  const [weeks, setWeeks] = useState(adv ? adv.blockWeeks : 3);
+  if (!adv) return null;
+  const days = D.program ? D.program.days.filter((d) => d.slots.length) : [];
+  const base = D.tp.phaseOption || PHASE_OPTIONS.gelijk;
+  const setsWith = (vf, day) => sum(plannedSetsFor(day, { ...D, pos: { ...D.pos, phase: "opbouw" }, phaseOn: vf < 1, tp: { ...D.tp, vf } }));
+  const start = () => {
+    setT((t) => ({ ...t, resens: { start: D.today, weeks, reasons: adv.reasons }, resensSnooze: null, block: { ...t.block, deloadFrom: null, auto: null } }));
+    onClose();
+  };
+  const snooze = (d) => {
+    setT((t) => ({ ...t, resensSnooze: isoOfNum(dayNum(D.today) + d) }));
+    onClose();
+  };
+  return (
+    <Sheet title="Herstelblok" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="space-y-1">
+          {adv.reasons.map((r, k) => (
+            <p key={k} className="text-sm leading-relaxed" style={{ color: C.ink }}>
+              {r}
+            </p>
+          ))}
+        </div>
+        <p className="text-sm leading-relaxed" style={{ color: C.muted }}>
+          Een deload haalt een week vermoeidheid weg. Na maanden zwaar trainen reageren de spieren ook minder op hetzelfde volume. Een herstelblok zet
+          dat terug: de helft van de werksets, dezelfde zware gewichten, reps zoals altijd. U behoudt kracht en spier, en daarna begint een vers blok
+          waarin uw normale volume weer als nieuwe prikkel werkt.
+        </p>
+        <div>
+          <div className="text-xs font-semibold mb-1.5">Duur</div>
+          <Seg
+            value={weeks}
+            onChange={(v) => setWeeks(Number(v))}
+            options={[
+              { value: 3, label: "3 weken" },
+              { value: 4, label: "4 weken" },
+            ]}
+          />
+          <p className="text-xs mt-1" style={{ color: C.muted }}>
+            Advies: {adv.blockWeeks} weken{adv.stall ? ", omdat uw kracht stilstaat" : adv.weeks >= 26 ? ", na een half jaar zonder rustiger periode" : ""}.
+          </p>
+        </div>
+        {days.length > 0 && (
+          <div className="px-3 py-2.5 text-xs leading-relaxed" style={{ background: C.surface2, borderRadius: R.field }}>
+            <div className="font-semibold text-sm mb-1" style={{ color: C.ink }}>
+              Wat er verandert
+            </div>
+            {days.map((d) => {
+              const a = setsWith(base.vf, d);
+              const b = setsWith(Math.min(base.vf, RESENS_OPTION.vf), d);
+              return (
+                <div key={d.id} className="flex justify-between gap-3 tnum" style={{ color: C.muted }}>
+                  <span>{d.name}</span>
+                  <span style={{ color: C.ink, fontWeight: 600 }}>
+                    {a} → {b} werksets
+                  </span>
+                </div>
+              );
+            })}
+            <div className="mt-1" style={{ color: C.muted }}>
+              Gewichten: blijven zwaar; haalt u de reps, dan gaat het gewicht gewoon omhoog.
+            </div>
+            <div className="mt-1" style={{ color: C.muted }}>
+              Uw schema zelf verandert niet. Na afloop begint automatisch een nieuw blok bij de opbouw; een deload is in deze weken niet nodig.
+            </div>
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <TBtn full onClick={start}>
+            Herstelblok starten ({weeks} weken)
+          </TBtn>
+          <TBtn full kind="ghost" onClick={() => snooze(14)}>
+            Over twee weken
+          </TBtn>
+          <button onClick={() => snooze(42)} className="tap text-xs underline py-1" style={{ color: C.muted }}>
+            Nu niet, over zes weken weer
+          </button>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -9585,6 +9835,13 @@ function MacroApp() {
     setTab("training");
   };
 
+  /* Afgelopen herstelblok: nieuw blok bij de opbouw. */
+  useEffect(() => {
+    if (!tLoaded || !T.resens || T.resens.done || !D.resens.ended || T.active) return;
+    setT((t) => endResens(t, trainToday, D.pos.number));
+  }, [tLoaded, T.resens, D.resens.ended, trainToday, !!T.active]);
+  const [resensOpen, setResensOpen] = useState(false);
+
   /* Een ingelaste deload loopt zeven dagen; daarna begint een nieuw blok.
      In de automatische stand wordt een deload bij vermoeidheid direct ingelast. */
   useEffect(() => {
@@ -11127,6 +11384,7 @@ function MacroApp() {
               </button>
             )}
 
+            {D.resensAdv && !bill.locked && !(lengthAdv && lengthAdv.kind === "pauze") && <ResensCard adv={D.resensAdv} onOpen={() => setResensOpen(true)} />}
             {lengthAdv && !bill.locked && <PhaseLengthCard a={lengthAdv} onStart={startBreak} onEnd={endBreak} onSnooze={snoozeLength} onSince={setGoalSince} />}
 
             <SyncNotices s={nx} />
@@ -14067,7 +14325,8 @@ function MacroApp() {
         </Sheet>
       )}
 
-      {phasePrompt && <PhaseSheet T={T} setT={setT} D={D} pending onClose={() => setPhaseLater(true)} />}
+      {resensOpen && <ResensSheet T={T} setT={setT} D={D} onClose={() => setResensOpen(false)} />}
+        {phasePrompt && <PhaseSheet T={T} setT={setT} D={D} pending onClose={() => setPhaseLater(true)} />}
 
       {paywallOpen && bill.locked && (
         <Sheet title="Nexa Coach" onClose={() => setPaywallOpen(null)}>
