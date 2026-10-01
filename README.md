@@ -327,6 +327,39 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
 - **Controle**: `GET /.netlify/functions/etiket` geeft `{"ok":true}` als de
   sleutel is ingesteld. Fouten verschijnen in het functielogboek van Netlify.
 
+## Schema op maat
+
+Training → (geen schema) of Schema → nieuw: `PlanBuilder` vraagt dagen, tijd per
+training, tijdstip, ervaring, prioriteiten (max. 3, `FOCUS_GROUPS`), materiaal
+(`PLAN_EQUIP`) en klachten (`PLAN_COMPLAINTS`); slaap, leeftijd, ervaring en
+fase komen uit het profiel (`ProfileCtx`). `buildCustomPlan` maakt het schema,
+`explainCustomPlan` de uitleg "Waarom dit schema" (opgeslagen in
+`program.custom.why`, terug te lezen onder Schema). Antwoorden in `T.planPrefs`.
+
+- **Indeling** (`chooseSplit`, `scoreSplit`): per aantal dagen de kandidaten uit
+  `PLAN_SPLITS` (full body, upper/lower/full, PPL, upper/lower, ULPPL), in alle
+  volgordes op de gekozen weekdagen. Score: frequentie per spier (2× per week
+  of meer, Schoenfeld 2016), minus te korte hersteltijd: 48 uur bovenlichaam,
+  72 uur benen na een zware beendag (2+ oefeningen voor die spier), 48 uur bij
+  full body; dezelfde spier op opeenvolgende dagen weegt zwaar. Beginners
+  krijgen voorkeur voor full body, ervaren sporters voor splits.
+- **Oefeningen** (`PLAN_DAYS`): per dagtype rollen met oefeningen in volgorde
+  van voorkeur, gefilterd op materiaal en klachten; anders een passende uit de
+  bibliotheek.
+- **Volume** (`planTargets`): sets per spier per week naar ervaring (8/10/12,
+  prioriteit 12/15/18), −15% bij minder dan 7 uur slaap, −10% vanaf 50 jaar,
+  binnen MEV-MRV. Hoogstens 3 sets per oefening en 9 per spier per training
+  (afnemende meeropbrengst, Pelland 2024); daarboven een extra oefening.
+- **Volgorde**: zware basisoefeningen eerst, prioriteit voorop, dan isolatie
+  (Simão 2012).
+- **Tijd**: past de training niet, dan kortere rust, supersets van
+  tegenovergestelde spieren, derde sets eraf bij spieren die het verst boven
+  hun doel zitten, dan isolatie die elders genoeg krijgt (elke grote spier
+  houdt minstens 4 sets per week). De uitleg noemt eerlijk welke spieren dan
+  onder het ideale volume blijven.
+- Toepassen zet de voedingsweek op dezelfde dagen, tijd en duur.
+- Nieuw in de bibliotheek voor thuis: `db_rdl`, `goblet_squat`, `db_calf`.
+
 ## Live training: timer, bezet, staande weergave
 
 - **Rusttimer** (`primeAudio`, `tones`, `beep`, `pip`, `restAlert`): luider

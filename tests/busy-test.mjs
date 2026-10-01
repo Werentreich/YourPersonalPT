@@ -15,7 +15,7 @@ ok("pec deck bezet: isolatie voor borst", r[0].ex.kind === "isolation" && r[0].e
 r = L.busyAlternatives(idx.lat_pulldown, idx, [], new Set(["lat_pulldown"]));
 ok("lat pulldown bezet: eerst verticaal trekken", r[0].ex.pri[0] === "rug" && ["pulldown_1arm","optrekken"].includes(r[0].ex.id), show(r));
 r = L.busyAlternatives(idx.squat, idx, [], new Set(["squat"]));
-ok("squat bezet: kniebuiging (geen deadlift)", ["front_squat","hack_squat","leg_press","bulgarian_split_squat","walking_lunge"].includes(r[0].ex.id), show(r));
+ok("squat bezet: kniebuiging (geen deadlift)", ["front_squat","hack_squat","leg_press","bulgarian_split_squat","walking_lunge","goblet_squat"].includes(r[0].ex.id), show(r));
 const sessions = [{ end: 1, date: "2026-09-20", exercises: [{ exId: "smith_schuin", sets: [{ type: "work", done: true, weight: 50, reps: 8 }, { type: "work", done: true, weight: 52.5, reps: 7 }] }] }];
 r = L.busyAlternatives(idx.chest_press, idx, sessions, new Set(["chest_press"]));
 const sm = r.find((o) => o.ex.id === "smith_schuin");

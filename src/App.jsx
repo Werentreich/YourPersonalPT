@@ -2943,6 +2943,9 @@ const EXERCISES = [
   EX("seated_leg_curl", "Zittende leg curl", "machine", "i", ["hamstrings"], [], "L", 10, 15),
   EX("lying_leg_curl", "Liggende leg curl", "machine", "i", ["hamstrings"], [], "", 10, 15),
   EX("hip_thrust", "Hip thrust", "stang", "c", ["bilspieren"], ["hamstrings"], "", 8, 12),
+  EX("db_rdl", "Roemeense deadlift met dumbbells", "dumbbell", "c", ["hamstrings", "bilspieren"], [], "L", 8, 12),
+  EX("goblet_squat", "Goblet squat", "dumbbell", "c", ["quadriceps", "bilspieren"], [], "L", 8, 15),
+  EX("db_calf", "Kuitraise met dumbbell, eenbenig", "dumbbell", "i", ["kuiten"], [], "LU", 10, 15),
   EX("cable_kickback", "Cable kickback", "kabel", "i", ["bilspieren"], [], "U", 12, 15),
   EX("abductor", "Abductor machine", "machine", "i", ["bilspieren"], [], "", 12, 20),
   EX("standing_calf", "Staande kuitraise", "machine", "i", ["kuiten"], [], "L", 10, 15),
@@ -3048,6 +3051,480 @@ function programFromTemplate(tpl, { mode = "week", sets = 2, exIndex }) {
     rotation: tpl.rotation.map((k) => (k === "rust" ? "rust" : days[k].id)),
     created: localISO(),
   };
+}
+
+/* ---------------- schema op maat ----------------
+   Bouwt een trainingsschema uit de antwoorden van de gebruiker: welke dagen,
+   hoeveel tijd, ervaring, prioriteiten, materiaal en klachten, aangevuld met
+   slaap, leeftijd en voedingsfase uit het profiel. Uitgangspunten:
+   - elke spiergroep minstens twee keer per week (Schoenfeld 2016); bij gelijk
+     volume maakt de frequentie zelf weinig uit, ze verdeelt vooral het
+     weekvolume, en per training is er afnemende meeropbrengst (Pelland 2024);
+   - herstel: bovenlichaam minstens 48 uur tussen twee trainingen van dezelfde
+     spier, benen 72 uur (grote spiermassa, meer spierschade en vermoeidheid);
+   - prioriteitsspieren meer sets en als eerste in de training (Simão 2012);
+   - weekvolume per spier naar ervaring, binnen MEV-MRV (Israetel). */
+const FOCUS_GROUPS = {
+  borst: { label: "Borst", muscles: ["borst"] },
+  rug: { label: "Rug", muscles: ["rug"] },
+  schouders: { label: "Schouders", muscles: ["schouder_zij", "schouder_achter"] },
+  armen: { label: "Armen", muscles: ["biceps", "triceps"] },
+  benen: { label: "Benen", muscles: ["quadriceps", "hamstrings"] },
+  billen: { label: "Billen", muscles: ["bilspieren"] },
+  kuiten: { label: "Kuiten", muscles: ["kuiten"] },
+  buik: { label: "Buik", muscles: ["buik"] },
+};
+const PLAN_EQUIP = {
+  gym: { label: "Volledige sportschool", has: ["stang", "dumbbell", "machine", "kabel", "smith", "lichaam"] },
+  basis: { label: "Stang, dumbbells en bank", has: ["stang", "dumbbell", "lichaam"] },
+  thuis: { label: "Thuis met dumbbells", has: ["dumbbell", "lichaam"] },
+};
+const PLAN_COMPLAINTS = {
+  onderrug: { label: "Onderrug", avoid: ["deadlift", "squat", "front_squat", "barbell_row", "tbar_row", "rdl", "overhead_press", "hyperextension"], text: "geen zware oefeningen met de stang op of voor de rug; de benen en rug trainen via machines, dumbbells en ondersteunde varianten" },
+  knie: { label: "Knie", avoid: ["walking_lunge", "bulgarian_split_squat", "front_squat", "squat"], text: "geen lunges, split squats en diepe squats met de stang; leg press, hack squat en leg extension in een pijnvrij bereik" },
+  schouder: { label: "Schouder", avoid: ["dips", "overhead_press", "bankdrukken", "schuin_bankdrukken", "close_grip_bench", "optrekken", "skullcrusher"], text: "geen dips, drukken boven het hoofd met de stang en bankdrukken met de stang; dumbbells en machines laten de schouder vrijer bewegen" },
+  elleboog: { label: "Elleboog", avoid: ["skullcrusher", "barbell_curl", "close_grip_bench", "preacher_curl", "dips"], text: "geen skullcrushers, curls met een rechte stang en dips; kabels en dumbbells zijn vriendelijker voor de elleboog" },
+};
+const LEG_MUSCLES = ["quadriceps", "hamstrings", "bilspieren"];
+const PLAN_MAJOR = ["borst", "rug", "schouder_zij", "schouder_achter", "biceps", "triceps", "quadriceps", "hamstrings", "bilspieren", "kuiten"];
+
+/* Bouwstenen: per dagtype de rollen met oefeningen in volgorde van voorkeur. */
+const S = (m, opts, sets = 2) => ({ m, opts, sets });
+const PLAN_DAYS = {
+  FA: { name: "Full body A", slots: [S("quadriceps", ["squat", "hack_squat", "leg_press", "bulgarian_split_squat", "walking_lunge"]), S("borst", ["bankdrukken", "db_bankdrukken", "chest_press", "push_ups"]), S("rug", ["lat_pulldown", "pulldown_1arm", "db_row", "optrekken"]), S("hamstrings", ["seated_leg_curl", "lying_leg_curl", "rdl"]), S("schouder_zij", ["lateral_raise", "cable_lateral", "machine_lateral"]), S("biceps", ["incline_curl", "db_curl", "bayesian_curl"]), S("kuiten", ["standing_calf", "seated_calf", "leg_press_calf"])] },
+  FB: { name: "Full body B", slots: [S("hamstrings", ["rdl", "hip_thrust", "seated_leg_curl", "hyperextension"]), S("borst", ["schuin_db", "smith_schuin", "schuin_bankdrukken", "db_bankdrukken"]), S("rug", ["cable_row", "chest_supported_row", "db_row", "barbell_row"]), S("quadriceps", ["leg_extension", "leg_press", "bulgarian_split_squat", "walking_lunge"]), S("schouder_achter", ["reverse_pec_deck", "face_pull"]), S("triceps", ["overhead_ext", "db_overhead_ext", "skullcrusher", "pushdown"]), S("buik", ["cable_crunch", "hanging_leg_raise", "ab_wheel"])] },
+  FC: { name: "Full body C", slots: [S("quadriceps", ["hack_squat", "leg_press", "front_squat", "bulgarian_split_squat", "walking_lunge"]), S("rug", ["pulldown_1arm", "db_row", "lat_pulldown", "optrekken"]), S("borst", ["chest_press", "db_bankdrukken", "push_ups"]), S("hamstrings", ["lying_leg_curl", "seated_leg_curl", "rdl"]), S("schouder_zij", ["cable_lateral", "machine_lateral", "lateral_raise"]), S("triceps", ["pushdown", "db_overhead_ext", "overhead_ext"]), S("kuiten", ["seated_calf", "leg_press_calf", "standing_calf"])] },
+  UA: { name: "Upper A", slots: [S("borst", ["bankdrukken", "db_bankdrukken", "chest_press", "push_ups"]), S("rug", ["db_row", "chest_supported_row", "cable_row", "barbell_row"]), S("rug", ["pulldown_1arm", "lat_pulldown", "optrekken"]), S("borst", ["cable_fly", "pec_deck", "db_flyes"]), S("schouder_zij", ["lateral_raise", "cable_lateral", "machine_lateral"]), S("biceps", ["bayesian_curl", "incline_curl", "db_curl"]), S("triceps", ["overhead_ext", "db_overhead_ext", "skullcrusher"])] },
+  UB: { name: "Upper B", slots: [S("borst", ["schuin_db", "smith_schuin", "schuin_bankdrukken", "db_bankdrukken"]), S("rug", ["lat_pulldown", "optrekken", "pulldown_1arm"]), S("rug", ["chest_supported_row", "cable_row", "db_row", "barbell_row"]), S("schouder_zij", ["cable_lateral", "machine_lateral", "lateral_raise"]), S("schouder_achter", ["reverse_pec_deck", "face_pull"]), S("biceps", ["incline_curl", "hammer_curl", "db_curl"]), S("triceps", ["pushdown", "db_overhead_ext", "overhead_ext"])] },
+  LA: { name: "Lower A", slots: [S("quadriceps", ["squat", "hack_squat", "leg_press", "bulgarian_split_squat"]), S("hamstrings", ["rdl", "hip_thrust", "seated_leg_curl"]), S("quadriceps", ["leg_extension", "walking_lunge"]), S("hamstrings", ["seated_leg_curl", "lying_leg_curl"]), S("kuiten", ["standing_calf", "seated_calf", "leg_press_calf"]), S("buik", ["cable_crunch", "hanging_leg_raise", "ab_wheel"])] },
+  LB: { name: "Lower B", slots: [S("quadriceps", ["hack_squat", "leg_press", "front_squat", "squat"]), S("quadriceps", ["bulgarian_split_squat", "walking_lunge", "leg_extension"]), S("hamstrings", ["lying_leg_curl", "seated_leg_curl", "rdl"]), S("bilspieren", ["hip_thrust", "cable_kickback", "abductor"]), S("kuiten", ["seated_calf", "leg_press_calf", "standing_calf"]), S("buik", ["hanging_leg_raise", "ab_wheel", "crunch_machine"])] },
+  PU: { name: "Push", slots: [S("borst", ["schuin_db", "smith_schuin", "schuin_bankdrukken", "db_bankdrukken"]), S("borst", ["chest_press", "bankdrukken", "db_bankdrukken", "push_ups"]), S("schouder_voor", ["machine_shoulder_press", "db_shoulder_press", "overhead_press"]), S("borst", ["cable_fly", "pec_deck", "db_flyes"]), S("schouder_zij", ["cable_lateral", "lateral_raise", "machine_lateral"]), S("triceps", ["overhead_ext", "db_overhead_ext", "skullcrusher"]), S("triceps", ["pushdown", "db_overhead_ext"])] },
+  PL: { name: "Pull", slots: [S("rug", ["pulldown_1arm", "lat_pulldown", "optrekken"]), S("rug", ["chest_supported_row", "cable_row", "db_row", "barbell_row"]), S("rug", ["pullover", "lat_pulldown", "db_row"]), S("schouder_achter", ["reverse_pec_deck", "face_pull"]), S("biceps", ["incline_curl", "bayesian_curl", "db_curl"]), S("biceps", ["hammer_curl", "cable_curl", "db_curl"])] },
+  LG: { name: "Legs", slots: [S("quadriceps", ["hack_squat", "squat", "leg_press", "bulgarian_split_squat"]), S("hamstrings", ["rdl", "hip_thrust", "seated_leg_curl"]), S("hamstrings", ["seated_leg_curl", "lying_leg_curl"]), S("quadriceps", ["leg_extension", "walking_lunge"]), S("kuiten", ["standing_calf", "seated_calf", "leg_press_calf"]), S("buik", ["cable_crunch", "hanging_leg_raise", "ab_wheel"])] },
+  PU2: { name: "Push B", slots: [S("borst", ["bankdrukken", "db_bankdrukken", "chest_press", "push_ups"]), S("borst", ["schuin_db", "smith_schuin", "schuin_bankdrukken"]), S("schouder_zij", ["lateral_raise", "machine_lateral", "cable_lateral"]), S("borst", ["pec_deck", "cable_fly", "db_flyes"]), S("triceps", ["skullcrusher", "db_overhead_ext", "overhead_ext"]), S("triceps", ["pushdown", "db_overhead_ext"])] },
+  PL2: { name: "Pull B", slots: [S("rug", ["lat_pulldown", "optrekken", "pulldown_1arm"]), S("rug", ["db_row", "barbell_row", "cable_row", "chest_supported_row"]), S("schouder_achter", ["face_pull", "reverse_pec_deck"]), S("rug", ["cable_row", "chest_supported_row", "db_row"]), S("biceps", ["bayesian_curl", "db_curl", "barbell_curl"]), S("biceps", ["hammer_curl", "db_curl"])] },
+  LG2: { name: "Legs B", slots: [S("quadriceps", ["leg_press", "squat", "hack_squat", "bulgarian_split_squat"]), S("bilspieren", ["hip_thrust", "cable_kickback", "abductor"]), S("hamstrings", ["lying_leg_curl", "seated_leg_curl", "rdl"]), S("quadriceps", ["bulgarian_split_squat", "walking_lunge", "leg_extension"]), S("kuiten", ["seated_calf", "leg_press_calf", "standing_calf"]), S("buik", ["hanging_leg_raise", "ab_wheel", "crunch_machine"])] },
+};
+/* Mogelijke indelingen per aantal dagen. */
+const PLAN_SPLITS = {
+  1: [{ id: "fb", label: "Full body", seq: ["FA"] }],
+  2: [{ id: "fb", label: "Full body", seq: ["FA", "FB"] }],
+  3: [
+    { id: "fb", label: "Full body", seq: ["FA", "FB", "FC"] },
+    { id: "ulf", label: "Upper / Lower / Full body", seq: ["UA", "LA", "FC"] },
+    { id: "ppl", label: "Push / Pull / Legs", seq: ["PU", "PL", "LG"] },
+  ],
+  4: [
+    { id: "ul", label: "Upper / Lower", seq: ["UA", "LA", "UB", "LB"] },
+    { id: "fb", label: "Full body", seq: ["FA", "FB", "FC", "FA"] },
+  ],
+  5: [
+    { id: "ulppl", label: "Upper / Lower + Push / Pull / Legs", seq: ["UA", "LA", "PU", "PL", "LG"] },
+    { id: "ulf", label: "Upper / Lower + Full body", seq: ["UA", "LA", "UB", "LB", "FC"] },
+  ],
+  6: [
+    { id: "ppl", label: "Push / Pull / Legs, twee keer", seq: ["PU", "PL", "LG", "PU2", "PL2", "LG2"] },
+    { id: "ul", label: "Upper / Lower, drie keer", seq: ["UA", "LA", "UB", "LB", "UA", "LB"] },
+  ],
+};
+const PLAN_SPLIT_WHY = {
+  fb: "Elke training is een full body: zo krijgt elke spiergroep bij weinig trainingsdagen toch twee tot drie prikkels per week, en leert u de basisoefeningen snel door ze vaak te doen.",
+  ulf: "Upper, lower en een full body: elke spiergroep twee keer per week, met genoeg ruimte voor herstel tussen de trainingen voor dezelfde spieren.",
+  ppl: "Push, pull en legs: elke training richt zich op één bewegingsgroep, zodat u per spier meer sets kwijt kunt en de spieren tussen twee prikkels volledig herstellen.",
+  ul: "Upper en lower: elke spiergroep twee keer per week, met per training genoeg tijd voor de belangrijkste oefeningen. Dit is de indeling die bij vier dagen het vaakst de beste balans geeft tussen volume en herstel.",
+  ulppl: "Upper en lower aan het begin van de week, push, pull en legs daarna: elke spiergroep twee keer per week, met extra ruimte voor volume.",
+};
+
+function planDayMuscles(key) {
+  return [...new Set(PLAN_DAYS[key].slots.map((s) => s.m))];
+}
+
+/* Score van een indeling op deze weekdagen: frequentie per spier telt mee,
+   te korte hersteltijd telt zwaar tegen (benen 3 dagen, de rest 2). */
+function scoreSplit(seq, days, prefs) {
+  const prio = new Set(prefs.focusMuscles || []);
+  let score = 0;
+  const detail = {};
+  PLAN_MAJOR.forEach((m) => {
+    const hitIdx = seq.map((k, i) => (planDayMuscles(k).includes(m) ? i : null)).filter((i) => i != null);
+    const hits = hitIdx.map((i) => days[i]);
+    const f = hits.length;
+    const w = prio.has(m) ? 1.5 : 1;
+    score += (f >= 3 ? 2.4 : f === 2 ? 2 : f === 1 ? -1 : -4) * w;
+    const leg = LEG_MUSCLES.includes(m);
+    // een zware beendag (twee of meer oefeningen voor die spier) vraagt 72 uur, een full body 48
+    const heavy = (i) => PLAN_DAYS[seq[i]].slots.filter((s) => s.m === m).length >= 2;
+    let minGap = 7;
+    let need72 = false;
+    hitIdx.forEach((si, i) => {
+      const ni = i + 1 < hitIdx.length ? hitIdx[i + 1] : hitIdx[0];
+      const next = i + 1 < hits.length ? hits[i + 1] : hits[0] + 7;
+      const gap = f > 1 ? next - hits[i] : 7;
+      minGap = Math.min(minGap, gap);
+      const need = leg && (heavy(si) || heavy(ni)) ? 3 : 2;
+      if (leg && need === 3) need72 = true;
+      if (gap === 1) score -= leg ? 10 : 5;
+      else if (gap < need) score -= (need - gap) * (leg ? 3 : 2);
+    });
+    detail[m] = { f, minGap, need72 };
+  });
+  // drie of meer dagen achter elkaar trainen
+  let run = 1;
+  for (let i = 1; i < days.length; i++) {
+    run = days[i] === days[i - 1] + 1 ? run + 1 : 1;
+    if (run >= 3) score -= 1;
+  }
+  return { score, detail };
+}
+
+function permutations(arr) {
+  if (arr.length <= 1) return [arr];
+  const out = [];
+  const seen = new Set();
+  arr.forEach((x, i) => {
+    permutations([...arr.slice(0, i), ...arr.slice(i + 1)]).forEach((p) => {
+      const q = [x, ...p];
+      const k = q.join(",");
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(q);
+      }
+    });
+  });
+  return out;
+}
+
+function chooseSplit(prefs) {
+  const days = [...prefs.days].sort((a, b) => a - b);
+  const options = PLAN_SPLITS[Math.min(6, Math.max(1, days.length))] || PLAN_SPLITS[3];
+  let best = null;
+  options.forEach((opt, oi) => {
+    let bonus = -oi * 0.3; // bij gelijkspel de standaardindeling
+    if (prefs.experience === "beginner") bonus += opt.id === "fb" ? 3 : opt.id === "ppl" && days.length < 6 ? -3 : 0;
+    if (prefs.experience === "ervaren" && opt.id !== "fb") bonus += 1;
+    if (prefs.minutes <= 45 && opt.id === "fb" && days.length >= 3) bonus -= 2;
+    permutations(opt.seq).forEach((seq) => {
+      const r = scoreSplit(seq, days, prefs);
+      const total = r.score + bonus;
+      if (!best || total > best.total + 1e-9) best = { opt, seq, days, total, detail: r.detail };
+    });
+  });
+  return best;
+}
+
+function planTargets(prefs) {
+  const exp = { beginner: [8, 12], gevorderd: [10, 15], ervaren: [12, 18] }[prefs.experience] || [10, 15];
+  let f = 1;
+  if (prefs.sleepHours != null && prefs.sleepHours < 7) f *= 0.85;
+  if (prefs.age >= 50) f *= 0.9;
+  const prio = new Set(prefs.focusMuscles || []);
+  const t = {};
+  PLAN_MAJOR.forEach((m) => {
+    const base = m === "bilspieren" ? 4 : m === "schouder_achter" ? Math.max(6, exp[0] - 2) : m === "kuiten" ? Math.max(6, exp[0] - 2) : exp[0];
+    let v = (prio.has(m) ? exp[1] : base) * f;
+    if (!prio.has(m)) v = Math.max(v, MUSCLES[m].mev * MEV_FLOOR);
+    t[m] = Math.round(Math.min(v, MUSCLES[m].mrv - 2));
+  });
+  t.buik = prio.has("buik") ? Math.round(10 * f) : 0;
+  return t;
+}
+
+function buildCustomPlan(prefs, exIndex) {
+  const allowed = new Set((PLAN_EQUIP[prefs.equipment] || PLAN_EQUIP.gym).has);
+  const avoid = new Set((prefs.complaints || []).flatMap((c) => (PLAN_COMPLAINTS[c] ? PLAN_COMPLAINTS[c].avoid : [])));
+  const prio = new Set(prefs.focusMuscles || []);
+  const ok = (ex) => ex && !ex.missing && allowed.has(ex.equip) && !avoid.has(ex.id);
+  const choice = chooseSplit(prefs);
+  const notes = [];
+  const dropped = new Set();
+
+  // dagen opbouwen; een dagtype dat vaker voorkomt is hetzelfde dagobject
+  const keys = [...new Set(choice.seq)];
+  const usedByKey = {};
+  const built = {};
+  keys.forEach((key) => {
+    const bp = PLAN_DAYS[key];
+    const used = new Set();
+    const slots = [];
+    bp.slots.forEach((sl) => {
+      let ex = sl.opts.map((id) => exIndex[id]).find((e) => ok(e) && !used.has(e.id));
+      if (!ex) ex = Object.values(exIndex).find((e) => ok(e) && !e.custom && e.pri && e.pri[0] === sl.m && !used.has(e.id));
+      if (!ex) ex = Object.values(exIndex).find((e) => ok(e) && !e.custom && e.pri && e.pri.includes(sl.m) && !used.has(e.id));
+      if (!ex) {
+        dropped.add(sl.m);
+        return;
+      }
+      used.add(ex.id);
+      slots.push({ ex, m: sl.m, sets: sl.sets });
+    });
+    usedByKey[key] = used;
+    built[key] = { key, name: bp.name, slots };
+  });
+  const countOf = (key) => choice.seq.filter((k) => k === key).length;
+
+  // weekvolume per spier (direct; secundair telt half mee)
+  const weekly = () => {
+    const w = Object.fromEntries(MUSCLE_IDS.map((k) => [k, 0]));
+    keys.forEach((key) =>
+      built[key].slots.forEach((s) => {
+        const n = s.sets * countOf(key);
+        s.ex.pri.forEach((p) => (w[p] += n));
+        s.ex.sec.forEach((p) => (w[p] += n / 2));
+      })
+    );
+    return w;
+  };
+  const sessionSets = (key, m) => sum(built[key].slots.filter((s) => s.ex.pri.includes(m)).map((s) => s.sets));
+  const targets = planTargets(prefs);
+
+  // sets bijstellen naar het doel
+  for (let guard = 0; guard < 200; guard++) {
+    const w = weekly();
+    const under = PLAN_MAJOR.concat(["buik"]).filter((m) => targets[m] && w[m] < targets[m] - 0.5);
+    if (!under.length) break;
+    let progressed = false;
+    under.sort((a, b) => (prio.has(b) ? 1 : 0) - (prio.has(a) ? 1 : 0));
+    for (const m of under) {
+      const cand = keys
+        .flatMap((key) => built[key].slots.filter((s) => s.m === m).map((s) => ({ key, s })))
+        .filter(({ key, s }) => s.sets < 3 && sessionSets(key, m) < 9)
+        .sort((a, b) => a.s.sets - b.s.sets);
+      if (cand.length) {
+        cand[0].s.sets++;
+        progressed = true;
+        break;
+      }
+      // alles vol: een extra oefening op de dag met de minste sets voor die spier, voor
+      // prioriteiten en voor spieren die anders onder het minimum blijven
+      if (prio.has(m) || (MUSCLES[m] && w[m] < MUSCLES[m].mev * MEV_FLOOR)) {
+        const dayKey = keys.filter((key) => built[key].slots.some((s) => s.m === m) && sessionSets(key, m) < 9).sort((a, b) => sessionSets(a, m) - sessionSets(b, m))[0];
+        if (dayKey) {
+          const ex = Object.values(exIndex).find((e) => ok(e) && !e.custom && e.pri && e.pri[0] === m && !usedByKey[dayKey].has(e.id) && e.kind === "isolation") || Object.values(exIndex).find((e) => ok(e) && !e.custom && e.pri && e.pri[0] === m && !usedByKey[dayKey].has(e.id));
+          if (ex) {
+            usedByKey[dayKey].add(ex.id);
+            built[dayKey].slots.push({ ex, m, sets: 2, extra: true });
+            progressed = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!progressed) break;
+  }
+  // te veel volume voor een niet-prioriteit: isolatie terug naar 2 sets of eruit bij hoge frequentie
+  for (let guard = 0; guard < 60; guard++) {
+    const w = weekly();
+    const over = PLAN_MAJOR.filter((m) => !prio.has(m) && w[m] > Math.max(targets[m] + 4, targets[m] * 1.5));
+    if (!over.length) break;
+    let changed = false;
+    for (const m of over) {
+      const iso = keys.flatMap((key) => built[key].slots.filter((s) => s.m === m && s.ex.kind === "isolation").map((s) => ({ key, s })));
+      const big = iso.find(({ s }) => s.sets > 2);
+      if (big) {
+        big.s.sets--;
+        changed = true;
+        break;
+      }
+      const days = keys.filter((key) => built[key].slots.some((s) => s.m === m)).reduce((n, key) => n + countOf(key), 0);
+      if (days >= 3 && iso.length) {
+        const { key, s } = iso[iso.length - 1];
+        built[key].slots = built[key].slots.filter((x) => x !== s);
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) break;
+  }
+
+  // volgorde: prioriteit eerst (compound voor isolatie), dan compound, dan isolatie
+  const rank = (s) => (s.ex.kind === "compound" ? 0 : 2) + (prio.has(s.m) ? 0 : 1);
+  keys.forEach((key) => {
+    built[key].slots = built[key].slots.map((s, i) => ({ s, i })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).map((x) => x.s);
+  });
+
+  // naar het formaat van de app
+  const toDay = (key) => {
+    const seen = new Set();
+    const slots = built[key].slots.map((s) => {
+      const first = !s.ex.pri.some((m) => seen.has(m));
+      s.ex.pri.forEach((m) => seen.add(m));
+      const warm = s.ex.kind === "compound" ? (first ? 2 : 1) : first ? 1 : 0;
+      return { ...makeSlot(s.ex, { sets: s.sets, warmups: warm }), _m: s.m };
+    });
+    return { id: uid(), name: built[key].name, slots };
+  };
+  const dayObj = Object.fromEntries(keys.map((key) => [key, toDay(key)]));
+
+  // tijdsbudget per training; elke grote spier houdt minstens 4 sets per week
+  const minutes = prefs.minutes || 60;
+  const timeNotes = new Set();
+  const isoOf = (s) => (exIndex[s.exId] || {}).kind === "isolation";
+  const weekDirect = (m) =>
+    sum(keys.map((key) => sum(dayObj[key].slots.filter((s) => s._m === m).map((s) => s.sets)) * countOf(key)));
+  const weekAll = (m) =>
+    sum(keys.map((key) => sum(dayObj[key].slots.map((s) => { const e = exIndex[s.exId] || {}; return (e.pri || []).includes(m) ? s.sets : (e.sec || []).includes(m) ? s.sets / 2 : 0; })) * countOf(key)));
+  const MIN_KEEP = 4;
+  keys.forEach((key) => {
+    const d = dayObj[key];
+    if (estMinutes(d) > minutes) {
+      d.slots.forEach((s) => (s.rest = isoOf(s) ? 90 : 150));
+      timeNotes.add("rust");
+    }
+    // supersets van tegenovergestelde spieren
+    const pairs = [["biceps", "triceps"], ["schouder_zij", "schouder_achter"], ["borst", "rug"], ["quadriceps", "hamstrings"], ["schouder_zij", "biceps"], ["schouder_zij", "triceps"], ["borst", "biceps"], ["rug", "triceps"]];
+    for (const [a, b] of pairs) {
+      if (estMinutes(d) <= minutes) break;
+      const free = (m, needIso) => d.slots.find((s) => s._m === m && !s.ss && !d.slots.some((x, k) => x.ss && d.slots[k + 1] === s) && (!needIso || isoOf(s)));
+      const compOk = minutes <= 45;
+      const x = free(a, !compOk);
+      const y = free(b, !compOk);
+      if (!x || !y || x === y) continue;
+      d.slots = d.slots.filter((s) => s !== y);
+      d.slots.splice(d.slots.indexOf(x) + 1, 0, y);
+      x.ss = true;
+      x.ssRest = 15;
+      timeNotes.add("superset");
+    }
+    const fixSs = () => d.slots.forEach((s, k) => s.ss && !d.slots[k + 1] && (s.ss = false));
+    const step = (pred, allowRemove) => {
+      for (let g = 0; g < 40 && estMinutes(d) > minutes; g++) {
+        const c = d.slots.filter(pred).sort((a, b) => b.sets - a.sets || (isoOf(b) ? 1 : 0) - (isoOf(a) ? 1 : 0))[0];
+        if (!c) return;
+        if (c.sets > 2) c.sets--;
+        else if (allowRemove(c)) {
+          // superset-partner blijft gewoon staan
+          const k = d.slots.indexOf(c);
+          if (k > 0 && d.slots[k - 1].ss) d.slots[k - 1].ss = false;
+          d.slots = d.slots.filter((s) => s !== c);
+          fixSs();
+          dropped.add(c._m);
+          timeNotes.add("ingekort");
+        } else return;
+        timeNotes.add("ingekort");
+      }
+    };
+    const keep = (c) => weekDirect(c._m) - c.sets * countOf(key) >= (c._m === "buik" ? 0 : MIN_KEEP);
+    // eerst derde sets eraf, bij de spieren die het verst boven hun doel zitten
+    for (let g = 0; g < 40 && estMinutes(d) > minutes; g++) {
+      const c = d.slots.filter((s) => s.sets > 2).sort((a, b) => weekAll(b._m) / Math.max(1, targets[b._m] || 1) - weekAll(a._m) / Math.max(1, targets[a._m] || 1))[0];
+      if (!c) break;
+      c.sets--;
+      timeNotes.add("ingekort");
+    }
+    step((s) => isoOf(s) && !prio.has(s._m) && keep(s), keep); // overbodige isolatie
+    step((s) => !prio.has(s._m) && keep(s), keep);
+    step((s) => isoOf(s) && !prio.has(s._m), () => true); // noodgreep
+    step(() => true, (c) => !prio.has(c._m) || d.slots.filter((s) => s._m === c._m).length > 1);
+  });
+  Object.values(dayObj).forEach((d) => d.slots.forEach((s) => delete s._m));
+
+  const days = choice.days;
+  const weekMap = Array(7).fill(null);
+  choice.seq.forEach((key, i) => (weekMap[days[i]] = dayObj[key].id));
+  const rotation = [];
+  choice.seq.forEach((key, i) => {
+    rotation.push(dayObj[key].id);
+    const gap = (i + 1 < days.length ? days[i + 1] : days[0] + 7) - days[i];
+    if (gap > 1) rotation.push("rust");
+  });
+  const program = {
+    id: uid(),
+    name: `Op maat: ${choice.opt.label}`,
+    mode: "week",
+    days: keys.map((k) => dayObj[k]),
+    weekMap,
+    rotation,
+    created: localISO(),
+    custom: { prefs, split: choice.opt.id, at: localISO() },
+  };
+  return { program, choice, targets, timeNotes: [...timeNotes], dropped: [...dropped] };
+}
+
+/* Uitleg in gewone taal: waarom dit schema bij deze persoon past. */
+function explainCustomPlan(res, prefs, exIndex) {
+  const WD = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"];
+  const { program, choice } = res;
+  const list = (a) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} en ${a[a.length - 1]}`);
+  const planned = plannedMuscleSets(program, exIndex);
+  const prio = new Set(prefs.focusMuscles || []);
+  const out = [];
+  const dayNames = choice.days.map((d) => WD[d]);
+  out.push({
+    title: `${choice.opt.label} op ${list(dayNames)}`,
+    text: PLAN_SPLIT_WHY[choice.opt.id] + (choice.days.length === 1 ? " Eén training per week is een begin; met twee groeit u duidelijk sneller." : ""),
+  });
+  // herstel
+  const legs = choice.detail.quadriceps;
+  const upper = choice.detail.borst;
+  const consecutive = choice.days.some((d, i) => i > 0 && d === choice.days[i - 1] + 1);
+  let rec = "Tussen twee trainingen voor dezelfde spieren zit ";
+  rec += upper && upper.f > 1 ? `bij het bovenlichaam minstens ${upper.minGap * 24} uur` : "bij het bovenlichaam een week";
+  rec += legs && legs.f > 1 ? ` en bij de benen minstens ${legs.minGap * 24} uur.` : ".";
+  rec += " Benen hebben meer herstel nodig: het zijn de grootste spieren, en zware beenoefeningen geven meer spierschade en vermoeien het hele lichaam.";
+  if (legs && legs.need72) rec += " Daarom zitten er na een zware beentraining minstens 72 uur tot de volgende; het bovenlichaam heeft genoeg aan 48 uur.";
+  else rec += " In een full body krijgen de benen per training maar één of twee oefeningen; dan is 48 uur genoeg, net als voor het bovenlichaam.";
+  if (consecutive) rec += " Op dagen achter elkaar wisselen de spiergroepen elkaar af, zodat de ene groep herstelt terwijl de andere traint.";
+  if (legs && legs.need72 && legs.f > 1 && legs.minGap < 3) rec += " Met deze dagen lukt 72 uur voor de benen niet helemaal; houd de tweede beentraining iets lichter (een herhaling extra in reserve).";
+  // tip: dagen spreiden als de spieren nu maar één keer per week aan bod komen
+  const once = PLAN_MAJOR.filter((m) => choice.detail[m] && choice.detail[m].f === 1);
+  if (consecutive && once.length >= 5 && choice.days.length >= 2) rec += " Tip: kunt u de trainingen spreiden (bijvoorbeeld maandag, woensdag en vrijdag), dan traint elke spier twee keer per week en groeit u sneller.";
+  out.push({ title: "Herstel ingepland", text: rec });
+  // prioriteit
+  if (prio.size) {
+    const names = [...new Set((prefs.focus || []).map((g) => (FOCUS_GROUPS[g] ? FOCUS_GROUPS[g].label.toLowerCase() : g)))];
+    const sets = [...prio].filter((m) => MUSCLES[m] && planned[m]).map((m) => `${MUSCLES[m].label.toLowerCase()} ${Math.round(planned[m])}`);
+    out.push({
+      title: `Extra aandacht voor ${list(names)}`,
+      text: `Deze spiergroepen krijgen meer sets per week (${list(sets)}) en staan vooraan in de training, wanneer u nog fris bent: wat u als eerste traint, groeit het best. De andere spieren krijgen genoeg om te groeien en te behouden, zodat uw herstel naar de prioriteiten kan.`,
+    });
+  }
+  // volume
+  const expTxt = { beginner: "Als beginner groeit u al goed op 8 tot 12 sets per spier per week; meer kost vooral herstel.", gevorderd: "Als gevorderde zit de beste verhouding tussen groei en herstel rond 10 tot 15 sets per spier per week.", ervaren: "Als ervaren sporter heeft u meer volume nodig voor dezelfde prikkel: 12 tot 18 sets per spier per week." }[prefs.experience];
+  out.push({ title: "Precies genoeg volume", text: `${expTxt || ""} Elke set gaat tot 1 à 2 herhalingen van falen: twee zware sets doen meer dan vier halfslachtige.` });
+  // tijd
+  const mins = program.days.map((d) => estMinutes(d));
+  let t = `Elke training duurt ongeveer ${Math.min(...mins) === Math.max(...mins) ? mins[0] : `${Math.min(...mins)} tot ${Math.max(...mins)}`} minuten, binnen uw ${prefs.minutes} minuten.`;
+  if (res.timeNotes.includes("rust")) t += " Daarvoor is de rust iets korter: 2,5 minuut bij zware oefeningen, 1,5 bij isolatie.";
+  if (res.timeNotes.includes("superset")) t += " Twee oefeningen voor tegenovergestelde spieren doet u om en om als superset; dat scheelt tijd zonder verlies van resultaat.";
+  if (res.timeNotes.includes("ingekort")) t += " Een paar kleinere oefeningen zijn weggelaten om binnen de tijd te blijven.";
+  const short = PLAN_MAJOR.filter((m) => MUSCLES[m].mev > 0 && planned[m] < MUSCLES[m].mev * MEV_FLOOR - 0.5 && !(res.dropped.includes(m) && prefs.equipment !== "gym"));
+  if (short.length) t += ` Eerlijk is eerlijk: binnen deze tijd komen ${list(short.map((m) => MUSCLES[m].label.toLowerCase()))} onder het ideale volume. Een paar minuten meer per training of een extra dag helpt het meest.`;
+  out.push({ title: "Past in uw dag", text: t });
+  // ochtend en slaap
+  if (prefs.start && prefs.start < "08:00") {
+    let m = `U traint om ${prefs.start}.`;
+    if (prefs.wake) {
+      const [wh, wm] = prefs.wake.split(":").map(Number);
+      const [th, tm] = prefs.start.split(":").map(Number);
+      const gap = th * 60 + tm - (wh * 60 + wm);
+      if (gap > 0 && gap <= 120) m += ` Dat is ${gap >= 60 ? `${Math.round(gap / 6) / 10} uur` : `${gap} minuten`} na het opstaan.`;
+    }
+    m += " 's Ochtends zijn spieren en pezen stijver en ligt de kracht iets lager. De opwarmsets voor de eerste oefening zijn daarom belangrijk: sla ze niet over. Eet 30 tot 60 minuten vooraf iets licht verteerbaars, zoals een banaan of een beker kwark.";
+    out.push({ title: "Vroeg in de ochtend", text: m });
+  }
+  if (prefs.sleepHours != null && prefs.sleepHours < 7) {
+    out.push({
+      title: "Herstel en slaap",
+      text: `Volgens uw profiel slaapt u ongeveer ${String(Math.round(prefs.sleepHours * 2) / 2).replace(".", ",")} uur. Spieren herstellen en groeien vooral in de slaap; daarom staat het volume 15 procent lager. Lukt het om eerder naar bed te gaan, dan kan het schema later zwaarder.`,
+    });
+  }
+  if (prefs.age >= 50) out.push({ title: "Leeftijd", text: "Na uw vijftigste herstelt het lichaam iets trager: het volume staat iets lager en de opwarmsets zijn extra belangrijk." });
+  if ((prefs.complaints || []).length) {
+    out.push({ title: "Rekening met klachten", text: `Vanwege uw ${list(prefs.complaints.map((c) => PLAN_COMPLAINTS[c].label.toLowerCase()))}: ${prefs.complaints.map((c) => PLAN_COMPLAINTS[c].text).join("; ")}. Doet iets pijn, stop dan en kies een andere oefening. Bij aanhoudende klachten: overleg met een fysiotherapeut.` });
+  }
+  if (prefs.equipment && prefs.equipment !== "gym") {
+    out.push({ title: "Met uw materiaal", text: `Het schema gebruikt alleen ${PLAN_EQUIP[prefs.equipment].label.toLowerCase()}.${res.dropped.length ? ` Zonder machines is ${list(res.dropped.filter((m) => MUSCLES[m]).map((m) => MUSCLES[m].label.toLowerCase()))} lastiger direct te trainen; dat gebeurt nu via andere oefeningen.` : ""}` });
+  }
+  if (prefs.goal === "cut") out.push({ title: "Tijdens uw cut", text: "In een tekort beschermen dezelfde zware oefeningen en gewichten uw spiermassa. De app stelt bij een nieuwe voedingsfase zelf voor of het volume mee moet bewegen." });
+  out.push({ title: "Zo wordt u elke week sterker", text: "Haalt u bij een oefening de bovenkant van de herhalingen, dan gaat het gewicht omhoog. Vier weken opbouw, twee weken zwaarder, dan een lichtere week om te herstellen: de app plant dat en stelt elke training het gewicht voor." });
+  // hoe vaak per week een spier aan bod komt, ook als hij meetraint
+  const freqOf = (m) =>
+    program.weekMap.filter((id) => {
+      const d = id && program.days.find((x) => x.id === id);
+      return d && d.slots.some((sl) => { const e = exIndex[sl.exId] || {}; return (e.pri || []).includes(m) || (e.sec || []).includes(m); });
+    }).length;
+  const table = PLAN_MAJOR.filter((m) => planned[m] > 0).map((m) => ({ m, label: MUSCLES[m].label, sets: Math.round(planned[m]), freq: freqOf(m), prio: prio.has(m) }));
+  return { bullets: out, table };
 }
 
 function emptyProgram(name = "Eigen schema") {
@@ -6364,7 +6841,284 @@ function SessionSummary({ s, D, T, setT, onClose }) {
   );
 }
 
+/* Profielgegevens (slaap, leeftijd, ervaring, fase) voor het schema op maat. */
+const ProfileCtx = React.createContext(null);
+const WD_SHORT = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
+const WD_LONG = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"];
+
+function sleepHoursOf(sleep, wake) {
+  if (!sleep || !wake) return null;
+  const [sh, sm] = sleep.split(":").map(Number);
+  const [wh, wm] = wake.split(":").map(Number);
+  if (![sh, sm, wh, wm].every(Number.isFinite)) return null;
+  let d = wh * 60 + wm - (sh * 60 + sm);
+  if (d <= 0) d += 24 * 60;
+  return d / 60;
+}
+
+function WhyPlan({ why, compact = false }) {
+  if (!why) return null;
+  return (
+    <div className="space-y-3">
+      {why.bullets.map((b, k) => (
+        <div key={k}>
+          <div className="text-sm font-semibold" style={{ color: C.ink }}>
+            {b.title}
+          </div>
+          <p className="text-sm leading-relaxed mt-0.5" style={{ color: C.muted }}>
+            {b.text}
+          </p>
+        </div>
+      ))}
+      {!compact && why.table && why.table.length > 0 && (
+        <div className="pt-1">
+          <div className="text-sm font-semibold mb-1" style={{ color: C.ink }}>
+            Werksets per week
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 text-sm tnum">
+            {why.table.map((r) => (
+              <div key={r.m} className="flex justify-between py-1" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                <span style={{ color: r.prio ? C.ink : C.muted, fontWeight: r.prio ? 600 : 400 }}>
+                  {r.prio ? "★ " : ""}
+                  {r.label}
+                </span>
+                <span>
+                  {r.sets} <span style={{ color: C.muted }}>· {r.freq}×</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs mt-1" style={{ color: C.muted }}>
+            Sets per week en hoe vaak per week de spier aan bod komt. Een oefening die een spier meetraint, telt half mee. ★ = extra aandacht.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanBuilder({ T, setT, D, week, setWeek, onDone }) {
+  const prof = React.useContext(ProfileCtx) || {};
+  const saved = T.planPrefs || {};
+  const weekDays = week ? week.map((d, i) => (d.session ? i : null)).filter((i) => i != null) : [];
+  const firstStart = week && week.find((d) => d.session && d.session.start);
+  const [days, setDays] = useState(saved.days || (weekDays.length >= 2 && weekDays.length <= 6 ? weekDays : [0, 2, 4]));
+  const [minutes, setMinutes] = useState(saved.minutes || 60);
+  const [start, setStart] = useState(saved.start || (firstStart ? firstStart.session.start : "18:00"));
+  const [experience, setExperience] = useState(saved.experience || prof.experience || "gevorderd");
+  const [focus, setFocus] = useState(saved.focus || []);
+  const [equipment, setEquipment] = useState(saved.equipment || "gym");
+  const [complaints, setComplaints] = useState(saved.complaints || []);
+  const [result, setResult] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const sleepHours = sleepHoursOf(prof.sleep, prof.wake);
+  const toggle = (list, set, v, max) => {
+    if (list.includes(v)) set(list.filter((x) => x !== v));
+    else if (!max || list.length < max) set([...list, v]);
+  };
+  const prefs = () => ({
+    days: [...days].sort((a, b) => a - b),
+    minutes,
+    start,
+    wake: prof.wake || null,
+    experience,
+    focus,
+    focusMuscles: focus.flatMap((g) => FOCUS_GROUPS[g].muscles),
+    equipment,
+    complaints,
+    sleepHours,
+    age: prof.age || null,
+    goal: prof.goal || null,
+  });
+  const make = () => {
+    if (!days.length) return setMsg("Kies minstens één trainingsdag.");
+    if (days.length > 6) return setMsg("Neem minstens één rustdag per week; zonder rust groeit u niet.");
+    setMsg(null);
+    const p = prefs();
+    const res = buildCustomPlan(p, D.exIndex);
+    const why = explainCustomPlan(res, p, D.exIndex);
+    setResult({ res, why, p });
+    try {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      /* oudere browsers */
+    }
+  };
+  const apply = () => {
+    const { res, why, p } = result;
+    const program = { ...res.program, custom: { ...res.program.custom, why } };
+    setT((s) => ({ ...s, programs: [...s.programs, program], activeProgramId: program.id, planPrefs: { ...p, focusMuscles: undefined } }));
+    if (setWeek) setWeek(syncNutritionWeek(week, program).map((d) => (d.session ? { ...d, session: { ...d.session, start: p.start || d.session.start } } : d)));
+    onDone && onDone(program);
+  };
+  const chip = (on, label, onClick, key) => (
+    <button
+      key={key}
+      onClick={onClick}
+      className="tap px-3 py-1.5 text-sm"
+      style={{ borderRadius: 999, border: `1.5px solid ${on ? C.accent : C.line}`, background: on ? C.accent : C.surface2, color: on ? C.onAccent : C.ink, fontWeight: on ? 600 : 500 }}
+      aria-pressed={on}
+    >
+      {label}
+    </button>
+  );
+
+  if (result) {
+    const { res, why } = result;
+    const prog = res.program;
+    return (
+      <Section title="Uw schema op maat" sub={`${res.choice.opt.label} · ${res.choice.days.length} ${res.choice.days.length === 1 ? "training" : "trainingen"} per week`}>
+        <div className="px-4 py-3 space-y-3">
+          <div className="flex gap-1">
+            {WD_SHORT.map((w, i) => {
+              const id = prog.weekMap[i];
+              const day = id && prog.days.find((d) => d.id === id);
+              return (
+                <div key={w} className="flex-1 text-center py-1.5" style={{ borderRadius: R.field, background: day ? C.accent : C.surface2, color: day ? C.onAccent : C.muted }}>
+                  <div className="text-xs font-semibold">{w}</div>
+                  <div className="text-[10px] leading-tight mt-0.5" style={{ opacity: 0.9 }}>
+                    {day ? day.name.replace("Full body", "FB") : "rust"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {prog.days.map((d) => {
+            const when = prog.weekMap.map((id, i) => (id === d.id ? WD_LONG[i].toLowerCase() : null)).filter(Boolean);
+            return (
+              <div key={d.id} className="px-3 py-2.5" style={{ background: C.surface2, borderRadius: R.field }}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-sm font-semibold">{d.name}</span>
+                  <span className="text-xs tnum" style={{ color: C.muted }}>
+                    {when.join(" en ")} · ± {estMinutes(d)} min
+                  </span>
+                </div>
+                <ol className="mt-1.5 space-y-0.5">
+                  {d.slots.map((s, k) => {
+                    const ex = exOf(D.exIndex, s.exId);
+                    const inSs = s.ss || (k > 0 && d.slots[k - 1].ss);
+                    return (
+                      <li key={s.id} className="flex justify-between gap-2 text-sm">
+                        <span>
+                          <span className="tnum" style={{ color: C.muted }}>
+                            {k + 1}.
+                          </span>{" "}
+                          {ex.name}
+                          {inSs && (
+                            <span className="text-[10px] font-bold uppercase ml-1.5 px-1.5 py-0.5" style={{ background: "var(--accent-soft)", color: C.accent, borderRadius: 999 }}>
+                              superset
+                            </span>
+                          )}
+                        </span>
+                        <span className="tnum shrink-0" style={{ color: C.muted }}>
+                          {s.sets} × {s.repMin}–{s.repMax}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            );
+          })}
+        </div>
+        <div className="px-4 py-3" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+          <h3 className="disp text-xl font-bold uppercase leading-none mb-3">Waarom dit schema</h3>
+          <WhyPlan why={why} />
+        </div>
+        <div className="px-4 py-3 flex flex-wrap gap-2 items-center" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+          <TBtn onClick={apply}>Dit schema gebruiken</TBtn>
+          <TBtn kind="ghost" onClick={() => setResult(null)}>
+            Antwoorden aanpassen
+          </TBtn>
+        </div>
+        <p className="px-4 pb-3 text-xs" style={{ color: C.muted }}>
+          Na het opslaan kunt u alles aanpassen onder Schema. Uw voedingsweek krijgt dezelfde trainingsdagen en tijd.
+        </p>
+      </Section>
+    );
+  }
+
+  return (
+    <Section title="Schema op maat" sub="Beantwoord een paar vragen. Nexa bouwt het schema dat bij uw week, ervaring en doelen past, en legt uit waarom.">
+      <Row label="Op welke dagen traint u?" stack hint={days.length ? `${days.length} ${days.length === 1 ? "dag" : "dagen"} per week` : "Kies uw vaste trainingsdagen."}>
+        <div className="flex gap-1.5 flex-wrap">{WD_SHORT.map((w, i) => chip(days.includes(i), w, () => toggle(days, setDays, i, 6), w))}</div>
+      </Row>
+      <Row label="Hoeveel tijd heeft u per training?" stack>
+        <Seg
+          value={minutes}
+          onChange={setMinutes}
+          options={[30, 45, 60, 75, 90].map((v) => ({ value: v, label: `${v}` }))}
+        />
+      </Row>
+      <Row label="Hoe laat traint u meestal?" stack>
+        <input
+          type="time"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          className="px-3 py-2 text-sm"
+          style={{ border: `1px solid ${C.line}`, borderRadius: R.field, background: C.surface2, color: C.ink }}
+        />
+      </Row>
+      <Row label="Hoe lang traint u al serieus?" stack>
+        <Seg
+          value={experience}
+          onChange={setExperience}
+          options={[
+            { value: "beginner", label: "< 1 jaar" },
+            { value: "gevorderd", label: "1–3 jaar" },
+            { value: "ervaren", label: "> 3 jaar" },
+          ]}
+        />
+      </Row>
+      <Row label="Welke spiergroepen hebben extra aandacht nodig?" stack hint="Hoogstens drie. Alles prioriteit geven is niets prioriteit geven.">
+        <div className="flex gap-1.5 flex-wrap">{Object.entries(FOCUS_GROUPS).map(([k, g]) => chip(focus.includes(k), g.label, () => toggle(focus, setFocus, k, 3), k))}</div>
+      </Row>
+      <Row label="Waar traint u?" stack>
+        <div className="flex gap-1.5 flex-wrap">{Object.entries(PLAN_EQUIP).map(([k, g]) => chip(equipment === k, g.label, () => setEquipment(k), k))}</div>
+      </Row>
+      <Row label="Klachten of blessures?" stack hint="De app laat oefeningen weg die daar vaak last van geven.">
+        <div className="flex gap-1.5 flex-wrap">{Object.entries(PLAN_COMPLAINTS).map(([k, g]) => chip(complaints.includes(k), g.label, () => toggle(complaints, setComplaints, k), k))}</div>
+      </Row>
+      <div className="px-4 py-3 text-xs leading-relaxed" style={{ color: C.muted }}>
+        Uit uw profiel:{" "}
+        {[
+          sleepHours != null ? `slaap ± ${String(Math.round(sleepHours * 2) / 2).replace(".", ",")} uur` : null,
+          prof.age ? `${prof.age} jaar` : null,
+          prof.goal ? `fase ${prof.goal === "bulk" ? "opbouw" : prof.goal}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "nog niets ingevuld"}
+        . Dat telt mee voor het volume en het herstel.
+      </div>
+      {msg && (
+        <p className="px-4 pb-2 text-sm" style={{ color: C.train }} role="alert">
+          {msg}
+        </p>
+      )}
+      <div className="px-4 py-3">
+        <TBtn onClick={make}>Maak mijn schema</TBtn>
+      </div>
+    </Section>
+  );
+}
+
 function TemplateStarter({ T, setT, D, week, setWeek, onDone }) {
+  const [manual, setManual] = useState(false);
+  if (!manual)
+    return (
+      <>
+        <PlanBuilder T={T} setT={setT} D={D} week={week} setWeek={setWeek} onDone={onDone} />
+        <div className="mb-6 -mt-2 px-1">
+          <button onClick={() => setManual(true)} className="tap text-sm underline" style={{ color: C.muted }}>
+            Liever zelf een sjabloon kiezen of leeg beginnen
+          </button>
+        </div>
+      </>
+    );
+  return <TemplatePicker T={T} setT={setT} D={D} week={week} setWeek={setWeek} onDone={onDone} onBack={() => setManual(false)} />;
+}
+
+function TemplatePicker({ T, setT, D, week, setWeek, onDone, onBack }) {
   const [tpl, setTpl] = useState("ul");
   const [mode, setMode] = useState("week");
   const [sets, setSets] = useState(2);
@@ -6434,6 +7188,9 @@ function TemplateStarter({ T, setT, D, week, setWeek, onDone }) {
       )}
       <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
         <TBtn onClick={create}>Schema aanmaken</TBtn>
+        <button onClick={onBack} className="tap text-sm underline" style={{ color: C.muted }}>
+          terug naar schema op maat
+        </button>
         <button
           onClick={() => {
             const p = emptyProgram();
@@ -7398,6 +8155,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
   const [editEx, setEditEx] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [newTpl, setNewTpl] = useState(false);
+  const [showWhy, setShowWhy] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState(null);
   const [ssProp, setSsProp] = useState(null);
   const program = D.program;
@@ -7439,6 +8197,31 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
         <TemplateStarter T={T} setT={setT} D={D} week={week} setWeek={setWeek} onDone={() => setNewTpl(false)} />
       ) : null}
 
+      {program && program.custom && program.custom.why && (
+        <div className="mb-4 px-4 py-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
+          <button onClick={() => setShowWhy((v) => !v)} className="tap w-full flex items-center justify-between gap-3 text-left" aria-expanded={showWhy}>
+            <span>
+              <span className="text-sm font-semibold block">Waarom dit schema</span>
+              <span className="text-xs" style={{ color: C.muted }}>
+                Op maat gemaakt op {dateLong(program.custom.at)} · {program.custom.why.bullets[0].title}
+              </span>
+            </span>
+            <span className="text-sm shrink-0" style={{ color: C.accent }}>
+              {showWhy ? "Sluiten" : "Lezen"}
+            </span>
+          </button>
+          {showWhy && (
+            <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+              <WhyPlan why={program.custom.why} />
+              <div className="mt-3">
+                <TBtn small kind="secondary" onClick={() => setNewTpl(true)}>
+                  Opnieuw op maat laten maken
+                </TBtn>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {program && (
         <>
           {adviceCount > 0 && (
@@ -12881,6 +13664,7 @@ function MacroApp() {
         {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
         {tab === "training" && !bill.locked && (
           <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
+            <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
             <TrainingTab
               T={T}
               setT={setT}
@@ -12892,6 +13676,7 @@ function MacroApp() {
               summary={trainSummary}
               setSummary={setTrainSummary}
             />
+            </ProfileCtx.Provider>
           </TrainingBoundary>
         )}
         {tab === "eten" && bill.locked && <CoachPaywall bill={bill} feature="eten" onStart={startCoach} />}
