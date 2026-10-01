@@ -82,9 +82,20 @@ html,body{margin:0;min-height:100%;background:#EEF0F4}
 :root[data-theme="dark"],:root[data-theme="dark"] body{background:#08090C}
 :root{box-sizing:border-box}
 body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
+/* Alleen staand op telefoons. Het manifest vraagt "portrait", maar een
+   iPhone negeert dat; daarom bedekt deze laag de app als een telefoon
+   liggend wordt gehouden. Tablets (hoger dan 520 px liggend) mogen wel. */
+#rotate-lock{display:none}
+@media (orientation:landscape) and (max-height:520px) and (pointer:coarse){
+  #rotate-lock{display:flex;position:fixed;inset:0;z-index:2147483647;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    background:#08090C;color:#F1F3F7;font:600 17px/1.4 "Barlow",system-ui,sans-serif;text-align:center;padding:24px}
+  #rotate-lock svg{width:56px;height:56px}
+  #root{visibility:hidden}
+}
 </style>
 </head>
 <body>
+<div id="rotate-lock" role="alert"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="15" y="6" width="18" height="32" rx="3.5"/><path d="M22 33h4"/><path d="M38 18a14 14 0 0 1-4 14" /><path d="M34 32l0.5-4.5L39 29"/></svg><div>Draai uw telefoon rechtop.<br><span style="font-weight:400;color:#9AA1AE">Nexa werkt alleen staand.</span></div></div>
 <div id="root"></div>
 <noscript>Deze app heeft JavaScript nodig.</noscript>
 <script>${js}</script>

@@ -4026,6 +4026,69 @@ function pickExercise(exIndex, program, { muscle, kind, lengthened, unilateral, 
   return best;
 }
 
+/* Toestel bezet: de beste vervangers voor deze ene training. Zelfde
+   hoofdspier en zelfde soort oefening; liefst ander materiaal (het toestel
+   is immers bezet), met dezelfde accenten (gerekte positie, eenzijdig) en
+   bij voorkeur een oefening die de gebruiker al eerder deed, zodat er
+   meteen een gewicht bekend is. */
+const movePattern = (e) => {
+  const t = `${e.id} ${e.name}`.toLowerCase();
+  if (/kuit|calf/.test(t)) return null;
+  if (/pulldown|optrek|pull-up|pullup|chin/.test(t)) return "verticaal";
+  if (/row|roei/.test(t)) return "horizontaal";
+  if (e.pri && e.pri[0] === "borst" && /schuin|incline/.test(t)) return "schuin";
+  if (/squat|leg_press|leg press|lunge|hack/.test(t)) return "knie";
+  if (/deadlift|rdl|hip_thrust|hip thrust|hyperext/.test(t)) return "heup";
+  return null;
+};
+function busyAlternatives(ex, exIndex, sessions, inSession, n = 3) {
+  if (!ex || !ex.pri || !ex.pri.length) return [];
+  const muscle = ex.pri[0];
+  const last = {};
+  for (let k = sessions.length - 1; k >= 0; k--) {
+    const s = sessions[k];
+    if (!s.end) continue;
+    (s.exercises || []).forEach((e) => {
+      if (last[e.exId]) return;
+      const w = (e.sets || []).filter((x) => x.type === "work" && x.done && num(x.reps, 0) > 0);
+      if (!w.length) return;
+      const top = w.reduce((m, x) => (num(x.weight, 0) > num(m.weight, 0) ? x : m), w[0]);
+      last[e.exId] = { weight: num(top.weight, 0), reps: num(top.reps, 0), date: s.date };
+    });
+  }
+  const out = [];
+  Object.values(exIndex).forEach((e) => {
+    if (!e || e.missing || e.id === ex.id || !e.pri || e.pri[0] !== muscle || inSession.has(e.id)) return;
+    let sc = 0;
+    const why = [];
+    if (e.kind === ex.kind) sc += 6;
+    else sc -= 2;
+    if (e.equip !== ex.equip) {
+      sc += 3;
+      why.push(`${EQUIP[e.equip] ? EQUIP[e.equip].label.toLowerCase() : e.equip} in plaats van ${EQUIP[ex.equip] ? EQUIP[ex.equip].label.toLowerCase() : ex.equip}`);
+    } else why.push("ander toestel, zelfde materiaal");
+    if (e.equip === "dumbbell") sc += 1; // vrijwel altijd wel een setje vrij
+    // zelfde beweging (verticaal trekken, schuin drukken, ...) weegt zwaar
+    const pa = movePattern(ex);
+    const pb = movePattern(e);
+    if (pa && pb === pa) {
+      sc += 4;
+      why.unshift("zelfde beweging");
+    } else if (pa && pb && pb !== pa) sc -= 1;
+    if (!!e.lengthened === !!ex.lengthened) sc += 1;
+    if (!!e.unilateral === !!ex.unilateral) sc += 0.5;
+    sc += (e.sec || []).filter((m) => (ex.sec || []).includes(m)).length * 0.5;
+    if (e.equip === "lichaam" && ex.equip !== "lichaam") sc -= e.kind === "compound" ? 4 : 1; // optrekken en dips zijn voor velen te zwaar
+    if (last[e.id]) {
+      sc += 2;
+      why.push(`vorige keer ${last[e.id].weight ? `${String(last[e.id].weight).replace(".", ",")} kg × ` : ""}${last[e.id].reps}`);
+    }
+    if (e.custom) sc -= 0.3;
+    out.push({ ex: e, score: sc, why, last: last[e.id] || null });
+  });
+  return out.sort((a, b) => b.score - a.score || a.ex.name.localeCompare(b.ex.name)).slice(0, n);
+}
+
 const swapSlotTo = (slot, ex) => ({
   ...slot,
   id: uid(), // nieuw slot: de progressie begint schoon voor de nieuwe oefening
@@ -4711,6 +4774,8 @@ const TRAIN_DEFAULT = () => ({
     autoProgress: false,
     intensity: "kuba",
     sound: true,
+    countdown: true,
+    soundSilent: false,
     vibrate: true,
     notify: false,
     wakeLock: true,
@@ -4809,38 +4874,78 @@ function trainDerive(T, ctx, today) {
 
 /* ---------------- geluid, trilling en melding bij einde rust ---------------- */
 
+/* Een iPhone zet webaudio standaard in de sessie "ambient": in de stille
+   stand klinkt dan niets, en trillen kan een webapp op iPhone niet. Met
+   soundSilent kiest de gebruiker voor de sessie "playback" (Safari 16.4+),
+   die door de stille stand heen speelt; muziek van een andere app pauzeert
+   dan wel. De sessie moet gekozen zijn vóór de AudioContext bestaat, dus
+   bij een andere keuze wordt de context opnieuw gemaakt. */
 let audioCtx = null;
-function primeAudio() {
+let audioMode = null;
+let audioOut = null;
+function primeAudio(settings) {
   try {
     const AC = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
     if (!AC) return;
-    if (!audioCtx) audioCtx = new AC();
-    if (audioCtx.state === "suspended") audioCtx.resume();
+    const mode = settings && settings.soundSilent ? "playback" : "auto";
+    if (audioCtx && audioMode !== mode) {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+    if (!audioCtx) {
+      try {
+        if (navigator.audioSession) navigator.audioSession.type = mode;
+      } catch (e) {
+        /* oudere Safari of andere browser */
+      }
+      audioCtx = new AC();
+      audioMode = mode;
+      // compressor: luider zonder vervorming, ook via een klein telefoonluidsprekertje
+      const comp = audioCtx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.ratio.value = 6;
+      comp.connect(audioCtx.destination);
+      audioOut = comp;
+    }
+    if (audioCtx.state !== "running") audioCtx.resume().catch(() => {});
   } catch (e) {
     /* geen geluid beschikbaar */
   }
 }
-function beep() {
+function tones(list) {
   try {
     if (!audioCtx) return;
-    const t0 = audioCtx.currentTime;
-    [0, 0.22, 0.44].forEach((d, i) => {
+    // na een telefoongesprek of de achtergrond staat de context soms stil
+    if (audioCtx.state !== "running") audioCtx.resume().catch(() => {});
+    const t0 = audioCtx.currentTime + 0.02;
+    list.forEach(([d, f, len, vol, type]) => {
       const o = audioCtx.createOscillator();
       const g = audioCtx.createGain();
-      o.type = "sine";
-      o.frequency.value = i === 2 ? 1320 : 880;
+      o.type = type || "triangle";
+      o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t0 + d);
-      g.gain.exponentialRampToValueAtTime(0.35, t0 + d + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.18);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + d + 0.015);
+      g.gain.setValueAtTime(vol, t0 + d + len - 0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + len);
       o.connect(g);
-      g.connect(audioCtx.destination);
+      g.connect(audioOut || audioCtx.destination);
       o.start(t0 + d);
-      o.stop(t0 + d + 0.2);
+      o.stop(t0 + d + len + 0.02);
     });
   } catch (e) {
     /* geen geluid beschikbaar */
   }
 }
+// einde rust: drie oplopende tonen en een lange slottoon, goed hoorbaar in een sportschool
+const beep = () =>
+  tones([
+    [0, 988, 0.16, 0.9],
+    [0.2, 1319, 0.16, 0.9],
+    [0.4, 1760, 0.16, 0.9],
+    [0.62, 1760, 0.5, 0.9, "square"],
+  ]);
+// aftellen: korte lage tik bij 3, 2 en 1 seconde
+const pip = () => tones([[0, 740, 0.09, 0.6]]);
 function restAlert(settings, next) {
   if (settings.sound) beep();
   try {
@@ -5362,6 +5467,16 @@ function WorkoutDock({ T, setT, showOpen, onOpen }) {
   const now = useNow(250, !!rest);
   const left = rest ? (rest.endsAt - now) / 1000 : 0;
   const fired = useRef(null);
+  const pipped = useRef(null);
+  const sec = rest ? Math.ceil(left) : null;
+  useEffect(() => {
+    if (!rest || !T.settings.sound || !T.settings.countdown) return;
+    const key = `${rest.endsAt}:${sec}`;
+    if (sec >= 1 && sec <= 3 && pipped.current !== key && rest.total > 5) {
+      pipped.current = key;
+      pip();
+    }
+  }, [sec, rest && rest.endsAt]);
   useEffect(() => {
     if (!rest) return;
     if (left <= 0 && fired.current !== rest.endsAt) {
@@ -5501,6 +5616,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
   const a = T.active;
   const scale = T.settings.effort;
   const [picker, setPicker] = useState(null);
+  const [busy, setBusy] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [open, setOpen] = useState(() => {
     const k = a.exercises.findIndex((e) => e.sets.some((s) => !s.done));
@@ -5534,7 +5650,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
     });
 
   const toggleDone = (i, j) => {
-    primeAudio();
+    primeAudio(T.settings);
     const e = a.exercises[i];
     const s = e.sets[j];
     if (s.done) {
@@ -5616,6 +5732,16 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
     const w = e.sets.filter((s) => s.type === "warmup").length;
     const entry = { ...entryFromSlot(freeSlot(ex, n, w, e.rest), n, D, T, bw), slotId: null, swappedFrom: e.exId, ss: e.ss, ssRest: e.ssRest };
     updEx(i, () => entry);
+  };
+  // later doen: naar het einde van de training, de volgende oefening gaat open
+  const laterEx = (i) => {
+    upd((x) => {
+      const list = [...x.exercises];
+      const [e] = list.splice(i, 1);
+      return { ...x, exercises: [...list, { ...e, ss: false }] };
+    });
+    setBusy(null);
+    setOpen(i);
   };
   const moveEx = (i, d) =>
     upd((x) => {
@@ -5913,7 +6039,65 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                   );
                 })}
 
+                {busy === i &&
+                  (() => {
+                    const alts = busyAlternatives(ex, D.exIndex, D.sessions, new Set(a.exercises.map((x) => x.exId)));
+                    const anyDone = e.sets.some((x) => x.done && x.type === "work");
+                    return (
+                      <div className="mt-3 px-3 py-3 space-y-2" style={{ background: C.surface2, borderRadius: R.field, border: `1px solid ${C.line}` }}>
+                        <div className="text-sm font-semibold">Bezet? Doe vandaag dit</div>
+                        {alts.length ? (
+                          alts.map((o) => (
+                            <button
+                              key={o.ex.id}
+                              onClick={() => {
+                                swapEx(i, o.ex);
+                                setBusy(null);
+                              }}
+                              className="tap w-full text-left px-3 py-2"
+                              style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}
+                            >
+                              <span className="text-sm font-semibold block">{o.ex.name}</span>
+                              <span className="text-xs block" style={{ color: C.muted }}>
+                                {MUSCLES[ex.pri[0]] ? MUSCLES[ex.pri[0]].label : "Zelfde spier"} · {o.why.join(" · ")}
+                              </span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="text-xs" style={{ color: C.muted }}>
+                            Geen vergelijkbare oefening gevonden voor deze spier.
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {i < a.exercises.length - 1 && !anyDone && (
+                            <TBtn small kind="secondary" onClick={() => laterEx(i)}>
+                              Later doen
+                            </TBtn>
+                          )}
+                          <TBtn
+                            small
+                            kind="ghost"
+                            onClick={() => {
+                              setBusy(null);
+                              setPicker({ mode: "swap", i, muscle: ex.pri[0] || null });
+                            }}
+                          >
+                            Meer oefeningen
+                          </TBtn>
+                          <TBtn small kind="ghost" onClick={() => setBusy(null)}>
+                            Annuleren
+                          </TBtn>
+                        </div>
+                        <p className="text-[11px] leading-snug" style={{ color: C.muted }}>
+                          Geldt alleen voor deze training; uw schema blijft hetzelfde.
+                        </p>
+                      </div>
+                    );
+                  })()}
                 <div className="flex flex-wrap gap-1.5 mt-3">
+                  <TBtn small onClick={() => setBusy(busy === i ? null : i)}>
+                    Bezet?
+                  </TBtn>
                   <TBtn small kind="secondary" onClick={() => addSet(i)}>
                     + Set
                   </TBtn>
@@ -7660,6 +7844,49 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
             ]}
           />
         </Row>
+        {s.sound && (
+          <>
+            <Row label="Aftellen" hint="Korte tik bij 3, 2 en 1 seconde voor het einde van de rust.">
+              <Seg
+                value={s.countdown}
+                onChange={(v) => setS("countdown", v)}
+                options={[
+                  { value: true, label: "Aan" },
+                  { value: false, label: "Uit" },
+                ]}
+              />
+            </Row>
+            <Row
+              label="Ook in de stille stand (iPhone)"
+              hint="Een iPhone in de stille stand speelt geen geluid van webapps af, en trillen kan niet. Zet dit aan om de timer toch te horen; muziek uit een andere app pauzeert dan wel als de timer klinkt."
+            >
+              <Seg
+                value={s.soundSilent}
+                onChange={(v) => {
+                  setS("soundSilent", v);
+                  primeAudio({ ...s, soundSilent: v });
+                }}
+                options={[
+                  { value: true, label: "Aan" },
+                  { value: false, label: "Uit" },
+                ]}
+              />
+            </Row>
+            <div className="px-4 py-3">
+              <TBtn
+                small
+                kind="secondary"
+                onClick={() => {
+                  primeAudio(s);
+                  if (s.countdown) [0, 1000, 2000].forEach((d) => setTimeout(pip, d));
+                  setTimeout(beep, s.countdown ? 3000 : 0);
+                }}
+              >
+                Geluid testen
+              </TBtn>
+            </div>
+          </>
+        )}
         <Row label="Trillen bij einde rust" hint="Werkt op Android; iPhone ondersteunt trillen vanuit een webapp niet.">
           <Seg
             value={s.vibrate}
@@ -10121,7 +10348,7 @@ function MacroApp() {
     tLoaded && loaded && onboarding === null && !!D.program && !T.active && !bill.locked && D.phasePending && !phaseLater && tab !== "training";
 
   const startTraining = (day, rotPos = null) => {
-    primeAudio();
+    primeAudio(T.settings);
     setT((t) => (t.active ? t : { ...t, active: buildSession({ program: D.program, day, D, T: t, rotPos, bw: weight }) }));
     setTab("training");
   };
@@ -10147,6 +10374,17 @@ function MacroApp() {
       setT((t) => ({ ...t, block: { ...t.block, deloadFrom: trainToday, auto: { at: trainToday, reasons: D.fatigue.reasons } } }));
     }
   }, [tLoaded, T.block, T.settings.autoProgress, T.settings.intensity, D.fatigue, trainToday, !!T.active]);
+
+  /* Alleen staand: Android vergrendelt de stand in de geïnstalleerde app;
+     elders (o.a. iPhone) dekt een laag in index.html de liggende stand af. */
+  useEffect(() => {
+    try {
+      const o = typeof screen !== "undefined" && screen.orientation;
+      if (o && o.lock) o.lock("portrait").catch(() => {});
+    } catch (e) {
+      /* niet ondersteund */
+    }
+  }, []);
 
   /* Scherm aan houden tijdens een training (Screen Wake Lock API). */
   const trainingActive = !!T.active;

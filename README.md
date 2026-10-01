@@ -41,6 +41,8 @@ logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
 
 ## Ontwikkelen
 
+`npm test` draait alle logica- en functietests in `tests/` (Node, zonder netwerk; Stripe, Supabase en Anthropic worden nagebootst). Draai daarna `npm run build` en `npm run verify`.
+
 ```bash
 npm install
 npm run build      # schrijft dist/index.html
@@ -324,6 +326,26 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
   bevat daarvoor het buildcommando, de publish-map en de functiemap.
 - **Controle**: `GET /.netlify/functions/etiket` geeft `{"ok":true}` als de
   sleutel is ingesteld. Fouten verschijnen in het functielogboek van Netlify.
+
+## Live training: timer, bezet, staande weergave
+
+- **Rusttimer** (`primeAudio`, `tones`, `beep`, `pip`, `restAlert`): luider
+  eindsignaal via een compressor, aftellen bij 3, 2, 1 s (`settings.countdown`),
+  de AudioContext wordt na een onderbreking hervat. Een iPhone speelt webaudio
+  standaard als "ambient" en is dan stil in de stille stand (trillen kan daar
+  niet); `settings.soundSilent` zet `navigator.audioSession.type = "playback"`
+  (Safari 16.4+) zodat de timer toch klinkt; muziek van een andere app pauzeert
+  dan. Instellingen → "Geluid testen".
+- **Bezet?** (`busyAlternatives`, `movePattern`): per oefening de drie beste
+  vervangers voor alleen deze training: zelfde hoofdspier en soort, zelfde
+  bewegingspatroon (verticaal/horizontaal trekken, schuin drukken, knie- of
+  heupbuiging), liefst ander materiaal, eerder gedane oefeningen met hun vorige
+  prestatie voorop; lichaamsgewicht-compounds lager. "Later doen" zet de
+  oefening achteraan. Het schema verandert niet (`swappedFrom` in de sessie).
+- **Alleen staand**: het manifest vraagt `portrait-primary` en de app probeert
+  `screen.orientation.lock`; een iPhone negeert beide, daarom bedekt
+  `#rotate-lock` (in `build.mjs`) de app liggend op telefoons
+  (`max-height: 520px`, `pointer: coarse`). Tablets mogen liggend.
 
 ## Beveiliging en privacy (AVG)
 
