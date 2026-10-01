@@ -3,6 +3,8 @@
    GET                                   -> { enabled, trialDays, prices }
    POST { action: "checkout", plan }     -> { url } naar Stripe Checkout
    POST { action: "portal" }             -> { url } naar het Stripe-klantportaal
+   POST { action: "withdraw" }           -> herroepen binnen 14 dagen: stoppen en terugbetalen
+   POST { action: "cancel_now" }         -> alle abonnementen direct stoppen (account verwijderen)
    POST vereist het toegangstoken van de Supabase-sessie (Authorization: Bearer).
 
    Proefperiode: zeven dagen, betaalgegevens vooraf, eenmalig per account.
@@ -22,12 +24,15 @@ import {
   userFromRequest,
 } from "../lib/billing-core.mjs";
 
+const WITHDRAW_DAYS = 14;
+
 export default async (req) => {
   if (req.method === "GET") {
     return json(200, {
       enabled: billingEnabled(),
       trialDays: TRIAL_DAYS,
       prices: { maand: PLANS.maand.amount / 100, jaar: PLANS.jaar.amount / 100 },
+      withdrawDays: WITHDRAW_DAYS,
     });
   }
   if (req.method !== "POST") return json(405, { ok: false, code: "methode" });
@@ -57,6 +62,41 @@ export default async (req) => {
         locale: "nl",
       });
       return json(200, { ok: true, url: portal.url });
+    }
+
+    /* Herroepen (Europese herroepingsknop, art. 11a richtlijn 2011/83/EU):
+       binnen 14 dagen na het afsluiten direct stoppen en alles terugbetalen.
+       Opzeggen bij het verwijderen van het account: direct stoppen. */
+    if (body.action === "withdraw" || body.action === "cancel_now") {
+      if (!row || !row.stripe_customer_id) {
+        return body.action === "cancel_now" ? json(200, { ok: true, canceled: 0 }) : json(404, { ok: false, code: "geen_klant", message: "Er is geen abonnement om te herroepen." });
+      }
+      const LIVE = new Set(["trialing", "active", "past_due", "unpaid", "incomplete", "paused"]);
+      const subs = (await s.subscriptions.list({ customer: row.stripe_customer_id, status: "all", limit: 20 })).data.filter((x) => LIVE.has(x.status));
+      if (body.action === "cancel_now") {
+        for (const sub of subs) await s.subscriptions.cancel(sub.id);
+        return json(200, { ok: true, canceled: subs.length });
+      }
+      const sub = subs.sort((a, b) => b.created - a.created)[0];
+      if (!sub) return json(404, { ok: false, code: "geen_abonnement", message: "Er is geen lopend abonnement om te herroepen." });
+      if (Date.now() / 1000 - sub.created > WITHDRAW_DAYS * 86400) {
+        return json(409, { ok: false, code: "termijn_voorbij", message: `De herroepingstermijn van ${WITHDRAW_DAYS} dagen is voorbij. U kunt wel opzeggen via Abonnement beheren.` });
+      }
+      let refunded = 0;
+      const invoices = await s.invoices.list({ subscription: sub.id, status: "paid", limit: 20 });
+      for (const inv of invoices.data) {
+        if (!inv.amount_paid) continue;
+        const pays = await s.invoicePayments.list({ invoice: inv.id, status: "paid", limit: 10 });
+        for (const p of pays.data) {
+          const pay = p.payment || {};
+          const target = pay.payment_intent ? { payment_intent: typeof pay.payment_intent === "string" ? pay.payment_intent : pay.payment_intent.id } : pay.charge ? { charge: typeof pay.charge === "string" ? pay.charge : pay.charge.id } : null;
+          if (!target) continue;
+          await s.refunds.create({ ...target, reason: "requested_by_customer", metadata: { nexa: "herroeping", user_id: user.id } });
+          refunded += p.amount_paid || 0;
+        }
+      }
+      await s.subscriptions.cancel(sub.id);
+      return json(200, { ok: true, refunded: refunded / 100 });
     }
 
     if (body.action === "checkout") {

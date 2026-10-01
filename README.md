@@ -325,6 +325,42 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
 - **Controle**: `GET /.netlify/functions/etiket` geeft `{"ok":true}` als de
   sleutel is ingesteld. Fouten verschijnen in het functielogboek van Netlify.
 
+## Beveiliging en privacy (AVG)
+
+Security-audit van 1 oktober 2026; migratie `supabase/migrations/20261001_beveiliging_avg.sql`,
+register en datalekprocedure in `docs/avg/`.
+
+- **Toestemming** (AVG art. 9): gezondheidsgegevens gaan alleen naar de server
+  met uitdrukkelijke toestemming, vastgelegd in `user_metadata.consent`
+  (`{health, terms, age16, version}`, `CONSENT_VERSION` in `src/sync.js`).
+  Zonder geldige toestemming synchroniseert de app niet (`canSync`) en vraagt
+  `ConsentSheet` erom. Een nieuwe `CONSENT_VERSION` vraagt iedereen opnieuw.
+  Aanmelden vereist 16+ en akkoord met voorwaarden en privacyverklaring.
+- **Rechten**: Profiel → Privacy en gegevens: downloaden als JSON
+  (`exportData`), apparaat wissen, account verwijderen (`deleteAccount`:
+  eerst `billing` `cancel_now`, dan `rpc delete_own_account`, cascade).
+  Uitloggen kan met "ook van dit apparaat wissen".
+- **Herroepingsknop** (art. 11a richtlijn 2011/83/EU, sinds 19 juni 2026):
+  binnen 14 dagen na `started_at` toont het profiel "Overeenkomst hier
+  herroepen"; `billing` `withdraw` stopt het abonnement en betaalt alles terug.
+- **Etiketscanner**: altijd ingelogd, plus `label_quota()` (30 per dag) en
+  met abonnementen aan alleen voor Nexa Coach. De Origin-controle alleen is
+  na te maken en geen beveiliging.
+- **Database**: RLS op alle tabellen; geen TRUNCATE/TRIGGER/REFERENCES voor
+  anon/authenticated; `nexa_data` alleen sleutels `macroverdeling:*`, hoogstens
+  20 per gebruiker. `label_quota` en `delete_own_account` zijn SECURITY
+  DEFINER met vaste `search_path` en werken alleen op `auth.uid()` (de
+  Supabase-waarschuwing daarover is bedoeld).
+- **Headers**: CSP per pagina met SHA-256-hashes van de inline scripts,
+  door `build.mjs` bij elke build berekend en achter `dist/_headers` gezet;
+  daarnaast `X-Frame-Options: DENY`, `Permissions-Policy`,
+  `Cross-Origin-Opener-Policy`. Nieuwe externe bron nodig? Voeg hem toe in
+  `csp()` in `build.mjs`.
+- **Lettertypen**: alleen zelf gehost (`landing/fonts`), geen Google Fonts.
+- **Juridische pagina's**: `landing/privacy/body.html` en
+  `landing/voorwaarden/body.html` (+ `landing/legal-head.html`), gebouwd naar
+  `/privacy/` en `/voorwaarden/`. Gemarkeerde `[...]`-velden invullen.
+
 ## Logo en iconen
 
 `design/nexa-logo-ontwerpen.png` is het huisstijlontwerp. Het app-icoon is

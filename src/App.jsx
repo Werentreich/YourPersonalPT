@@ -2118,7 +2118,13 @@ const C = {
 };
 
 const STYLE = `
-@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap');
+/* Lettertypen staan op de eigen server (geen Google Fonts: dat stuurt het IP-adres van elke bezoeker naar Google). */
+@font-face{font-family:"Barlow";src:url(/assets/fonts/barlow-400.woff2) format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow";src:url(/assets/fonts/barlow-500.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow";src:url(/assets/fonts/barlow-600.woff2) format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(/assets/fonts/barlow-condensed-500.woff2) format("woff2");font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(/assets/fonts/barlow-condensed-600.woff2) format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Barlow Condensed";src:url(/assets/fonts/barlow-condensed-700.woff2) format("woff2");font-weight:700;font-style:normal;font-display:swap}
 
 :root {
   --bg:#EEF0F4; --surface:#FFFFFF; --surface-2:#F6F7F9;
@@ -8317,10 +8323,59 @@ function FormMsg({ msg }) {
   );
 }
 
+const PRIVACY_URL = "/privacy/";
+const TERMS_URL = "/voorwaarden/";
+const consentNow = () => {
+  const at = new Date().toISOString();
+  return { health: at, terms: at, age16: true };
+};
+
+/* Toestemming bij het aanmaken van een account. Gezondheidsgegevens zijn
+   bijzondere persoonsgegevens (AVG art. 9): daarvoor is uitdrukkelijke,
+   losse toestemming nodig. Onder de 16 is toestemming van een ouder nodig
+   (UAVG art. 5); de app is daarom voor 16 jaar en ouder. */
+function ConsentFields({ value, onChange, dark = false }) {
+  const muted = dark ? C.darkMuted : C.muted;
+  const link = { color: dark ? C.darkInk : C.ink, textDecoration: "underline" };
+  const box = (k, children) => (
+    <label className="flex gap-2.5 items-start text-xs leading-relaxed cursor-pointer" style={{ color: muted }}>
+      <input type="checkbox" checked={!!value[k]} onChange={(e) => onChange({ ...value, [k]: e.target.checked })} className="mt-0.5 shrink-0" style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+      <span>{children}</span>
+    </label>
+  );
+  return (
+    <div className="space-y-2.5">
+      {box(
+        "health",
+        <>
+          Ik geef <strong style={{ color: dark ? C.darkInk : C.ink }}>uitdrukkelijk toestemming</strong> dat Nexa mijn gezondheidsgegevens (gewicht,
+          lichaamsmaten, vetpercentage, trainingen, herstel en slaap) online bewaart om mijn voedings- en trainingsschema te maken en op mijn apparaten
+          te synchroniseren. Ik kan dit altijd intrekken door mijn account te verwijderen.
+        </>
+      )}
+      {box(
+        "terms",
+        <>
+          Ik ben 16 jaar of ouder en ga akkoord met de{" "}
+          <a href={TERMS_URL} target="_blank" rel="noopener" style={link}>
+            voorwaarden
+          </a>{" "}
+          en de{" "}
+          <a href={PRIVACY_URL} target="_blank" rel="noopener" style={link}>
+            privacyverklaring
+          </a>
+          .
+        </>
+      )}
+    </div>
+  );
+}
+
 function AccountForm({ initial = "login", onDone }) {
   const [mode, setMode] = useState(initial);
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
+  const [cons, setCons] = useState({ health: false, terms: false });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const sync = typeof window !== "undefined" ? window.nexaSync : null;
@@ -8330,6 +8385,8 @@ function AccountForm({ initial = "login", onDone }) {
     const mail = email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(mail)) return setMsg({ tone: "fout", text: "Vul een geldig e-mailadres in." });
     if (mode !== "reset" && pw.length < 8) return setMsg({ tone: "fout", text: "Het wachtwoord moet minstens 8 tekens hebben." });
+    if (mode === "signup" && !(cons.health && cons.terms))
+      return setMsg({ tone: "fout", text: "Vink beide vakjes aan. Zonder uw toestemming kan de app uw gegevens niet online bewaren; zonder account blijft alles alleen op dit apparaat." });
     setBusy(true);
     setMsg(null);
     try {
@@ -8338,7 +8395,7 @@ function AccountForm({ initial = "login", onDone }) {
         setMsg({ tone: "goed", text: "Ingelogd. Uw gegevens zijn bijgewerkt." });
         if (onDone) onDone();
       } else if (mode === "signup") {
-        const r = await sync.signUp(mail, pw);
+        const r = await sync.signUp(mail, pw, consentNow());
         if (r.confirmed) {
           setMsg({ tone: "goed", text: "Account aangemaakt. Uw gegevens worden nu online bewaard." });
           if (onDone) onDone();
@@ -8405,6 +8462,7 @@ function AccountForm({ initial = "login", onDone }) {
           />
         </label>
       )}
+      {mode === "signup" && <ConsentFields value={cons} onChange={setCons} />}
       <FormMsg msg={msg} />
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -8451,8 +8509,9 @@ function AccountForm({ initial = "login", onDone }) {
   );
 }
 
-function AccountSection({ s }) {
+function AccountSection({ s, onConsent }) {
   const [confirmOut, setConfirmOut] = useState(false);
+  const [wipeOut, setWipeOut] = useState(false);
   if (!s) return null;
   const sync = window.nexaSync;
   if (!s.user) {
@@ -8480,7 +8539,16 @@ function AccountSection({ s }) {
       <Row label="Ingelogd als" hint={s.user.email}>
         <span />
       </Row>
-      <Status label="Synchronisatie" value={status.value} state={status.state} note={status.note} />
+      {s.user.consent ? (
+        <Status label="Synchronisatie" value={status.value} state={status.state} note={status.note} />
+      ) : (
+        <div className="px-4 py-3">
+          <Status label="Synchronisatie" value="gepauzeerd" state="oplet" note="Zonder uw toestemming bewaart de app uw gegevens alleen op dit apparaat." />
+          <TBtn small onClick={onConsent}>
+            Toestemming geven
+          </TBtn>
+        </div>
+      )}
       <div className="px-4 py-3 flex flex-wrap gap-2 items-center">
         <TBtn small kind="secondary" disabled={s.status === "bezig"} onClick={() => sync.syncNow()}>
           Nu synchroniseren
@@ -8491,7 +8559,7 @@ function AccountSection({ s }) {
               small
               kind="danger"
               onClick={() => {
-                sync.signOut();
+                sync.signOut({ wipe: wipeOut });
                 setConfirmOut(false);
               }}
             >
@@ -8508,11 +8576,180 @@ function AccountSection({ s }) {
         )}
       </div>
       {confirmOut && (
-        <p className="px-4 pb-3 text-xs" style={{ color: C.muted }}>
-          Uw gegevens blijven op dit apparaat en in uw account staan; ze worden alleen niet meer gesynchroniseerd.
-        </p>
+        <div className="px-4 pb-3 space-y-2">
+          <label className="flex gap-2.5 items-start text-xs leading-relaxed" style={{ color: C.muted }}>
+            <input type="checkbox" checked={wipeOut} onChange={(e) => setWipeOut(e.target.checked)} className="mt-0.5" style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+            <span>Ook alle gegevens van dit apparaat wissen. Kies dit op een gedeeld of geleend apparaat; in uw account blijft alles bewaard.</span>
+          </label>
+          {!wipeOut && (
+            <p className="text-xs" style={{ color: C.muted }}>
+              Uw gegevens blijven op dit apparaat en in uw account staan; ze worden alleen niet meer gesynchroniseerd.
+            </p>
+          )}
+        </div>
       )}
     </Section>
+  );
+}
+
+/* Privacy: verklaring, gegevens downloaden (AVG art. 15 en 20), van dit
+   apparaat wissen en het account verwijderen (art. 17). */
+function downloadJson(obj, name) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function PrivacySection({ s }) {
+  const [step, setStep] = useState(null); // "wis" | "verwijder"
+  const [wipe, setWipe] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const sync = typeof window !== "undefined" ? window.nexaSync : null;
+  const user = s && s.user;
+  const exportAll = () => {
+    let data;
+    if (sync && sync.exportData) data = sync.exportData();
+    else {
+      data = { geexporteerd: new Date().toISOString(), gegevens: {} };
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith("macroverdeling:"))
+          .forEach((k) => (data.gegevens[k] = JSON.parse(localStorage.getItem(k))));
+      } catch (e) {
+        /* geen opslag */
+      }
+    }
+    downloadJson(data, `nexa-gegevens-${localISO()}.json`);
+  };
+  const wipeDevice = () => {
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("macroverdeling:") || k.startsWith("nexa:") || k === "nexa-auth")
+        .forEach((k) => localStorage.removeItem(k));
+    } catch (e) {
+      /* geen opslag */
+    }
+    location.reload();
+  };
+  const del = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await sync.deleteAccount({ wipe });
+      setMsg({ tone: "goed", text: "Uw account en alle online gegevens zijn verwijderd." });
+      setStep(null);
+    } catch (e) {
+      setMsg({ tone: "fout", text: (e && e.message) || "Verwijderen mislukt." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Privacy en gegevens" sub="Uw gegevens zijn van u. U kunt ze inzien, meenemen en laten verwijderen.">
+      <div className="px-4 py-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+        <a href={PRIVACY_URL} target="_blank" rel="noopener" className="underline" style={{ color: C.ink }}>
+          Privacyverklaring
+        </a>
+        <a href={TERMS_URL} target="_blank" rel="noopener" className="underline" style={{ color: C.ink }}>
+          Voorwaarden
+        </a>
+      </div>
+      <div className="px-4 pb-3 flex flex-wrap gap-2">
+        <TBtn small kind="secondary" onClick={exportAll}>
+          Mijn gegevens downloaden
+        </TBtn>
+        {!user && (
+          <TBtn small kind="ghost" onClick={() => setStep(step === "wis" ? null : "wis")}>
+            Gegevens van dit apparaat wissen
+          </TBtn>
+        )}
+        {user && sync && (
+          <TBtn small kind="ghost" onClick={() => setStep(step === "verwijder" ? null : "verwijder")}>
+            Account verwijderen
+          </TBtn>
+        )}
+      </div>
+      {step === "wis" && (
+        <div className="px-4 pb-4 space-y-2">
+          <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+            Alles wat u in de app heeft ingevuld, verdwijnt van dit apparaat: profiel, schema's, metingen en trainingen. Dit kan niet ongedaan worden
+            gemaakt. Download uw gegevens eerst als u ze wilt bewaren.
+          </p>
+          <TBtn small kind="danger" onClick={wipeDevice}>
+            Ja, alles wissen
+          </TBtn>
+        </div>
+      )}
+      {step === "verwijder" && (
+        <div className="px-4 pb-4 space-y-2">
+          <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+            Uw account en al uw online gegevens worden direct en definitief verwijderd. Een lopend abonnement stopt meteen; resterende tijd wordt niet
+            terugbetaald (binnen 14 dagen na het afsluiten kunt u eerst herroepen, dan krijgt u alles terug). Betaalgegevens en facturen bewaart onze
+            betaaldienst Stripe zolang de belastingwet dat vereist.
+          </p>
+          <label className="flex gap-2.5 items-start text-xs leading-relaxed" style={{ color: C.muted }}>
+            <input type="checkbox" checked={wipe} onChange={(e) => setWipe(e.target.checked)} className="mt-0.5" style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+            <span>Ook alle gegevens van dit apparaat wissen.</span>
+          </label>
+          <TBtn small kind="danger" disabled={busy} onClick={del}>
+            {busy ? "Bezig…" : "Account definitief verwijderen"}
+          </TBtn>
+        </div>
+      )}
+      {msg && (
+        <div className="px-4 pb-3">
+          <FormMsg msg={msg} />
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/* Vraagt de uitdrukkelijke toestemming alsnog bij accounts van vóór deze
+   regel, of na een nieuwe versie van de tekst. Tot dan synchroniseert de
+   app niet. */
+function ConsentSheet({ onClose }) {
+  const [cons, setCons] = useState({ health: false, terms: false });
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const sync = window.nexaSync;
+  const ok = async () => {
+    if (!(cons.health && cons.terms)) return setMsg({ tone: "fout", text: "Vink beide vakjes aan, of kies Later." });
+    setBusy(true);
+    try {
+      await sync.giveConsent(consentNow());
+      onClose();
+    } catch (e) {
+      setMsg({ tone: "fout", text: (e && e.message) || "Opslaan mislukt." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet title="Uw toestemming" onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm leading-relaxed" style={{ color: C.muted }}>
+          Gewicht, lichaamsmaten en trainingen zijn gezondheidsgegevens. Die mag Nexa alleen online bewaren met uw uitdrukkelijke toestemming. Tot u
+          die geeft, staan uw gegevens alleen op dit apparaat en worden ze niet gesynchroniseerd.
+        </p>
+        <ConsentFields value={cons} onChange={setCons} />
+        <FormMsg msg={msg} />
+        <div className="flex flex-col gap-2">
+          <TBtn full disabled={busy} onClick={ok}>
+            {busy ? "Even geduld…" : "Akkoord"}
+          </TBtn>
+          <TBtn full kind="ghost" onClick={onClose}>
+            Later
+          </TBtn>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -9121,6 +9358,16 @@ function CoachPaywall({ bill, feature, onStart }) {
           : `${eur(bill.prices[plan])} per ${plan === "jaar" ? "jaar" : "maand"}, incl. btw. Opzeggen kan altijd, gewoon in de app.`}
         {!bill.loggedIn ? " U maakt eerst een gratis account, zodat uw abonnement ook op een nieuwe telefoon werkt." : ""}
       </p>
+      <p className="text-[11px] mt-2 leading-relaxed text-center" style={{ color: C.darkMuted }}>
+        {plan === "jaar"
+          ? "Het jaarabonnement wordt na een jaar automatisch verlengd; daarna kunt u elke maand opzeggen en krijgt u het resterende deel terug. "
+          : "Het maandabonnement wordt elke maand automatisch verlengd tot u opzegt. "}
+        Tot 14 dagen na het afsluiten kunt u herroepen en krijgt u alles terug. Met starten gaat u akkoord met de{" "}
+        <a href={TERMS_URL} target="_blank" rel="noopener" className="underline" style={{ color: C.darkInk }}>
+          voorwaarden
+        </a>
+        .
+      </p>
       {bill.error && (
         <p className="text-sm mt-2 text-center" style={{ color: "#FF8A6B" }} role="alert">
           {bill.error}
@@ -9154,6 +9401,8 @@ function CoachTeaser({ title, text, onOpen }) {
 }
 
 function SubscriptionSection({ bill, onStart }) {
+  const [wd, setWd] = useState(false);
+  const [wdMsg, setWdMsg] = useState(null);
   if (!bill.on) return null;
   const sync = window.nexaSync;
   const sub = bill.sub;
@@ -9173,6 +9422,20 @@ function SubscriptionSection({ bill, onStart }) {
       note: sub.cancel_at_period_end ? `Opgezegd; loopt tot ${dateLong(sub.current_period_end)}.` : `${planTxt}, verlengt op ${dateLong(sub.current_period_end)}.`,
     };
   const canManage = bill.loggedIn && sub && sub.stripe_customer_id && sub.status !== "comp";
+  // herroepingsknop (art. 11a richtlijn 2011/83/EU): de hele herroepingstermijn zichtbaar
+  const startedMs = sub && sub.started_at ? Date.parse(sub.started_at) : NaN;
+  const wdDaysLeft = Number.isFinite(startedMs) ? Math.ceil(14 - (Date.now() - startedMs) / 86400000) : 0;
+  const canWithdraw = canManage && COACH_ACTIVE.has(sub.status) && wdDaysLeft > 0;
+  const withdraw = async () => {
+    setWdMsg(null);
+    try {
+      const d = await sync.withdraw();
+      setWd(false);
+      setWdMsg({ tone: "goed", text: d && d.refunded ? `Herroepen gelukt. Nexa Coach is gestopt en u krijgt ${eur(d.refunded)} terug.` : "Herroepen gelukt. Nexa Coach is gestopt; er is niets afgeschreven." });
+    } catch (e) {
+      setWdMsg({ tone: "fout", text: (e && e.message) || "Herroepen mislukt." });
+    }
+  };
   return (
     <Section title="Abonnement" sub="Nexa Coach: uw voeding, training en wekelijkse bijsturing. Opzeggen kan altijd, hier in de app.">
       <Status label="Nexa Coach" value={status.value} state={status.state} note={status.note} />
@@ -9187,7 +9450,33 @@ function SubscriptionSection({ bill, onStart }) {
             {sub.status === "past_due" ? "Betaalgegevens bijwerken" : "Abonnement beheren of opzeggen"}
           </TBtn>
         )}
+        {canWithdraw && !wd && (
+          <TBtn small kind="ghost" onClick={() => setWd(true)}>
+            Overeenkomst hier herroepen
+          </TBtn>
+        )}
       </div>
+      {wd && (
+        <div className="px-4 pb-3 space-y-2">
+          <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+            U herroept de overeenkomst voor Nexa Coach (nog {wdDaysLeft} {wdDaysLeft === 1 ? "dag" : "dagen"} mogelijk). Het abonnement stopt direct
+            en u krijgt alles terug wat u ervoor heeft betaald.
+          </p>
+          <div className="flex gap-2">
+            <TBtn small kind="danger" disabled={bill.busy} onClick={withdraw}>
+              Herroeping bevestigen
+            </TBtn>
+            <TBtn small kind="ghost" onClick={() => setWd(false)}>
+              Annuleren
+            </TBtn>
+          </div>
+        </div>
+      )}
+      {wdMsg && (
+        <div className="px-4 pb-3">
+          <FormMsg msg={wdMsg} />
+        </div>
+      )}
       {bill.error && (
         <p className="px-4 pb-3 text-sm" style={{ color: C.train }} role="alert">
           {bill.error}
@@ -9406,6 +9695,8 @@ function MacroApp() {
   /* abonnement */
   const bill = billingInfo(nx);
   const [paywallOpen, setPaywallOpen] = useState(null);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentLater, setConsentLater] = useState(false);
   const [billNotice, setBillNotice] = useState(null);
   const [pendingPlan, setPendingPlan] = useState(() => {
     try {
@@ -13850,8 +14141,9 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
-        <AccountSection s={nx} />
+        <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
         <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
+        <PrivacySection s={nx} />
         {/* ---------------- invoer ---------------- */}
         <Section title="Weekschema" sub="Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen.">
           {week.map((d, i) => (
@@ -14326,6 +14618,14 @@ function MacroApp() {
       )}
 
       {resensOpen && <ResensSheet T={T} setT={setT} D={D} onClose={() => setResensOpen(false)} />}
+      {nx && nx.user && !nx.user.consent && (consentOpen || (!consentLater && !nx.recovery)) && (
+        <ConsentSheet
+          onClose={() => {
+            setConsentOpen(false);
+            setConsentLater(true);
+          }}
+        />
+      )}
         {phasePrompt && <PhaseSheet T={T} setT={setT} D={D} pending onClose={() => setPhaseLater(true)} />}
 
       {paywallOpen && bill.locked && (

@@ -14,6 +14,7 @@
    laatste voorkomen (rfind), zoals hieronder.
 */
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, copyFileSync, writeFileSync, readFileSync, existsSync, cpSync } from "node:fs";
 
 const run = (cmd) => execSync(cmd, { stdio: "inherit" });
@@ -34,6 +35,13 @@ for (const f of ["manifest.webmanifest", "sw.js", "icon-180.png", "icon-192.png"
 copyFileSync("landing/index.html", "dist/index.html");
 cpSync("landing/fonts", "dist/assets/fonts", { recursive: true });
 cpSync("landing/img", "dist/assets/img", { recursive: true });
+
+// privacyverklaring en voorwaarden: gedeelde kop + eigen inhoud
+const legalHead = readFileSync("landing/legal-head.html", "utf8");
+for (const page of ["privacy", "voorwaarden"]) {
+  mkdirSync(`dist/${page}`, { recursive: true });
+  writeFileSync(`dist/${page}/index.html`, `<!doctype html>\n<html lang="nl">\n<head>\n${legalHead}${readFileSync(`landing/${page}/body.html`, "utf8")}`);
+}
 
 const css = readFileSync("dist/tailwind.css", "utf8");
 const js = readFileSync("dist/app.js", "utf8");
@@ -66,8 +74,8 @@ let html = `<!doctype html>
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=nexa1">
 <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=nexa1">
 <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png?v=nexa1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="/assets/fonts/barlow-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/barlow-condensed-700.woff2" as="font" type="font/woff2" crossorigin>
 <style>${css}
 html,body{margin:0;min-height:100%;background:#EEF0F4}
 @media (prefers-color-scheme: dark){html:not([data-theme="light"]),html:not([data-theme="light"]) body{background:#08090C}}
@@ -91,3 +99,43 @@ html = html.slice(0, last) + swReg + html.slice(last);
 
 writeFileSync("dist/app/index.html", html);
 console.log(`dist/app/index.html geschreven, ${Math.round(html.length / 1024)} kB`);
+
+/* Content-Security-Policy per pagina. Inline scripts worden toegestaan via
+   hun SHA-256-hash, dus alleen precies deze code mag draaien; een
+   geïnjecteerd script wordt door de browser geweigerd. Stijlen blijven
+   inline toegestaan (React zet style-attributen). Elke build rekent de
+   hashes opnieuw uit. */
+const hashes = (file) =>
+  [...readFileSync(file, "utf8").matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+    (m) => `'sha256-${createHash("sha256").update(m[1], "utf8").digest("base64")}'`
+  );
+const csp = (scripts, connect) =>
+  [
+    "default-src 'self'",
+    `script-src 'self' ${scripts.join(" ")}`.trim(),
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    `connect-src 'self'${connect ? " " + connect : ""}`,
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+const SUPABASE = "https://lrtkedstyhfnwaxylyue.supabase.co";
+const rules = [
+  ["/app/*", csp(hashes("dist/app/index.html"), SUPABASE)],
+  ["/", csp(hashes("dist/index.html"))],
+  ["/index.html", csp(hashes("dist/index.html"))],
+  ...["privacy", "voorwaarden"].filter((p) => existsSync(`dist/${p}/index.html`)).map((p) => [`/${p}/*`, csp(hashes(`dist/${p}/index.html`))]),
+];
+writeFileSync(
+  "dist/_headers",
+  readFileSync("dist/_headers", "utf8").trimEnd() +
+    "\n\n# Content-Security-Policy, gegenereerd door build.mjs\n" +
+    rules.map(([path, v]) => `${path}\n  Content-Security-Policy: ${v}`).join("\n\n") +
+    "\n"
+);

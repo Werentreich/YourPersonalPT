@@ -62,11 +62,15 @@ export function sameOrigin(req) {
   }
 }
 
+export function bearer(req) {
+  const h = req.headers.get("authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice(7).trim() : "";
+}
+
 /* Wie is dit? De app stuurt het toegangstoken van de Supabase-sessie mee;
    Supabase zelf controleert het. */
 export async function userFromRequest(req) {
-  const h = req.headers.get("authorization") || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
+  const token = bearer(req);
   if (!token) return null;
   const r = await fetch(`${SB_URL}/auth/v1/user`, { headers: { apikey: SB_PUBLISHABLE, Authorization: `Bearer ${token}` } });
   if (!r.ok) return null;
@@ -146,6 +150,7 @@ export function rowFromSubscription(sub) {
     cancel_at_period_end: !!sub.cancel_at_period_end,
     stripe_customer_id: typeof sub.customer === "string" ? sub.customer : sub.customer && sub.customer.id,
     stripe_subscription_id: sub.id,
+    started_at: ts(sub.start_date || sub.created),
   };
 }
 
@@ -173,6 +178,25 @@ export async function syncSubscription(sub, hintUserId = null) {
   if (cur && cur.stripe_subscription_id && cur.stripe_subscription_id !== sub.id && ["trialing", "active", "past_due"].includes(cur.status) && !["trialing", "active", "past_due"].includes(row.status)) {
     return true;
   }
-  await upsertSub({ user_id: userId, ...row });
+  try {
+    await upsertSub({ user_id: userId, ...row });
+  } catch (e) {
+    // account inmiddels verwijderd (AVG art. 17): niets meer bij te werken
+    if (/23503/.test(String(e && e.message))) return true;
+    throw e;
+  }
   return true;
+}
+
+/* Dagquotum van de etiketscanner (Supabase-functie label_quota), uitgevoerd
+   als de gebruiker zelf. Geeft het aantal resterende scans, of -1 als het
+   quotum op is. Werkt zonder de geheime sleutel. */
+export async function labelQuota(token) {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/label_quota`, {
+    method: "POST",
+    headers: { apikey: SB_PUBLISHABLE, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!r.ok) throw new Error(`quotum: ${r.status}`);
+  return Number(await r.json());
 }

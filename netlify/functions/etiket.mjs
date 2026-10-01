@@ -6,7 +6,7 @@
    POST -> body { image: <base64 zonder data:-voorvoegsel>, mediaType }
            antwoord { ok: true, result } of { ok: false, code, message } */
 import Anthropic from "@anthropic-ai/sdk";
-import { billingEnabled, entitled, getSub, userFromRequest } from "../lib/billing-core.mjs";
+import { bearer, billingEnabled, entitled, getSub, labelQuota, userFromRequest } from "../lib/billing-core.mjs";
 
 const MODEL = "claude-opus-5";
 const MAX_BASE64 = 5_000_000; // ruim onder de 6 MB-grens van Netlify Functions
@@ -61,9 +61,10 @@ const json = (status, body) =>
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 
-/* Alleen de eigen site mag de functie aanroepen, zodat anderen niet via uw
-   sleutel foto's laten analyseren. Een browser stuurt bij een POST altijd
-   een Origin mee; die moet overeenkomen met het adres van de functie. */
+/* Eerste drempel: een browser stuurt bij een POST altijd een Origin mee, en
+   die moet overeenkomen met het adres van de functie. Buiten een browser is
+   die kop na te maken; de echte beveiliging is daarom de inlogcontrole en
+   het dagquotum hieronder. */
 function sameOrigin(req) {
   const origin = req.headers.get("origin");
   if (!origin) return false;
@@ -83,10 +84,11 @@ export default async (req) => {
   if (!sameOrigin(req)) return json(403, { ok: false, code: "herkomst", message: "Alleen de app zelf mag deze functie gebruiken." });
   if (!key) return json(503, { ok: false, code: "geen_sleutel", message: "Er is geen API-sleutel ingesteld op de server." });
 
-  /* Elke analyse kost geld; met abonnementen aan alleen voor Nexa Coach. */
+  /* Elke analyse kost geld: altijd inloggen, met abonnementen aan alleen
+     voor Nexa Coach, en hoogstens 30 scans per gebruiker per dag. */
+  const user = await userFromRequest(req).catch(() => null);
+  if (!user) return json(401, { ok: false, code: "inloggen", message: "Log in met uw Nexa-account om etiketten te scannen." });
   if (billingEnabled()) {
-    const user = await userFromRequest(req).catch(() => null);
-    if (!user) return json(401, { ok: false, code: "inloggen", message: "Log in met uw Nexa-account om etiketten te scannen." });
     const row = await getSub(user.id).catch(() => null);
     if (!entitled(row)) return json(402, { ok: false, code: "abonnement", message: "Etiketten scannen hoort bij Nexa Coach." });
   }
@@ -101,6 +103,15 @@ export default async (req) => {
   const mediaType = TYPES.has(body.mediaType) ? body.mediaType : "image/jpeg";
   if (!image || !/^[A-Za-z0-9+/=]+$/.test(image.slice(0, 200))) return json(400, { ok: false, code: "invoer", message: "Geen foto ontvangen." });
   if (image.length > MAX_BASE64) return json(413, { ok: false, code: "te_groot", message: "De foto is te groot." });
+
+  let left;
+  try {
+    left = await labelQuota(bearer(req));
+  } catch (e) {
+    console.error("etiket: quotum", e && e.message);
+    return json(503, { ok: false, code: "quotum", message: "Scannen is even niet beschikbaar. Probeer het later opnieuw." });
+  }
+  if (!(left >= 0)) return json(429, { ok: false, code: "quotum_op", message: "U heeft vandaag het maximum van 30 etiketten gescand. Morgen kan het weer; tot die tijd kunt u de waarden zelf invullen." });
 
   const client = new Anthropic({ apiKey: key, maxRetries: 1, timeout: 45_000 });
   try {

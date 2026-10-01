@@ -23,6 +23,9 @@ const BILLING_URL = "/.netlify/functions/billing";
 const SUB_TABLE = "nexa_subscriptions";
 export const ACTIVE_STATUSES = ["trialing", "active", "past_due", "comp"];
 const BOOT_TIMEOUT = 3500;
+/* Versie van de toestemmingstekst (AVG art. 9: uitdrukkelijke toestemming
+   voor gezondheidsgegevens). Bij een nieuwe versie vraagt de app opnieuw. */
+export const CONSENT_VERSION = "2026-10-01";
 
 const FRIENDLY = {
   invalid_credentials:
@@ -74,6 +77,12 @@ export function createSync(local) {
   const params = new URLSearchParams(typeof location !== "undefined" ? (location.hash || "").replace(/^#/, "") : "");
   // let op: de link bevat ook token_type=bearer; alleen de parameter "type" zegt wat voor link het is
   const linkType = params.get("access_token") ? params.get("type") || "link" : null;
+
+  const consentOf = (u) => {
+    const c = u && u.user_metadata && u.user_metadata.consent;
+    return c && c.version === CONSENT_VERSION ? c : null;
+  };
+  const userInfo = (u) => ({ id: u.id, email: u.email, consent: consentOf(u) });
 
   const auth = new AuthClient({
     url: `${SB_URL}/auth/v1`,
@@ -144,8 +153,12 @@ export function createSync(local) {
     return out;
   };
 
+  /* Zonder uitdrukkelijke toestemming gaan er geen gezondheidsgegevens naar
+     de server; de app vraagt die toestemming eerst. */
+  const canSync = () => !!(state.user && state.user.consent);
+
   async function push() {
-    if (!state.user) return;
+    if (!canSync()) return;
     const keys = dirty();
     const del = keys.filter((k) => meta.keys[k] && meta.keys[k].deleted);
     const rows = keys
@@ -212,7 +225,7 @@ export function createSync(local) {
 
   let running = null;
   function syncNow({ preferRemote = false } = {}) {
-    if (!state.user) return Promise.resolve({ changed: false });
+    if (!canSync()) return Promise.resolve({ changed: false });
     if (running) return running;
     emit({ status: "bezig" });
     running = (async () => {
@@ -236,7 +249,7 @@ export function createSync(local) {
 
   let timer = null;
   const schedulePush = () => {
-    if (!state.user) return;
+    if (!canSync()) return;
     clearTimeout(timer);
     timer = setTimeout(() => {
       push()
@@ -287,7 +300,7 @@ export function createSync(local) {
   async function afterLogin(user, { preferRemote }) {
     meta.user = user.id;
     saveMeta();
-    emit({ user: { id: user.id, email: user.email }, notice: null });
+    emit({ user: userInfo(user), notice: null });
     refreshBilling();
     const r = await syncNow({ preferRemote });
     if (r.changed && typeof location !== "undefined") location.reload();
@@ -332,7 +345,7 @@ export function createSync(local) {
     const { data } = await auth.getSession();
     return data && data.session ? data.session.access_token : null;
   };
-  async function billingCall(body) {
+  async function billingCall(body, { url = true } = {}) {
     const token = await accessToken();
     if (!token) {
       const e = new Error("Log eerst in met uw Nexa-account.");
@@ -346,13 +359,22 @@ export function createSync(local) {
       throw new Error("Geen verbinding. Controleer uw internet en probeer het opnieuw.");
     }
     const d = await r.json().catch(() => null);
-    if (!d || !d.ok || !d.url) {
+    if (!d || !d.ok || (url && !d.url)) {
       const e = new Error((d && d.message) || "Er ging iets mis. Probeer het later opnieuw.");
       e.code = d && d.code;
       throw e;
     }
-    return d.url;
+    return url ? d.url : d;
   }
+
+  /* Alle app-gegevens en hulpgegevens van dit apparaat wissen. */
+  const wipeDevice = () => {
+    local
+      .keys()
+      .filter((k) => k.startsWith(PREFIX) || k.startsWith("nexa:") || k === "nexa-auth")
+      .forEach((k) => local.remove(k));
+    meta = { keys: {}, user: null, lastSync: null };
+  };
 
   const api = {
     get state() {
@@ -363,8 +385,8 @@ export function createSync(local) {
       fn(state);
       return () => listeners.delete(fn);
     },
-    async signUp(email, password) {
-      const { data, error } = await auth.signUp({ email, password, options: { emailRedirectTo: `${location.origin}/app/` } });
+    async signUp(email, password, consent) {
+      const { data, error } = await auth.signUp({ email, password, options: { emailRedirectTo: `${location.origin}/app/`, data: consent ? { consent: { ...consent, version: CONSENT_VERSION } } : {} } });
       if (error) throw friendly(error);
       if (data.session) {
         await afterLogin(data.session.user, { preferRemote: false });
@@ -378,14 +400,88 @@ export function createSync(local) {
       await afterLogin(data.user, { preferRemote: true });
       return { ok: true };
     },
-    async signOut() {
+    async signOut({ wipe = false } = {}) {
       clearTimeout(timer);
       await push().catch(() => {});
       await auth.signOut({ scope: "local" }).catch(() => {});
       meta.user = null;
+      if (wipe) {
+        wipeDevice();
+        if (typeof location !== "undefined") location.reload();
+        return;
+      }
       saveMeta();
       emit({ user: null, status: "uit", error: null });
       setBilling({ sub: null, subUser: null });
+    },
+    /* Uitdrukkelijke toestemming vastleggen (bij bestaande accounts of een
+       nieuwe versie van de tekst). */
+    async giveConsent(consent) {
+      const c = { ...consent, version: CONSENT_VERSION };
+      const { data, error } = await auth.updateUser({ data: { consent: c } });
+      if (error) throw friendly(error);
+      emit({ user: userInfo(data.user) });
+      const r = await syncNow({ preferRemote: true });
+      if (r.changed && typeof location !== "undefined") location.reload();
+    },
+    /* Recht op inzage en overdraagbaarheid (AVG art. 15 en 20): alles wat
+       de app over de gebruiker bewaart, als leesbaar JSON-bestand. */
+    exportData() {
+      const data = {};
+      local
+        .keys()
+        .filter((k) => k.startsWith(PREFIX))
+        .forEach((k) => {
+          const v = local.get(k);
+          try {
+            data[k] = JSON.parse(v);
+          } catch (e) {
+            data[k] = v;
+          }
+        });
+      return {
+        toelichting: "Export van al uw Nexa-gegevens. Dezelfde gegevens staan in uw Nexa-account als u bent ingelogd.",
+        geexporteerd: new Date().toISOString(),
+        account: state.user ? { id: state.user.id, email: state.user.email, toestemming: state.user.consent } : null,
+        abonnement: state.billing && state.billing.sub ? state.billing.sub : null,
+        gegevens: data,
+      };
+    },
+    /* Recht op vergetelheid (AVG art. 17). Een lopend abonnement wordt eerst
+       direct gestopt; daarna verwijdert Supabase het account met alle
+       gegevens (on delete cascade). */
+    async deleteAccount({ wipe = true } = {}) {
+      if (!state.user) throw new Error("Log eerst in.");
+      const sub = state.billing && state.billing.sub;
+      if (sub && sub.stripe_customer_id && ["trialing", "active", "past_due", "unpaid", "incomplete", "paused"].includes(sub.status)) {
+        await billingCall({ action: "cancel_now" }, { url: false });
+      }
+      clearTimeout(timer);
+      const { error } = await rest.rpc("delete_own_account");
+      if (error) throw new Error("Verwijderen mislukt. Probeer het later opnieuw of mail ons.");
+      await auth.signOut({ scope: "local" }).catch(() => {});
+      if (wipe) {
+        wipeDevice();
+      } else {
+        meta = { keys: {}, user: null, lastSync: null };
+        saveMeta();
+      }
+      emit({ user: null, status: "uit", error: null, notice: "verwijderd" });
+      setBilling({ sub: null, subUser: null });
+      if (wipe && typeof location !== "undefined") location.reload();
+    },
+    /* Herroepen binnen 14 dagen (Europese herroepingsknop). */
+    async withdraw() {
+      setBilling({ busy: true, error: null });
+      try {
+        const d = await billingCall({ action: "withdraw" }, { url: false });
+        await refreshBilling();
+        setBilling({ busy: false });
+        return d;
+      } catch (e) {
+        setBilling({ busy: false, error: e.message });
+        throw e;
+      }
     },
     async resetPassword(email) {
       const { error } = await auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/app/` });
@@ -449,7 +545,7 @@ export function createSync(local) {
         return;
       }
       if (session && session.user) {
-        emit({ user: { id: session.user.id, email: session.user.email } });
+        emit({ user: userInfo(session.user) });
         await Promise.race([syncNow(), new Promise((r) => setTimeout(r, BOOT_TIMEOUT))]);
       }
     } catch (e) {
@@ -463,7 +559,7 @@ export function createSync(local) {
     if (event === "PASSWORD_RECOVERY") emit({ recovery: true });
     if (event === "SIGNED_OUT" && !state.recovery) emit({ user: null, status: "uit" });
     if (event === "TOKEN_REFRESHED" && session && session.user && !state.user && !linkType) {
-      emit({ user: { id: session.user.id, email: session.user.email } });
+      emit({ user: userInfo(session.user) });
     }
   });
 
