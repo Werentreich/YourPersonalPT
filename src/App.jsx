@@ -642,7 +642,7 @@ function chainPlan(i) {
 }
 
 /* Trend uit de gewichtslog: lineaire regressie over de laatste 28 dagen */
-function weightTrend(entries, windowDays = 28) {
+function weightTrend(entries, windowDays = 28, { minSpan = 10, minN = 4 } = {}) {
   const pts = [...entries]
     .filter((e) => e.weight > 0)
     .map((e) => ({ t: Date.parse(e.date) / 86400000, w: e.weight }))
@@ -652,8 +652,8 @@ function weightTrend(entries, windowDays = 28) {
   const last = pts[pts.length - 1].t;
   const used = pts.filter((p) => last - p.t <= windowDays);
   const span = used[used.length - 1].t - used[0].t;
-  if (used.length < 4 || span < 10)
-    return { ok: false, n: used.length, span, reason: "minstens tien dagen aan metingen nodig" };
+  if (used.length < minN || span < minSpan)
+    return { ok: false, n: used.length, span, reason: minSpan >= 10 ? "minstens tien dagen aan metingen nodig" : `minstens ${minSpan} dagen aan metingen nodig` };
 
   const mt = sum(used.map((p) => p.t)) / used.length;
   const mw = sum(used.map((p) => p.w)) / used.length;
@@ -875,13 +875,109 @@ function phaseLengthAdvice({ goal, since, from, brk, today, cutWeeks = 10, cutPa
   return a;
 }
 
-function calorieCorrection({ trend, targetKgPerWeek, goal }) {
+/* Energie van een gewichtsverandering: afvallen kost ongeveer 7700 kcal
+   per kg (vooral vet), aankomen met training ongeveer 5500 (deels spier,
+   glycogeen en vocht). Een tempo van -0,9 naar +0,2 kg per week loopt over
+   beide stukken. */
+const energyOfRate = (kgPerWeek) => (kgPerWeek < 0 ? kgPerWeek * 7700 : kgPerWeek * 5500);
+// hoogstens zoveel kcal per bijsturing, daarna eerst een week meten
+const CORR_STEP = 300;
+const CORR_WAIT_DAYS = 7;
+
+function calorieCorrection({ trend, targetKgPerWeek }) {
   if (!trend.ok) return null;
   const gap = targetKgPerWeek - trend.kgPerWeek; // positief = we verliezen te snel
-  const energyPerKg = goal === "bulk" ? 5500 : 7700;
-  const perDay = (gap * energyPerKg) / 7;
-  const rounded = Math.round(perDay / 50) * 50;
-  return { gap, perDay, rounded, meaningful: Math.abs(rounded) >= 100 };
+  const perDay = (energyOfRate(targetKgPerWeek) - energyOfRate(trend.kgPerWeek)) / 7;
+  const full = Math.round(perDay / 50) * 50;
+  const rounded = Math.max(-CORR_STEP, Math.min(CORR_STEP, full));
+  return { gap, perDay, full, rounded, stepsLeft: Math.max(1, Math.ceil(Math.abs(full) / CORR_STEP)), meaningful: Math.abs(full) >= 100 };
+}
+
+/* Gemiddelde voorgeschreven inname tussen twee data, uit de geschiedenis van
+   het daggemiddelde (een trap: elke waarde geldt tot de volgende). */
+function intakeBetween(hist, fromIso, toIso, fallback) {
+  const from = Date.parse(fromIso);
+  const to = Date.parse(toIso) + 864e5;
+  const pts = (hist || []).filter((h) => h && h.date && Number.isFinite(h.avg)).sort((a, b) => a.date.localeCompare(b.date));
+  if (!pts.length || to <= from) return fallback;
+  let total = 0;
+  let span = 0;
+  pts.forEach((h, k) => {
+    const a = Math.max(from, Date.parse(h.date));
+    const b = Math.min(to, k + 1 < pts.length ? Date.parse(pts[k + 1].date) : to);
+    if (b > a) {
+      total += h.avg * (b - a);
+      span += b - a;
+    }
+  });
+  // vóór de eerste registratie: de eerste bekende waarde
+  const first = Date.parse(pts[0].date);
+  if (first > from) {
+    total += pts[0].avg * (Math.min(first, to) - from);
+    span += Math.min(first, to) - from;
+  }
+  return span > 0 ? total / span : fallback;
+}
+
+/* De coach: beslist wat de app over het gewichtsverloop zegt.
+   - vroeg: na 7 dagen gaat het gewicht duidelijk de verkeerde kant op
+   - wacht: na een bijsturing eerst een week meten
+   - pauze: begin van een fase, afwijking in de richting van vocht/glycogeen
+   - trouw: de gebruiker volgt het schema vaak niet; eerst daaraan werken
+   - bijsturen: in stappen van hoogstens 300 kcal; moet er minder gegeten
+     worden en loopt de gebruiker onder het gezondheidsminimum, dan eerst
+     meer stappen (nooit minder lopen om aan te komen)
+   - koers: binnen de meetruis
+   Daarnaast het gemeten onderhoud zodra er drie weken aan metingen is. */
+function coachState({ log, goal, targetKgPerWeek, coach = {}, today, plan, steps, age, weight, checkins = [], avgTarget, tdeeAvg }) {
+  const d = (iso) => Math.round(Date.parse(iso) / 864e5);
+  const t = d(today);
+  const last = [...(checkins || [])].filter((c) => c && c.date && d(c.date) >= t - 10 && c.adherence).sort((a, b) => a.date.localeCompare(b.date)).pop();
+  const adherence = last ? last.adherence : null;
+  const corr = coach.corr && coach.corr.at && t - d(coach.corr.at) <= 28 ? coach.corr : null;
+  const floor = stepFloor(age);
+  const out = { adherence, floor, corr, measured: null };
+
+  // gemeten onderhoud: drie weken metingen, schema redelijk gevolgd
+  const long = weightTrend(log, 28, { minSpan: 21, minN: 10 });
+  if (long.ok && adherence !== "slecht") {
+    const lastDate = [...log].sort((a, b) => a.date.localeCompare(b.date)).pop().date;
+    const fromIso = new Date(Date.parse(lastDate) - long.span * 864e5).toISOString().slice(0, 10);
+    const intake = intakeBetween(coach.kcalHist, fromIso, lastDate, avgTarget);
+    const kcal = Math.round((intake - energyOfRate(long.kgPerWeek) / 7) / 10) * 10;
+    out.measured = { kcal, formula: Math.round(tdeeAvg), intake: Math.round(intake), span: Math.round(long.span) };
+  }
+
+  if (corr && t - d(corr.at) < CORR_WAIT_DAYS) return { ...out, stage: "wacht", until: new Date((d(corr.at) + CORR_WAIT_DAYS) * 864e5).toISOString().slice(0, 10) };
+
+  // na een bijsturing telt alleen wat daarna gemeten is
+  const since = corr ? log.filter((e) => e.date >= corr.at) : log;
+  const trend = corr ? weightTrend(since, 28, { minSpan: 6, minN: 5 }) : weightTrend(log);
+  const wrong = (kgw) => (goal === "bulk" ? kgw < targetKgPerWeek - 0.4 : goal === "cut" ? kgw > targetKgPerWeek + 0.4 : Math.abs(kgw - targetKgPerWeek) > 0.4);
+  if (!trend.ok) {
+    const early = weightTrend(since, 28, { minSpan: 6, minN: 5 });
+    if (early.ok && wrong(early.kgPerWeek) && !(coach.earlyDismissed && t - d(coach.earlyDismissed) < 3)) {
+      const c = calorieCorrection({ trend: early, targetKgPerWeek });
+      return { ...out, stage: "vroeg", trend: early, correction: c, small: Math.sign(c.full) * 150 };
+    }
+    return { ...out, stage: "geen", trend };
+  }
+  const c = calorieCorrection({ trend, targetKgPerWeek });
+  out.trend = trend;
+  out.correction = c;
+  // begin van een fase: alleen pauzeren als de afwijking past bij vocht en glycogeen
+  if (plan && plan.active && (plan.inPhase < 3 || plan.phase === "reverse")) {
+    const waterDir = plan.phase === "reverse" || goal === "bulk" ? trend.kgPerWeek > targetKgPerWeek : goal === "cut" ? trend.kgPerWeek < targetKgPerWeek : false;
+    if (waterDir) return { ...out, stage: "pauze" };
+  }
+  if (!c.meaningful) return { ...out, stage: "koers" };
+  if (adherence === "slecht" && !coach.adherenceOverride) return { ...out, stage: "trouw" };
+  let stepsFirst = null;
+  if (c.rounded < 0 && steps < floor) {
+    const kcal = Math.round(stepKcal(floor - steps, weight) / 10) * 10;
+    stepsFirst = { from: steps, to: floor, kcal, rest: Math.min(0, c.rounded + kcal) };
+  }
+  return { ...out, stage: "bijsturen", stepsFirst };
 }
 
 /* ---------------- lichaamssamenstelling ----------------
@@ -1642,6 +1738,36 @@ function buildMealPortions({ target, items, veg, index = BASE_INDEX }) {
 
 /* ----------------------------- constanten ----------------------------- */
 
+/* Dagelijkse beweging buiten de training: stappen plus werk. Rust-
+   metabolisme × 1,15 dekt vertering en dagelijkse handelingen; lopen kost
+   ongeveer 0,0005 kcal per stap per kg lichaamsgewicht (0,4 tot 0,6 netto
+   tot bruto); werk telt apart voor wat niet uit lopen komt. Het resultaat is
+   een factor op het rustmetabolisme, zodat alle planners er hetzelfde mee
+   rekenen. */
+const STEP_KCAL_PER_KG = 0.0005;
+const BASE_FACTOR = 1.15;
+const WORK = {
+  zittend: { label: "Zittend werk of studie", kcal: 0 },
+  staand: { label: "Staand werk (winkel, zorg, horeca)", kcal: 100 },
+  zwaar: { label: "Fysiek zwaar werk (bouw, magazijn)", kcal: 350 },
+};
+const STEP_OPTIONS = [3000, 5000, 7000, 9000, 11000, 13000];
+const stepsLabel = (n) => `${Math.round(n).toLocaleString("nl-NL")}`;
+// gezondheidsminimum: rond 8.000 stappen vlakt de winst voor sterfterisico af (Paluch 2022), vanaf 60 jaar rond 6.000-8.000
+const stepFloor = (age) => (num(age, 30) >= 60 ? 7000 : 8000);
+// oude activiteitskeuze naar stappen en werk (eenmalige omzetting)
+const ACTIVITY_TO_STEPS = { zittend: [5000, "zittend"], licht: [9000, "zittend"], actief: [12000, "staand"], zwaar: [12000, "zwaar"] };
+function stepsOf(f) {
+  if (Number.isFinite(Number(f.steps)) && Number(f.steps) > 0) return { steps: Number(f.steps), work: WORK[f.work] ? f.work : "zittend", est: false };
+  const m = ACTIVITY_TO_STEPS[f.activity] || ACTIVITY_TO_STEPS.licht;
+  return { steps: m[0], work: m[1], est: true };
+}
+const stepKcal = (steps, weight) => Math.max(0, num(steps, 0)) * STEP_KCAL_PER_KG * Math.max(20, num(weight, 80));
+function activityFactorOf(bmr, { steps, work, weight }) {
+  const extra = stepKcal(steps, weight) + (WORK[work] ? WORK[work].kcal : 0);
+  return BASE_FACTOR + extra / Math.max(800, bmr);
+}
+
 const ACTIVITY = [
   { id: "zittend", label: "Zittend werk, weinig beweging", factor: 1.2 },
   { id: "licht", label: "Zittend werk, dagelijks wandelen", factor: 1.35 },
@@ -1831,7 +1957,7 @@ const HORMONE_TIPS = {
 const ONB = [
   { title: "Over u", sub: "Vier gegevens waarmee de app uw rustmetabolisme berekent." },
   { title: "Vetpercentage", sub: "Kies de beschrijving die het dichtst in de buurt komt. Een schatting volstaat: hiermee rekent de app op vetvrije massa, wat nauwkeuriger is dan op lichaamsgewicht." },
-  { title: "Uw dag", sub: "Alles buiten uw trainingen om. Dit weegt zwaarder dan de trainingen zelf." },
+  { title: "Uw dag", sub: "Alles buiten uw trainingen om: hoeveel u loopt en wat voor werk u doet. Dit weegt zwaarder dan de trainingen zelf." },
   { title: "Uw training", sub: "De dagen bepalen de caloriecycling, het tijdstip bepaalt waar de koolhydraten landen." },
   { title: "Uw doel", sub: "Hierna staat uw schema klaar. Alles blijft daarna aan te passen." },
 ];
@@ -9602,6 +9728,257 @@ function AccountSection({ s, onConsent }) {
   );
 }
 
+/* Wat de coach over het gewichtsverloop zegt, met de knoppen om bij te sturen. */
+const kgTxt2 = (v) => `${v > 0 ? "+" : ""}${v.toFixed(2).replace(".", ",")}`;
+const kcalTxt = (v) => `${v > 0 ? "+" : ""}${Math.round(v)}`;
+function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdvice, kcalAdjust, correctionPaused, onApply, onSteps, onMeasured, onReset, onDismissEarly, onOverrideAdherence, onOpenSteps, compact = false }) {
+  const box = (tone, children) => (
+    <div className="mt-3 rounded px-3 py-2.5" style={{ background: tone === "warn" ? C.warnBg : C.surface2, border: `1px solid ${tone === "warn" ? C.warn : tone === "good" ? C.carb : C.line}` }}>
+      {children}
+    </div>
+  );
+  const txt = (color) => ({ color, fontSize: 12, lineHeight: 1.55 });
+  const btn = (label, onClick, kind = "primary") => (
+    <button
+      key={label}
+      onClick={onClick}
+      className="tap px-3 py-1.5 text-sm"
+      style={kind === "primary" ? { background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600 } : { border: `1px solid ${C.line}`, color: C.muted, borderRadius: R.field }}
+    >
+      {label}
+    </button>
+  );
+  const c = cs.correction;
+  const measured =
+    !compact && cs.measured && Math.abs(cs.measured.kcal - cs.measured.formula) >= 100 && cs.stage !== "wacht"
+      ? box(
+          null,
+          <>
+            <p style={txt(C.ink)}>
+              <strong>Gemeten onderhoud: ± {cs.measured.kcal} kcal per dag.</strong> De formule zegt {cs.measured.formula}. Dit volgt uit uw gewicht over{" "}
+              {cs.measured.span} dagen en uw schema van gemiddeld {cs.measured.intake} kcal, als u dat ook echt at.
+            </p>
+            <div className="flex gap-2 mt-2">{btn("Rekenen met gemeten onderhoud", onMeasured)}</div>
+          </>
+        )
+      : null;
+  let main = null;
+  if (cs.stage === "vroeg") {
+    const tr = cs.trend;
+    main = box(
+      "warn",
+      <>
+        <p style={{ ...txt(C.warn), fontWeight: 600 }}>Uw gewicht gaat de andere kant op</p>
+        <p style={txt(C.warn)}>
+          Na {Math.round(tr.span)} dagen: {kgTxt2(tr.kgPerWeek)} kg per week, gepland {kgTxt2(targetKg)}. Dat is ± {Math.abs(c.full)} kcal per dag verschil.
+          {goal === "bulk" && tr.kgPerWeek < 0 ? " In een opbouwfase stijgt het gewicht in het begin juist door glycogeen en vocht; dalen wijst op een echt tekort." : ""}
+        </p>
+        <p style={{ ...txt(C.warn), marginTop: 6 }}>Kijk eerst:</p>
+        <ul style={{ ...txt(C.warn), paddingLeft: 18, listStyle: "disc" }}>
+          <li>Eet u alle maaltijden, ook de vroege?</li>
+          <li>Weegt u de porties, of schat u ze?</li>
+          <li>Klopt uw aantal stappen nog?</li>
+        </ul>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {btn("Stappen controleren", onOpenSteps, "ghost")}
+          {btn(`Kleine correctie (${kcalTxt(cs.small)} kcal)`, () => onApply(cs.small))}
+          {btn("Later", onDismissEarly, "ghost")}
+        </div>
+      </>
+    );
+  } else if (cs.stage === "wacht") {
+    main = box(
+      null,
+      <p style={txt(C.muted)}>
+        Bijgestuurd op {dateLong(cs.corr.at)}
+        {cs.corr.steps ? ` (meer lopen: ${stepsLabel(cs.corr.steps)} stappen${cs.corr.amount ? `, ${kcalTxt(cs.corr.amount)} kcal` : ""})` : cs.corr.measured ? ` (gemeten onderhoud ${cs.corr.measured} kcal)` : ` (${kcalTxt(cs.corr.amount)} kcal per dag)`}. Vanaf {dateLong(cs.until)} kijkt de app
+        opnieuw, alleen naar de metingen van daarna. Zo ziet u wat de aanpassing doet.
+      </p>
+    );
+  } else if (cs.stage === "pauze") {
+    main = <p className="text-xs mt-2 leading-relaxed" style={{ color: C.muted }}>{correctionPaused}</p>;
+  } else if (cs.stage === "koers") {
+    main = (
+      <p className="text-xs mt-2 leading-relaxed" style={{ color: C.carb }}>
+        U ligt op koers. Een afwijking onder 100 kcal per dag valt binnen de meetruis; laat het schema staan.
+      </p>
+    );
+  } else if (cs.stage === "trouw") {
+    main = box(
+      "warn",
+      <>
+        <p style={{ ...txt(C.warn), fontWeight: 600 }}>Eerst het schema volgen</p>
+        <p style={txt(C.warn)}>
+          U gaf bij uw laatste meting aan het schema vaak niet te volgen. Dan zegt de weegschaal iets over wat u at, niet over het schema; bijsturen
+          maakt het dan alleen onrustiger. Probeer een week de porties te wegen en alle maaltijden te eten. Lukt dat niet, kijk dan of een ander
+          aantal maaltijden of andere producten beter in uw dag past.
+        </p>
+        <div className="flex gap-2 mt-2">{btn(`Toch bijsturen (${kcalTxt(c.rounded)} kcal)`, onOverrideAdherence, "ghost")}</div>
+      </>
+    );
+  } else if (cs.stage === "bijsturen" && advice && advice.suppress && !overrideAdvice) {
+    main = box(
+      "good",
+      <>
+        <p style={{ ...txt(C.carb), fontWeight: 600 }}>{advice.title}</p>
+        <p style={txt(C.ink)}>{advice.text}</p>
+        <button onClick={() => setOverrideAdvice(true)} className="tap text-xs underline mt-2" style={{ color: C.muted }}>
+          Toch bijsturen ({kcalTxt(c.rounded)} kcal)
+        </button>
+      </>
+    );
+  } else if (cs.stage === "bijsturen") {
+    const sf = cs.stepsFirst;
+    main = box(
+      "warn",
+      <>
+        {advice && !advice.suppress && (
+          <p style={{ ...txt(C.warn), marginBottom: 6 }}>
+            <strong>{advice.title}.</strong> {advice.text}
+          </p>
+        )}
+        <p style={txt(C.warn)}>
+          U zit {c.full < 0 ? "boven" : "onder"} het geplande tempo: in totaal ± {Math.abs(c.full)} kcal per dag. De app stuurt bij in stappen van
+          hoogstens {CORR_STEP} kcal en meet daarna een week{c.stepsLeft > 1 ? ` (stap 1 van ongeveer ${c.stepsLeft})` : ""}.
+        </p>
+        {cs.adherence === "meestal" && (
+          <p style={{ ...txt(C.warn), marginTop: 6 }}>U volgt het schema meestal. Weeg een paar dagen de porties, zodat u zeker weet dat de afwijking niet daar vandaan komt.</p>
+        )}
+        {sf ? (
+          <>
+            <p style={{ ...txt(C.warn), marginTop: 6 }}>
+              <strong>Eerst meer bewegen.</strong> U loopt nu ± {stepsLabel(sf.from)} stappen per dag, onder het gezondheidsminimum van {stepsLabel(sf.to)}. Naar{" "}
+              {stepsLabel(sf.to)} stappen verbruikt u ± {sf.kcal} kcal per dag meer{sf.rest < 0 ? `; daarnaast eet u ${Math.abs(sf.rest)} kcal minder` : "; u eet gewoon hetzelfde"}.
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {btn(`Naar ${stepsLabel(sf.to)} stappen`, () => onSteps(sf))}
+              {btn(`Liever minder eten (${kcalTxt(c.rounded)} kcal)`, () => onApply(c.rounded), "ghost")}
+            </div>
+          </>
+        ) : (
+          <>
+            {c.rounded > 0 && (
+              <p style={{ ...txt(C.warn), marginTop: 6 }}>Minder lopen is nooit de oplossing: blijf gewoon bewegen, de app stuurt alleen bij met eten.</p>
+            )}
+            <div className="flex flex-wrap gap-2 mt-2">{btn(`Toepassen (${kcalTxt(c.rounded)} kcal)`, () => onApply(c.rounded))}</div>
+          </>
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {main}
+      {measured}
+      {!compact && kcalAdjust !== 0 && (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-xs tnum" style={{ color: C.muted }}>
+            Actieve correctie: {kcalTxt(kcalAdjust)} kcal per dag.
+          </span>
+          <button onClick={onReset} className="tap text-xs underline" style={{ color: C.muted }}>
+            Wissen
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function StepsSheet({ f, setF, onClose }) {
+  return (
+    <Sheet title="Uw dagelijkse beweging" onClose={onClose}>
+      <StepsPicker f={f} setF={setF} />
+      <div className="mt-4">
+        <TBtn full onClick={onClose}>
+          Klaar
+        </TBtn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* Stappen per dag en soort werk; vervangt de oude activiteitskeuze. */
+function StepsPicker({ f, setF, dark = false }) {
+  const cur = stepsOf(f);
+  const muted = dark ? C.darkMuted : C.muted;
+  const ink = dark ? C.darkInk : C.ink;
+  const w = num(f.weight, 80);
+  const floor = stepFloor(f.age);
+  const chip = (on, label, onClick, key) => (
+    <button
+      key={key}
+      onClick={onClick}
+      className="tap px-3 py-2 text-sm"
+      style={{
+        borderRadius: R.field,
+        border: `1px solid ${on ? "var(--accent)" : dark ? C.darkLine : C.line}`,
+        background: on ? "var(--accent)" : dark ? "rgba(255,255,255,.07)" : C.surface2,
+        color: on ? "var(--on-accent)" : ink,
+        fontWeight: on ? 600 : 500,
+      }}
+      aria-pressed={on}
+    >
+      {label}
+    </button>
+  );
+  const setSteps = (n) => setF((s) => ({ ...s, steps: n, work: WORK[s.work] ? s.work : stepsOf(s).work }));
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="text-sm font-medium mb-1" style={{ color: ink }}>
+          Hoeveel stappen zet u gemiddeld per dag?
+        </div>
+        <div className="text-xs mb-2 leading-relaxed" style={{ color: muted }}>
+          Kijk in de app van uw telefoon of horloge naar het gemiddelde van de afgelopen weken.
+        </div>
+        <div className="grid grid-cols-3 gap-1.5">
+          {STEP_OPTIONS.map((n, k) =>
+            chip(
+              !cur.est && Math.abs(cur.steps - n) < 1000,
+              k === 0 ? "< 4.000" : k === STEP_OPTIONS.length - 1 ? "> 12.000" : `${stepsLabel(n - 1000)}–${stepsLabel(n + 1000)}`,
+              () => setSteps(n),
+              n
+            )
+          )}
+        </div>
+        <label className="flex items-center gap-2 mt-2 text-xs" style={{ color: muted }}>
+          Of precies:
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={40000}
+            step={500}
+            value={cur.est ? "" : cur.steps}
+            placeholder={stepsLabel(cur.steps)}
+            onChange={(e) => {
+              const v = Math.round(Number(e.target.value));
+              if (Number.isFinite(v) && v >= 0 && v <= 40000) setSteps(v);
+            }}
+            className="px-2 py-1 tnum"
+            style={{ width: 96, border: `1px solid ${dark ? C.darkLine : C.line}`, borderRadius: R.field, background: dark ? "rgba(255,255,255,.07)" : C.surface2, color: ink }}
+            aria-label="Stappen per dag"
+          />
+          stappen
+        </label>
+        <div className="text-xs mt-2 leading-relaxed" style={{ color: muted }}>
+          {cur.est ? "Nog niet ingevuld; de app rekent nu met een schatting van " + stepsLabel(cur.steps) + " stappen. " : ""}
+          Lopen kost u ± {Math.round(stepKcal(cur.steps, w))} kcal per dag.{" "}
+          {cur.steps < floor
+            ? `Onder de ${stepsLabel(floor)} stappen: dat is het gezondheidsminimum. Elke duizend stappen extra helpt.`
+            : "Boven het gezondheidsminimum van " + stepsLabel(floor) + " stappen."}
+        </div>
+      </div>
+      <div>
+        <div className="text-sm font-medium mb-2" style={{ color: ink }}>
+          Wat voor werk doet u?
+        </div>
+        <div className="grid gap-1.5">{Object.entries(WORK).map(([k, v]) => chip(cur.work === k && !cur.est, v.label, () => setF((s) => ({ ...s, work: k, steps: stepsOf(s).steps })), k))}</div>
+      </div>
+    </div>
+  );
+}
+
 /* Privacy: verklaring, gegevens downloaden (AVG art. 15 en 20), van dit
    apparaat wissen en het account verwijderen (art. 17). */
 function downloadJson(obj, name) {
@@ -9828,8 +10205,16 @@ function SyncNotices({ s }) {
 const nlNum = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
 const signed = (v, d = 1) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${nlNum(Math.abs(v), d)}`;
 
-function CheckinSheet({ sex, last, onSave, onClose }) {
+const ADHERENCE = [
+  { id: "goed", label: "Bijna altijd", hint: "Alle maaltijden, porties gewogen of goed ingeschat" },
+  { id: "meestal", label: "Meestal", hint: "Een paar keer afgeweken of geschat" },
+  { id: "slecht", label: "Vaak niet", hint: "Maaltijden overgeslagen of veel anders gegeten" },
+];
+
+function CheckinSheet({ sex, last, steps, onSave, onClose }) {
   const [x, setX] = useState(() => ({
+    steps: steps ? String(Math.round(steps)) : "",
+    adherence: "",
     date: localISO(),
     waist: "",
     neck: last && last.neck ? last.neck : "",
@@ -9876,7 +10261,11 @@ function CheckinSheet({ sex, last, onSave, onClose }) {
     if (hip && !(hip >= 50 && hip <= 200)) return setErr("De heupomtrek lijkt niet te kloppen; vul centimeters in.");
     if (x.method && !(bf >= 3 && bf <= 60)) return setErr("Vul het gemeten vetpercentage in, of kies geen andere meting.");
     if (!x.date) return setErr("Kies een datum.");
+    const st = Math.round(num(x.steps, 0));
+    if (x.steps !== "" && !(st >= 0 && st <= 40000)) return setErr("Het aantal stappen lijkt niet te kloppen.");
     onSave({
+      steps: x.steps !== "" ? st : null,
+      adherence: x.adherence || null,
       date: x.date,
       waist,
       neck: neck || null,
@@ -9925,6 +10314,47 @@ function CheckinSheet({ sex, last, onSave, onClose }) {
                 </span>
               </>
             )}
+          </div>
+        </div>
+        <label className="block">
+          <span className="text-sm font-medium">Gemiddeld aantal stappen deze week</span>
+          <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+            Uit de app van uw telefoon of horloge. Zo blijft uw verbruik actueel.
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            step="500"
+            value={x.steps}
+            onChange={(e) => s("steps", e.target.value)}
+            className="w-32 mt-1 px-3 py-2 text-sm tnum"
+            style={inputStyle}
+            aria-label="Gemiddeld aantal stappen"
+          />
+        </label>
+        <div>
+          <span className="text-sm font-medium">Hoe goed volgde u het voedingsschema?</span>
+          <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+            Eerlijk antwoord helpt: de app stuurt alleen bij als het schema ook gevolgd is.
+          </span>
+          <div className="grid gap-1.5 mt-1.5">
+            {ADHERENCE.map((a) => {
+              const on = x.adherence === a.id;
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => s("adherence", a.id)}
+                  className="tap text-left px-3 py-2"
+                  style={{ border: `1.5px solid ${on ? C.accent : C.line}`, borderRadius: R.field, background: on ? C.surface2 : "transparent" }}
+                  aria-pressed={on}
+                >
+                  <span className="text-sm font-semibold block">{a.label}</span>
+                  <span className="text-xs" style={{ color: C.muted }}>
+                    {a.hint}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
         {err && (
@@ -10673,6 +11103,9 @@ function MacroApp() {
   const [newEntry, setNewEntry] = useState({ date: todayISO(), weight: "" });
   const [chartRange, setChartRange] = useState(28);
   const [kcalAdjust, setKcalAdjust] = useState(0);
+  // coach: laatste bijsturing, geschiedenis van het daggemiddelde, weggeklikte meldingen
+  const [coach, setCoach] = useState({});
+  const [stepsOpen, setStepsOpen] = useState(false);
   const [phaseCfg, setPhaseCfg] = useState({
     targetWeight: 78,
     blockWeeks: 10,
@@ -10935,6 +11368,7 @@ function MacroApp() {
             setWeek((w) => w.map((day, k) => ({ ...day, ...d.week[k] })));
           if (d.log) setLog(d.log);
           if (typeof d.kcalAdjust === "number") setKcalAdjust(d.kcalAdjust);
+          if (d.coach && typeof d.coach === "object") setCoach(d.coach);
           if (d.phaseCfg) setPhaseCfg((s) => ({ ...s, ...d.phaseCfg }));
           if (d.customFoods) setCustomFoods(d.customFoods);
           if (d.savedMeals) setSavedMeals(d.savedMeals);
@@ -10989,14 +11423,14 @@ function MacroApp() {
       try {
         window.storage.set(
           STORE_KEY,
-          JSON.stringify({ f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
+          JSON.stringify({ f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
         );
       } catch (e) {
         setStorage("uit");
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [f, week, log, kcalAdjust, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
+  }, [f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
 
   /* ---------------- rekenwerk ---------------- */
 
@@ -11079,7 +11513,7 @@ function MacroApp() {
       weight,
       bodyFat: num(f.bodyFat, 0),
       useBodyFat: f.useBodyFat,
-      activityFactor: ACTIVITY.find((a) => a.id === f.activity).factor,
+      activityFactor: activityFactorOf(calcBMR({ sex: f.sex, weight, height: Math.max(100, num(f.height, 175)), age: Math.max(12, num(f.age, 30)), bodyFat: num(f.bodyFat, 0), useBodyFat: f.useBodyFat }), { ...stepsOf(f), weight }),
       goal: effGoal,
       rate: effGoal === "onderhoud" ? 0 : effRate,
       cycling: f.cycling,
@@ -11108,6 +11542,8 @@ function MacroApp() {
     if (a.kind === "skip") return " · training overgeslagen";
     return a.from === k ? ` · training verplaatst naar ${DAY_FULL[a.to].toLowerCase()}` : ` · verplaatst van ${DAY_FULL[a.from].toLowerCase()}`;
   };
+  const undoAdjAt = (idx) =>
+    setWeekAdj((cur) => (!cur || cur.weekStart !== thisMonday ? cur : { ...cur, list: cur.list.filter((_, i) => i !== idx) }));
   const undoAdj = () =>
     setWeekAdj((cur) => {
       if (!cur || cur.weekStart !== thisMonday) return cur;
@@ -11366,26 +11802,59 @@ function MacroApp() {
   }, [dayPlan, mealPlans, vegGrams, showList, foodIndex, week]);
 
   const trend = useMemo(() => weightTrend(log), [log]);
-  /* Na een faseovergang zegt de trend van de afgelopen weken niets over de
-     huidige fase. Tijdens het opbouwen van de calorieën komt u bovendien
-     bewust wat aan. In beide gevallen wacht de correctie. */
+  /* De coach beslist over bijsturen; zie coachState. Het daggemiddelde wordt
+     bijgehouden zodat later het werkelijke onderhoud te berekenen is. */
+  const stepsNow = stepsOf(f);
+  const cs = useMemo(
+    () =>
+      coachState({
+        log,
+        goal: effGoal,
+        targetKgPerWeek: effGoal === "onderhoud" ? 0 : (effRate / 100) * weight,
+        coach,
+        today: localISO(),
+        plan: planNow.active ? { active: true, inPhase: planNow.inPhase, phase: planNow.row.phase } : null,
+        steps: stepsNow.steps,
+        age: num(f.age, 30),
+        weight,
+        checkins,
+        avgTarget: energy.avgTarget,
+        tdeeAvg: energy.tdeeAvg,
+      }),
+    [log, effGoal, effRate, weight, coach, planNow, stepsNow.steps, f.age, checkins, energy.avgTarget, energy.tdeeAvg]
+  );
+  useEffect(() => {
+    if (!loaded || !Number.isFinite(energy.avgTarget)) return;
+    const avg = Math.round(energy.avgTarget);
+    const hist = coach.kcalHist || [];
+    const lastH = hist[hist.length - 1];
+    if (lastH && Math.abs(lastH.avg - avg) < 10) return;
+    const today = localISO();
+    const next = [...hist.filter((h) => h.date !== today), { date: today, avg }].slice(-200);
+    setCoach((c) => ({ ...c, kcalHist: next }));
+  }, [loaded, energy.avgTarget]);
   const correctionPaused =
-    planNow.active && (planNow.inPhase < 3 || planNow.row.phase === "reverse")
+    cs.stage === "pauze"
       ? planNow.row.phase === "reverse"
         ? "Tijdens het opbouwen van de calorieën komt u bewust wat aan, vooral glycogeen en vocht. De bijsturing wacht tot die fase voorbij is."
-        : `U zit pas ${planNow.inPhase} ${planNow.inPhase === 1 ? "week" : "weken"} in deze fase. De trend van de afgelopen weken zegt daar nog niets over; de bijsturing wacht tot week 3 van de fase.`
+        : `U zit pas ${planNow.inPhase} ${planNow.inPhase === 1 ? "week" : "weken"} in deze fase en de afwijking past bij vocht en glycogeen aan het begin van een fase. De bijsturing wacht tot week 3.`
       : null;
-  const correction = useMemo(
-    () =>
-      correctionPaused
-        ? null
-        : calorieCorrection({
-            trend,
-            targetKgPerWeek: effGoal === "onderhoud" ? 0 : (effRate / 100) * weight,
-            goal: effGoal,
-          }),
-    [trend, effRate, effGoal, weight, correctionPaused]
-  );
+  const correction = cs.stage === "bijsturen" || cs.stage === "trouw" ? cs.correction : null;
+  const applyCorrection = (amount, extra = {}) => {
+    setKcalAdjust((k) => k + amount);
+    setCoach((c) => ({ ...c, corr: { at: localISO(), amount, ...extra }, adherenceOverride: false, earlyDismissed: null }));
+  };
+  const applyStepsFirst = (sf) => {
+    setF((s) => ({ ...s, steps: sf.to, work: stepsOf(s).work }));
+    // het hogere verbruik telt de app mee; de inname blijft gelijk op de rest na
+    setKcalAdjust((k) => k - sf.kcal + sf.rest);
+    setCoach((c) => ({ ...c, corr: { at: localISO(), amount: sf.rest, steps: sf.to }, adherenceOverride: false }));
+  };
+  const useMeasured = () => {
+    if (!cs.measured) return;
+    setKcalAdjust((k) => k + (cs.measured.kcal - Math.round(energy.tdeeAvg)));
+    setCoach((c) => ({ ...c, corr: { at: localISO(), amount: cs.measured.kcal - Math.round(energy.tdeeAvg), measured: cs.measured.kcal } }));
+  };
 
   /* Het venster waar het plan mee rekent: een voorinstelling, of de grenzen
      die de gebruiker zelf invult, altijd binnen verantwoorde marges en met
@@ -11412,7 +11881,29 @@ function MacroApp() {
     () => compositionAdvice({ goal: effGoal, correction, waist: waistTrend, strength }),
     [effGoal, correction, waistTrend, strength]
   );
+  const coachProps = {
+    cs,
+    goal: effGoal,
+    targetKg: effGoal === "onderhoud" ? 0 : (effRate / 100) * weight,
+    advice,
+    overrideAdvice,
+    setOverrideAdvice,
+    waistOk: false,
+    kcalAdjust,
+    correctionPaused,
+    onApply: (amt) => applyCorrection(amt),
+    onSteps: (sf) => applyStepsFirst(sf),
+    onMeasured: () => useMeasured(),
+    onReset: () => {
+      setKcalAdjust(0);
+      setCoach((c) => ({ ...c, corr: null }));
+    },
+    onDismissEarly: () => setCoach((c) => ({ ...c, earlyDismissed: localISO() })),
+    onOverrideAdherence: () => setCoach((c) => ({ ...c, adherenceOverride: true })),
+    onOpenSteps: () => setStepsOpen(true),
+  };
   const saveCheckin = (c) => {
+    if (c.steps != null) setF((s) => ({ ...s, steps: c.steps, work: stepsOf(s).work }));
     setCheckins((list) => [...list.filter((x) => x.date !== c.date), c].sort((a, b) => a.date.localeCompare(b.date)));
     setCompAnchor((a) => {
       if (a) return c.date < a.date ? { ...a, date: c.date } : a;
@@ -12307,28 +12798,7 @@ function MacroApp() {
                 </div>
               )}
 
-              {onboarding === 2 && (
-                <div className="grid gap-2">
-                  {ACTIVITY.map((a) => {
-                    const on = f.activity === a.id;
-                    return (
-                      <button
-                        key={a.id}
-                        onClick={() => set("activity", a.id)}
-                        className="tap text-left px-4 py-3 text-sm font-medium"
-                        style={{
-                          background: on ? "var(--accent)" : "rgba(255,255,255,.07)",
-                          border: `1px solid ${on ? "var(--accent)" : C.darkLine}`,
-                          borderRadius: R.field,
-                          color: on ? "var(--on-accent)" : C.darkInk,
-                        }}
-                      >
-                        {a.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              {onboarding === 2 && <StepsPicker f={f} setF={setF} dark />}
 
               {onboarding === 3 && (
                 <div className="grid gap-4">
@@ -12697,6 +13167,36 @@ function MacroApp() {
             )}
 
             {D.resensAdv && !bill.locked && !(lengthAdv && lengthAdv.kind === "pauze") && <ResensCard adv={D.resensAdv} onOpen={() => setResensOpen(true)} />}
+            {loaded && ["vroeg", "bijsturen", "trouw"].includes(cs.stage) && !bill.locked && (
+              <div className="mb-3 px-3 py-1 relative" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
+                <CoachPanel {...coachProps} compact />
+                <button onClick={() => setTab("plan")} className="tap text-xs underline my-2" style={{ color: C.muted }}>
+                  Details op Plan
+                </button>
+              </div>
+            )}
+            {loaded && onboarding === null && stepsNow.est && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>Hoeveel stappen zet u per dag?</strong> De app rekent nu met een schatting van {stepsLabel(stepsNow.steps)}. Met uw
+                  echte aantal klopt uw verbruik beter.
+                </span>
+                <TBtn small onClick={() => setStepsOpen(true)}>
+                  Invullen
+                </TBtn>
+              </div>
+            )}
+            {loaded && onboarding === null && !stepsNow.est && stepsNow.steps < stepFloor(f.age) && !(coach.stepTipAt && dayNum(localISO()) - dayNum(coach.stepTipAt) < 7) && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>± {stepsLabel(stepsNow.steps)} stappen per dag.</strong> Rond {stepsLabel(stepFloor(f.age))} ligt het
+                  gezondheidsminimum: daar is het meeste gezondheidswinst te halen. Elke duizend stappen extra telt.
+                </span>
+                <button onClick={() => setCoach((c) => ({ ...c, stepTipAt: localISO() }))} className="tap text-xs underline shrink-0" style={{ color: C.muted }}>
+                  Begrepen
+                </button>
+              </div>
+            )}
             {lengthAdv && !bill.locked && <PhaseLengthCard a={lengthAdv} onStart={startBreak} onEnd={endBreak} onSnooze={snoozeLength} onSince={setGoalSince} />}
 
             <SyncNotices s={nx} />
@@ -12766,25 +13266,48 @@ function MacroApp() {
               const trainedToday = T.sessions.some((x) => x.date === localISO() && x.end);
               const isTrain = !!wk[todayIdx].session;
               const canPull = !isTrain && wk.some((d, k) => k > todayIdx && d.session);
+              const earlier = adjList.map((a, i) => ({ a, i })).filter(({ a }) => a.at !== todayIdx);
+              const earlierBox = earlier.length ? (
+                <div className="mb-3 px-3 py-2 text-xs space-y-1" style={{ background: C.surface2, border: `1px solid ${C.lineSoft}`, borderRadius: R.field }}>
+                  <strong style={{ color: C.ink }}>Eerder deze week aangepast</strong>
+                  {earlier.map(({ a, i }) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="flex-1 leading-snug" style={{ color: C.muted }}>
+                        {DAY_FULL[a.kind === "skip" ? a.day : a.at]}: {adjText(a)}.
+                      </span>
+                      <button onClick={() => undoAdjAt(i)} className="tap underline shrink-0" style={{ color: C.muted }}>
+                        Ongedaan maken
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null;
               if (adjToday.length)
                 return (
-                  <div className="mb-3 px-3 py-2 flex items-center gap-3 text-xs" style={{ background: C.surface2, border: `1px solid ${C.lineSoft}`, borderRadius: R.field }}>
-                    <span className="flex-1 leading-snug" style={{ color: C.muted }}>
-                      <strong style={{ color: C.ink }}>Deze week aangepast:</strong> {adjText(adjToday[adjToday.length - 1])}.
-                      {skipsThisWeek >= 2 ? " Al twee gemiste trainingen deze week; overweeg een schema met een dag minder." : ""}
-                    </span>
-                    <button onClick={undoAdj} className="tap underline shrink-0" style={{ color: C.muted }}>
-                      Ongedaan maken
-                    </button>
-                  </div>
+                  <>
+                    {earlierBox}
+                    <div className="mb-3 px-3 py-2 flex items-center gap-3 text-xs" style={{ background: C.surface2, border: `1px solid ${C.lineSoft}`, borderRadius: R.field }}>
+                      <span className="flex-1 leading-snug" style={{ color: C.muted }}>
+                        <strong style={{ color: C.ink }}>Vandaag aangepast:</strong> {adjText(adjToday[adjToday.length - 1])}.
+                        {skipsThisWeek >= 2 ? " Al twee gemiste trainingen deze week; overweeg een schema met een dag minder." : ""}
+                      </span>
+                      <button onClick={undoAdj} className="tap underline shrink-0" style={{ color: C.muted }}>
+                        Ongedaan maken
+                      </button>
+                    </div>
+                  </>
                 );
+              if (earlierBox && (trainedToday || (!isTrain && !canPull))) return earlierBox;
               if (trainedToday || (!isTrain && !canPull)) return null;
               return (
+                <>
+                {earlierBox}
                 <div className="mb-3 -mt-1.5 flex justify-end">
                   <button onClick={() => setSkipOpen(isTrain ? "skip" : "pull")} className="tap text-xs underline px-1 py-1" style={{ color: C.muted }}>
                     {isTrain ? "Vandaag niet trainen?" : "Vandaag toch trainen?"}
                   </button>
                 </div>
+                </>
               );
             })()}
 
@@ -14392,10 +14915,13 @@ function MacroApp() {
 
           <div className="px-3 py-3">
             {!trend.ok ? (
-              <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
-                Nog geen betrouwbare trend: {trend.reason}. Weeg bij voorkeur elke ochtend na het toilet en voor
-                het ontbijt; dagschommelingen van een kilo zijn normaal en worden weggemiddeld.
-              </p>
+              <>
+                <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+                  Nog geen betrouwbare trend: {trend.reason}. Weeg bij voorkeur elke ochtend na het toilet en voor
+                  het ontbijt; dagschommelingen van een kilo zijn normaal en worden weggemiddeld.
+                </p>
+                {["vroeg", "wacht"].includes(cs.stage) && <CoachPanel {...coachProps} />}
+              </>
             ) : (
               <>
                 <div className="flex items-baseline justify-between gap-3">
@@ -14418,72 +14944,7 @@ function MacroApp() {
                   Gebaseerd op {trend.n} metingen over {Math.round(trend.span)} dagen, zevendaags gemiddelde{" "}
                   {trend.avg7.toFixed(1).replace(".", ",")} kg.
                 </p>
-                {correctionPaused ? (
-                  <p className="text-xs mt-2 leading-relaxed" style={{ color: C.muted }}>
-                    {correctionPaused}
-                  </p>
-                ) : correction && correction.meaningful && advice && advice.suppress && !overrideAdvice ? (
-                  <div className="mt-3 rounded px-3 py-2" style={{ background: C.surface2, border: `1px solid ${C.carb}` }}>
-                    <p className="text-xs font-semibold" style={{ color: C.carb }}>
-                      {advice.title}
-                    </p>
-                    <p className="text-xs leading-relaxed mt-1" style={{ color: C.ink }}>
-                      {advice.text}
-                    </p>
-                    <button onClick={() => setOverrideAdvice(true)} className="tap text-xs underline mt-2" style={{ color: C.muted }}>
-                      Toch bijsturen ({correction.rounded > 0 ? "+" : ""}
-                      {correction.rounded} kcal)
-                    </button>
-                  </div>
-                ) : correction && correction.meaningful ? (
-                  <div className="mt-3 rounded px-3 py-2" style={{ background: C.warnBg, border: `1px solid ${C.warn}` }}>
-                    {advice && !advice.suppress && (
-                      <p className="text-xs leading-relaxed mb-1.5" style={{ color: C.warn }}>
-                        <strong>{advice.title}.</strong> {advice.text}
-                      </p>
-                    )}
-                    <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
-                      U zit {correction.rounded < 0 ? "boven" : "onder"} het geplande tempo. Pas de inname aan met{" "}
-                      {correction.rounded > 0 ? "+" : ""}
-                      {correction.rounded} kcal per dag.
-                    </p>
-                    {!waistTrend.ok && (effGoal === "cut" ? correction.rounded < 0 : correction.rounded > 0) && (
-                      <p className="text-xs leading-relaxed mt-1.5" style={{ color: C.warn }}>
-                        Train u zwaar en eet u genoeg eiwit, dan kan een trage weegschaal ook betekenen dat u spier opbouwt terwijl u vet
-                        verliest. Meet een paar weken uw taille; daalt die, dan hoeft u niet bij te sturen.
-                      </p>
-                    )}
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => setKcalAdjust((k) => k + correction.rounded)}
-                        className="tap px-3 py-1.5 text-sm"
-                        style={{ background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600 }}
-                      >
-                        Toepassen
-                      </button>
-                      {kcalAdjust !== 0 && (
-                        <button
-                          onClick={() => setKcalAdjust(0)}
-                          className="px-3 py-1.5 text-sm rounded"
-                          style={{ border: `1px solid ${C.line}`, color: C.muted }}
-                        >
-                          Correctie wissen
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs mt-2 leading-relaxed" style={{ color: C.carb }}>
-                    U ligt op koers. Een afwijking onder 100 kcal per dag valt binnen de meetruis; laat het schema
-                    staan.
-                  </p>
-                )}
-                {kcalAdjust !== 0 && (
-                  <p className="text-xs mt-2 tnum" style={{ color: C.muted }}>
-                    Actieve correctie: {kcalAdjust > 0 ? "+" : ""}
-                    {kcalAdjust} kcal per dag.
-                  </p>
-                )}
+                <CoachPanel {...coachProps} />
               </>
             )}
           </div>
@@ -15396,9 +15857,9 @@ function MacroApp() {
         </Section>
 
         <Section title="Dagelijkse activiteit" sub="Alles buiten uw trainingen om: werk, huishouden, wandelen.">
-          <Row label="Leefpatroon" stack>
-            <Pick value={f.activity} onChange={(v) => set("activity", v)} options={ACTIVITY} />
-          </Row>
+          <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+            <StepsPicker f={f} setF={setF} />
+          </div>
           <Row label="Opstaan">
             <input
               type="time"
@@ -15640,6 +16101,7 @@ function MacroApp() {
         </Sheet>
       )}
 
+      {stepsOpen && <StepsSheet f={f} setF={setF} onClose={() => setStepsOpen(false)} />}
       {resensOpen && <ResensSheet T={T} setT={setT} D={D} onClose={() => setResensOpen(false)} />}
       {nx && nx.user && !nx.user.consent && (consentOpen || (!consentLater && !nx.recovery)) && (
         <ConsentSheet
@@ -15669,7 +16131,7 @@ function MacroApp() {
           onClose={() => setSkipOpen(false)}
         />
       )}
-      {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} />}
+      {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} steps={stepsNow.est ? null : stepsNow.steps} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} />}
 
       <TrainingBoundary quiet>
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}

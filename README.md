@@ -327,6 +327,38 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
 - **Controle**: `GET /.netlify/functions/etiket` geeft `{"ok":true}` als de
   sleutel is ingesteld. Fouten verschijnen in het functielogboek van Netlify.
 
+## Verbruik, stappen en de coach
+
+- **Stappen in plaats van activiteitsniveau** (`StepsPicker`, `stepsOf`,
+  `activityFactorOf`): rustmetabolisme × 1,15 + stappen × 0,0005 kcal per kg +
+  werk (`WORK`: zittend 0, staand 100, zwaar 350 kcal per dag), als factor op het
+  rustmetabolisme zodat alle planners er hetzelfde mee rekenen. Opgeslagen in
+  `f.steps` en `f.work`; zonder ingevulde stappen zet `ACTIVITY_TO_STEPS` de oude
+  keuze om (zittend 5.000, licht 9.000, actief 12.000 + staand, zwaar 12.000 +
+  zwaar werk) en vraagt Vandaag om het echte aantal.
+- **Gezondheidsminimum** (`stepFloor`): 8.000 stappen, vanaf 60 jaar 7.000
+  (Paluch 2022, Ding 2025). Moet er minder gegeten worden en zit de gebruiker
+  eronder, dan stelt de coach eerst meer stappen voor (het extra verbruik plus
+  hoogstens de rest als minder eten); minder lopen om aan te komen stelt de app
+  nooit voor. Onder het minimum een wekelijkse tip op Vandaag.
+- **Coach** (`coachState`, `CoachPanel`, opgeslagen als `coach` in
+  `macroverdeling:v1`): `vroeg` (na 6+ dagen en 5 metingen meer dan 0,4 kg per week
+  de verkeerde kant op, met een kleine correctie van 150 kcal), `wacht` (7 dagen na
+  een bijsturing; daarna telt alleen wat sindsdien gemeten is), `pauze` (begin
+  van een fase, alleen als de afwijking past bij vocht en glycogeen: sneller
+  aankomen in een bulk, sneller afvallen in een cut), `trouw` (laatste meting
+  "vaak niet gevolgd": eerst daaraan werken), `bijsturen` (stappen van hoogstens
+  300 kcal, `CORR_STEP`) en `koers`. Energie per kg: 7.700 kcal voor het deel
+  onder nul, 5.500 erboven (`energyOfRate`).
+- **Gemeten onderhoud**: na 21 dagen en 10 metingen: gemiddelde voorgeschreven
+  inname (`coach.kcalHist`, `intakeBetween`) min de energie van de gewichtstrend.
+  Met "Rekenen met gemeten onderhoud" wordt `kcalAdjust` zo gezet dat het schema
+  op het gemeten verbruik rekent.
+- **Wekelijkse meting** vraagt ook de gemiddelde stappen (werkt `f.steps` bij) en
+  hoe goed het schema gevolgd is (`ADHERENCE`).
+- **Aanpassingen deze week**: overgeslagen of verplaatste trainingen van eerdere
+  dagen staan op Vandaag, elk met "Ongedaan maken" (`undoAdjAt`).
+
 ## Schema op maat
 
 Training → (geen schema) of Schema → nieuw: `PlanBuilder` vraagt dagen, tijd per
