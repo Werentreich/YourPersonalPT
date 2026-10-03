@@ -1,6 +1,6 @@
 # Nexa Hybrid: plan
 
-*Status: concept ter goedkeuring. Er wordt niets gebouwd voordat dit plan is akkoord.*
+*Status: goedgekeurd op 2026-10-03, met alle voorstellen. Aanvulling: geen standaard Hyrox-look.*
 
 Nexa Hybrid is een tweede build uit deze codebase voor hybride atleten: kracht,
 functionele training, conditie en uithoudingsvermogen in één adaptief schema,
@@ -279,12 +279,12 @@ Strava-voorwaarden.
 
 - Naam: **Nexa Hybrid**. Zelfde lettertypen (Barlow / Barlow Condensed) en
   layout, eigen accentkleur.
-- Voorstel accent: **"Volt"**, elektrisch geelgroen. `#C8FF2E` op donker;
-  `#4D6B00` als tekstkleur op licht (contrast ≥ 4,5:1). Nexa blijft blauw
-  (`#1B3BFF`), zodat de twee apps naast elkaar herkenbaar zijn.
-  **Open beslissing.**
-- Eigen icoon: het Nexa-merkteken met een tweede, kruisende lijn
-  (kracht × duur).
+- Geen Hyrox-look (geen neon op zwart, geen vette hoofdletters, geen strepen).
+  Twee merkkleuren: **getij** (petrol-teal, duur, primair accent) en **gloed**
+  (terracotta, kracht), op een warme steen- of houtskoolondergrond. Volledige
+  uitwerking in [`01-MERK.md`](./01-MERK.md).
+- Eigen icoon: een zware rechte lijn (kracht) die een golvende hoogtelijn
+  (duur) kruist.
 
 ---
 
@@ -321,7 +321,7 @@ review van u voordat de volgende fase start.
 
 1. Hosting: `/hybrid/` op de huidige site of een eigen domein?
 2. Prijs van de upgrade.
-3. Accentkleur "Volt" of een andere?
+3. ~~Accentkleur~~: besloten, zie `01-MERK.md`.
 4. Strava en AI: akkoord met alleen afgeleide waarden naar de coach?
 5. Repo `YourPersonalPT` op privé zetten (sterk aanbevolen: het is nu publiek).
 

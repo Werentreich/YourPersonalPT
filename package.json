@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "verify": "node verify.mjs",
-    "test": "for f in tests/*.mjs; do node \"$f\" > /tmp/nexa-test.log 2>&1 || { cat /tmp/nexa-test.log; echo \"FOUT in $f\"; exit 1; }; echo \"ok  $f\"; done"
+    "test": "for f in tests/*.mjs; do node \"$f\" > /tmp/nexa-test.log 2>&1 && ! grep -q \"^FOUT\" /tmp/nexa-test.log || { cat /tmp/nexa-test.log; echo \"FOUT in $f\"; exit 1; }; echo \"ok  $f\"; done"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

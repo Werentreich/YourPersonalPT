@@ -16199,3 +16199,10 @@ function MacroApp() {
     </div>
   );
 }
+
+/* Gedeelde bouwstenen voor Nexa Hybrid (src/hybrid/). Bewust één exportregel
+   onderaan: de tests knippen functies uit dit bestand en voeren ze los uit,
+   dus een "export" vóór een functie zou daar breken. Alle kleuren lopen via
+   CSS-variabelen, zodat deze onderdelen in Hybrid vanzelf de Hybrid-kleuren
+   krijgen. */
+export { STYLE, C, R, Section, Row, Seg, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur };

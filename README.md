@@ -19,6 +19,8 @@ behouden bewust hun oude naam, zodat bestaande gegevens bewaard blijven.
 
 ```
 src/App.jsx          de volledige app: rekenkern, UI, alles in één bestand
+src/boot.jsx         opstart en opslaglaag, gedeeld door Nexa en Nexa Hybrid
+src/hybrid/          Nexa Hybrid (tweede build, op /hybrid/), zie docs/hybrid/
 src/sync.js          account, synchronisatie en abonnementsstatus (Supabase)
 landing/             landingspagina (statische HTML, lettertypen, schermafbeeldingen)
 public/              statische bestanden (manifest, service worker, iconen, 404, robots)
@@ -38,6 +40,22 @@ beschikbaar is. Wie eraan werkt via Claude Code kan gewoon in dat ene
 bestand editen; `npm run build` zet het om naar een zelfstandige
 `dist/index.html` van ongeveer 460 kB, met alles inline (React, stijlen,
 logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
+
+## Nexa Hybrid
+
+Tweede app uit deze codebase voor hybride atleten (kracht en duur), op
+`/hybrid/`. Upgrade boven Nexa Coach, zelfde account, eigen merk.
+Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
+
+- `npm run build` bouwt beide apps: `dist/app/index.html` en `dist/hybrid/index.html`.
+- Hybrid gebruikt gedeelde onderdelen uit `src/App.jsx` via de exportregel
+  onderaan dat bestand (niet via losse `export`-woorden: de tests knippen
+  functies uit `App.jsx`).
+- Opslag onder `macroverdeling:hybrid:*`, zodat het Nexa-account het
+  vanzelf synchroniseert.
+- Abonnement: plannen `hybrid_maand` en `hybrid_jaar` (Stripe-lookup keys
+  `nexa_hybrid_maand` / `nexa_hybrid_jaar`). Coach naar Hybrid wordt direct
+  geüpgraded op hetzelfde Stripe-abonnement, naar rato verrekend.
 
 ## Ontwikkelen
 

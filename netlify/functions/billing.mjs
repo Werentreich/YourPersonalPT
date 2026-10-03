@@ -1,11 +1,13 @@
-/* Abonnement Nexa Coach.
+/* Abonnement Nexa Coach en Nexa Hybrid.
 
    GET                                   -> { enabled, trialDays, prices }
    POST { action: "checkout", plan }     -> { url } naar Stripe Checkout
+                                            (Coach naar Hybrid: direct upgraden, naar rato verrekend)
    POST { action: "portal" }             -> { url } naar het Stripe-klantportaal
    POST { action: "withdraw" }           -> herroepen binnen 14 dagen: stoppen en terugbetalen
    POST { action: "cancel_now" }         -> alle abonnementen direct stoppen (account verwijderen)
    POST vereist het toegangstoken van de Supabase-sessie (Authorization: Bearer).
+   Optioneel { from: "hybrid" }: terugkeren naar /hybrid/ in plaats van /app/.
 
    Proefperiode: zeven dagen, betaalgegevens vooraf, eenmalig per account.
    Stripe mailt vóór het einde van de proef een herinnering als dat in het
@@ -16,10 +18,12 @@ import {
   billingEnabled,
   entitled,
   getSub,
+  isHybridPlan,
   json,
   priceFor,
   sameOrigin,
   stripe,
+  syncSubscription,
   upsertSub,
   userFromRequest,
 } from "../lib/billing-core.mjs";
@@ -31,7 +35,7 @@ export default async (req) => {
     return json(200, {
       enabled: billingEnabled(),
       trialDays: TRIAL_DAYS,
-      prices: { maand: PLANS.maand.amount / 100, jaar: PLANS.jaar.amount / 100 },
+      prices: Object.fromEntries(Object.entries(PLANS).map(([k, p]) => [k, p.amount / 100])),
       withdrawDays: WITHDRAW_DAYS,
     });
   }
@@ -50,6 +54,7 @@ export default async (req) => {
   if (!user) return json(401, { ok: false, code: "inloggen", message: "Log eerst in met uw Nexa-account." });
 
   const origin = new URL(req.url).origin;
+  const home = `${origin}${body.from === "hybrid" ? "/hybrid/" : "/app/"}`;
   try {
     const s = stripe();
     const row = await getSub(user.id);
@@ -58,7 +63,7 @@ export default async (req) => {
       if (!row || !row.stripe_customer_id) return json(404, { ok: false, code: "geen_klant", message: "Er is nog geen abonnement om te beheren." });
       const portal = await s.billingPortal.sessions.create({
         customer: row.stripe_customer_id,
-        return_url: `${origin}/app/?abonnement=terug`,
+        return_url: `${home}?abonnement=terug`,
         locale: "nl",
       });
       return json(200, { ok: true, url: portal.url });
@@ -101,10 +106,26 @@ export default async (req) => {
 
     if (body.action === "checkout") {
       const plan = PLANS[body.plan] ? body.plan : "jaar";
-      if (row && row.status === "comp") return json(409, { ok: false, code: "comp", message: "U heeft al gratis toegang tot Nexa Coach." });
+      if (row && row.status === "comp") return json(409, { ok: false, code: "comp", message: `U heeft al gratis toegang tot ${isHybridPlan(plan) ? "Nexa Hybrid" : "Nexa Coach"}.` });
+      if (entitled(row) && isHybridPlan(plan) && !isHybridPlan(row.plan) && row.stripe_subscription_id) {
+        /* Upgrade van Coach naar Hybrid: hetzelfde abonnement krijgt de nieuwe
+           prijs. Het verschil wordt naar rato direct in rekening gebracht; een
+           lopende proef loopt gewoon door. */
+        const cur = await s.subscriptions.retrieve(row.stripe_subscription_id);
+        const item = cur.items && cur.items.data && cur.items.data[0];
+        if (!item) throw new Error("abonnement zonder regel");
+        const price = await priceFor(plan);
+        const updated = await s.subscriptions.update(cur.id, {
+          items: [{ id: item.id, price }],
+          proration_behavior: cur.status === "trialing" ? "none" : "always_invoice",
+          metadata: { ...(cur.metadata || {}), user_id: user.id, plan },
+        });
+        await syncSubscription(updated, user.id);
+        return json(200, { ok: true, url: `${home}?abonnement=gelukt`, upgraded: true });
+      }
       if (entitled(row)) {
         // al een lopend abonnement: niet dubbel afsluiten, maar naar beheer
-        const portal = await s.billingPortal.sessions.create({ customer: row.stripe_customer_id, return_url: `${origin}/app/?abonnement=terug`, locale: "nl" });
+        const portal = await s.billingPortal.sessions.create({ customer: row.stripe_customer_id, return_url: `${home}?abonnement=terug`, locale: "nl" });
         return json(200, { ok: true, url: portal.url, existing: true });
       }
 
@@ -137,8 +158,8 @@ export default async (req) => {
               : `De eerste ${TRIAL_DAYS} dagen zijn gratis. U krijgt vooraf een herinnering en kunt tot het einde van de proef kosteloos opzeggen in de app, onder Profiel.`,
           },
         },
-        success_url: `${origin}/app/?abonnement=gelukt`,
-        cancel_url: `${origin}/app/?abonnement=geannuleerd`,
+        success_url: `${home}?abonnement=gelukt`,
+        cancel_url: `${home}?abonnement=geannuleerd`,
       });
       return json(200, { ok: true, url: session.url });
     }

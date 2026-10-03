@@ -498,11 +498,13 @@ export function createSync(local) {
     },
     accessToken,
     refreshBilling,
-    /* Naar Stripe Checkout (proef starten of opnieuw abonneren). */
-    async checkout(plan) {
+    /* Naar Stripe Checkout (proef starten of opnieuw abonneren), of direct
+       upgraden van Coach naar Hybrid. extra: { from: "hybrid" } om daarna
+       naar Nexa Hybrid terug te keren. */
+    async checkout(plan, extra = {}) {
       setBilling({ busy: true, error: null });
       try {
-        const url = await billingCall({ action: "checkout", plan });
+        const url = await billingCall({ action: "checkout", plan, ...extra });
         location.href = url;
       } catch (e) {
         setBilling({ busy: false, error: e.message });
@@ -510,10 +512,10 @@ export function createSync(local) {
       }
     },
     /* Naar het Stripe-klantportaal: betaalgegevens, plan wisselen, opzeggen. */
-    async portal() {
+    async portal(extra = {}) {
       setBilling({ busy: true, error: null });
       try {
-        const url = await billingCall({ action: "portal" });
+        const url = await billingCall({ action: "portal", ...extra });
         location.href = url;
       } catch (e) {
         setBilling({ busy: false, error: e.message });
