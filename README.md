@@ -46,6 +46,7 @@ logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
 Tweede app uit deze codebase voor hybride atleten (kracht en duur), op
 `/hybrid/`. Upgrade boven Nexa Coach, zelfde account, eigen merk.
 Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
+Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify.app/hybrid/
 
 - `npm run build` bouwt beide apps: `dist/app/index.html` en `dist/hybrid/index.html`.
 - Hybrid gebruikt gedeelde onderdelen uit `src/App.jsx` via de exportregel
