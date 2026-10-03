@@ -7,7 +7,7 @@ export const DAY_MS = 86400000;
 export const KINDS = {
   kracht: { label: "Kracht", pillar: "kracht" },
   duur: { label: "Duur", pillar: "duur" },
-  wod: { label: "WOD", pillar: "conditie" },
+  wod: { label: "Conditie / WOD", pillar: "conditie" },
   hyrox: { label: "Hyrox", pillar: "conditie" },
   mobiliteit: { label: "Mobiliteit", pillar: "mobiliteit" },
 };
@@ -135,9 +135,8 @@ export const fmtKm = (m) => (m == null ? "–" : m >= 1000 ? `${(m / 1000).toFix
 export function newSession(kind, extra = {}) {
   const base = { id: newId(), date: localISO(), kind, rpe: null, durationSec: null, notes: "", source: "handmatig", createdAt: Date.now() };
   if (kind === "duur") return { ...base, sport: "hardlopen", type: "rustig", distanceM: null, avgHr: null, maxHr: null, avgPower: null, elevGain: null, ...extra };
-  if (kind === "kracht") return { ...base, exercises: [], ...extra };
-  if (kind === "wod") return { ...base, format: "amrap", capSec: null, score: "", movements: "", ...extra };
-  if (kind === "hyrox") return { ...base, mode: "simulatie", splits: { runs: Array(8).fill(null), stations: Array(8).fill(null) }, ...extra };
+  if (kind === "kracht" || kind === "wod") return { ...base, blocks: [], ...extra };
+  if (kind === "hyrox") return { ...base, mode: "simulatie", splits: { runs: Array(8).fill(null), stations: Array(8).fill(null) }, blocks: [], ...extra };
   return { ...base, ...extra };
 }
 

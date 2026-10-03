@@ -2,8 +2,9 @@
 import React, { useMemo, useState } from "react";
 import { C, R, Section, Row, Reveal, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
-import { SPORTS, fmtDuration, fmtKm, fmtPace, localISO, mondayOf, dayNum, isoOfNum, sessionTitle, pillarOf, hyroxTotal } from "../engine/model.js";
-import { sessionLoad, fitnessSeries, formStatus, weekSummary, weeklySeries, intensityDistribution, strengthRecords, runRecords, durationOf } from "../engine/load.js";
+import { SPORTS, fmtDuration, fmtKm, fmtPace, localISO, mondayOf, dayNum, isoOfNum, pillarOf, hyroxTotal } from "../engine/model.js";
+import { sessionLoad, fitnessSeries, formStatus, weekSummary, weeklySeries, intensityDistribution, strengthRecords, runRecords, pieceRecords, benchmarkRecords, durationOf } from "../engine/load.js";
+import { blocksOf, blockHeader, blockResult, sessionVolume, titleOf } from "../engine/blocks.js";
 import { hrZones, hrAnchors, runPaceZones, powerZones, swimZones, rowZones, runThresholdPace, ZONE_NAMES } from "../engine/zones.js";
 import { Card, Contours, Eyebrow, HIcon, PillarDot, Field, NumInput, DurationInput, Choice, Stat, dateLabel } from "./kit.jsx";
 import { FitnessChart, FormChart, WeekBars, IntensityBar, PillarMini } from "./charts.jsx";
@@ -25,20 +26,29 @@ export function sessionFacts(s) {
     const p = fmtPace(s.sport, s.durationSec, s.distanceM);
     if (p) bits.push(p);
     if (s.avgHr) bits.push(`${s.avgHr} bpm`);
-  } else if (s.kind === "kracht") {
-    const ex = s.exercises || [];
-    const sets = ex.reduce((a, e) => a + (e.sets || []).filter((x) => x && (x.reps || x.kg)).length, 0);
-    if (ex.length) bits.push(`${ex.length} ${ex.length === 1 ? "oefening" : "oefeningen"}`);
-    if (sets) bits.push(`${sets} sets`);
-    const tonnage = ex.reduce((a, e) => a + (e.sets || []).reduce((b, x) => b + (Number(x.kg) || 0) * (Number(x.reps) || 0), 0), 0);
-    if (tonnage) bits.push(`${Math.round(tonnage).toLocaleString("nl-NL")} kg totaal`);
-  } else if (s.kind === "wod") {
-    if (s.score) bits.push(s.score);
-    if (dur) bits.push(fmtDuration(dur));
-  } else if (s.kind === "hyrox") {
+    const iv = blocksOf(s).find((b) => b.type === "interval");
+    if (iv) bits.push(blockHeader(iv));
+    return bits.join(" · ");
+  }
+  if (s.kind === "hyrox") {
     const t = hyroxTotal(s);
     if (t) bits.push(fmtDuration(t));
-  } else if (dur) bits.push(fmtDuration(dur, { long: true }));
+  }
+  const bl = blocksOf(s);
+  if (bl.length) {
+    const main = bl.find((b) => b.type !== "sets" && b.type !== "vrij");
+    if (main) {
+      bits.push(blockHeader(main, { withName: !(s.kind === "wod" && !s.title && main.name) }));
+      const r = blockResult(main);
+      if (r) bits.push(r);
+    }
+    const sets = bl.filter((b) => b.type === "sets").reduce((a, b) => a + (b.items || []).reduce((x, e) => x + (e.sets || []).filter((y) => y && (y.reps || y.kg)).length, 0), 0);
+    if (sets) bits.push(`${sets} sets`);
+    const v = sessionVolume(bl);
+    for (const [k, d] of Object.entries(v.sport)) bits.push(`${fmtKm(d)} ${SPORTS[k].label.toLowerCase()}`);
+    if (!main && v.tonnage) bits.push(`${Math.round(v.tonnage).toLocaleString("nl-NL")} kg totaal`);
+  }
+  if (!bits.length && dur) bits.push(fmtDuration(dur, { long: true }));
   return bits.join(" · ");
 }
 
@@ -50,7 +60,7 @@ function SessionRow({ s, profile, onOpen }) {
       <span aria-hidden="true" style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: K[pillar].fill }} />
       <span className="min-w-0 flex-1">
         <span className="block text-sm truncate" style={{ color: C.ink, fontWeight: 600 }}>
-          {sessionTitle(s)}
+          {titleOf(s)}
         </span>
         <span className="block text-xs truncate tnum" style={{ color: C.muted }}>
           {dateLabel(s.date)} · {sessionFacts(s) || K[pillar].label}
@@ -140,6 +150,7 @@ export function TodayView({ data, onAdd, onOpen }) {
             {Object.entries(week.sports).map(([k, v]) => (
               <span key={k}>
                 {SPORTS[k].label} <strong style={{ color: C.ink, fontWeight: 600 }}>{v.distanceM ? fmtKm(v.distanceM) : `${Math.round(v.minutes)} min`}</strong>
+                {v.inBlocks > 0 && v.inBlocks < v.distanceM ? ` (${fmtKm(v.inBlocks)} in WOD's)` : v.inBlocks > 0 ? " in WOD's" : ""}
               </span>
             ))}
           </div>
@@ -249,6 +260,8 @@ export function ProgressView({ data }) {
   const dist = useMemo(() => intensityDistribution(sessions, profile, isoOfNum(dayNum(today) - 27), today), [sessions, profile, today]);
   const lifts = useMemo(() => strengthRecords(sessions).slice(0, 6), [sessions]);
   const runs = useMemo(() => runRecords(sessions), [sessions]);
+  const pieces = useMemo(() => pieceRecords(sessions), [sessions]);
+  const benches = useMemo(() => benchmarkRecords(sessions), [sessions]);
   if (!sessions.length)
     return (
       <div className="space-y-4">
@@ -299,7 +312,30 @@ export function ProgressView({ data }) {
         </Card>
       )}
 
-      {(runs.length > 0 || lifts.length > 0) && (
+      {benches.length > 0 && (
+        <Card>
+          <div className="px-4 pt-3.5 pb-1">
+            <Eyebrow>Benchmarks</Eyebrow>
+          </div>
+          {benches.map((b) => (
+            <div key={b.name} className="flex items-baseline justify-between gap-3 px-4 py-2.5" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 text-sm" style={{ color: C.ink }}>
+                  <PillarDot pillar="conditie" /> {b.name}
+                </span>
+                <span className="block text-xs truncate" style={{ color: C.muted }}>
+                  {b.header.replace(`${b.name}: `, "")} · {b.count}× gedaan
+                </span>
+              </span>
+              <span className="text-sm tnum shrink-0" style={{ color: C.ink, fontWeight: 600 }}>
+                {b.result} <span className="text-xs" style={{ color: C.muted, fontWeight: 400 }}>· {dateLabel(b.date, { day: "numeric", month: "short" })}</span>
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {(runs.length > 0 || lifts.length > 0 || pieces.length > 0) && (
         <Card>
           <div className="px-4 pt-3.5 pb-1">
             <Eyebrow>Records</Eyebrow>
@@ -314,6 +350,16 @@ export function ProgressView({ data }) {
               </span>
             </div>
           ))}
+          {pieces.map((p) => (
+            <div key={p.moveId + p.distanceM} className="flex items-baseline justify-between px-4 py-2.5" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+              <span className="flex items-center gap-2 text-sm" style={{ color: C.ink }}>
+                <PillarDot pillar="duur" /> {fmtKm(p.distanceM)} {p.name.toLowerCase().replace(/ \(.*\)/, "")}
+              </span>
+              <span className="text-sm tnum" style={{ color: C.ink, fontWeight: 600 }}>
+                {fmtDuration(p.sec)} <span className="text-xs" style={{ color: C.muted, fontWeight: 400 }}>· {dateLabel(p.date, { day: "numeric", month: "short" })}</span>
+              </span>
+            </div>
+          ))}
           {lifts.map((l) => (
             <div key={l.name} className="flex items-baseline justify-between px-4 py-2.5" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
               <span className="flex items-center gap-2 text-sm min-w-0" style={{ color: C.ink }}>
@@ -325,7 +371,7 @@ export function ProgressView({ data }) {
             </div>
           ))}
           <p className="px-4 pb-3 pt-1 text-xs" style={{ color: C.muted }}>
-            Looptijden: snelste gemiddelde tempo over minstens die afstand. Kracht: geschatte 1RM (Epley).
+            Looptijden: snelste gemiddelde tempo over minstens die afstand. Stukken: snelste tijd in intervallen of doorlopend. Kracht: geschatte 1RM (Epley).
           </p>
         </Card>
       )}

@@ -16,15 +16,21 @@
 
 import { SPORTS, ENDURANCE_TYPES, DAY_MS, dayNum, isoOfNum, mondayOf, pillarOf, hyroxTotal, num } from "./model.js";
 import { hrAnchors, hrZoneOf, seilerOf } from "./zones.js";
+import { blocksOf, blockDuration, blocksSystems, pillarShares, sessionVolume, blockScore, blockResult, blockHeader } from "./blocks.js";
+import { movementById } from "./movements.js";
 
-/* Duur van een sessie in seconden; voor kracht een schatting uit de sets
-   (ongeveer 2,5 minuut per werkset inclusief rust) als niets is ingevuld. */
+/* Duur van een sessie in seconden. Ingevuld gaat voor; anders de som van
+   de blokken (een AMRAP van 12 min duurt 12 min, sets ~2,5 min per set). */
 export function durationOf(s) {
-  if (s.kind === "hyrox") return hyroxTotal(s);
   if (s.durationSec) return s.durationSec;
-  if (s.kind === "kracht") {
-    const sets = (s.exercises || []).reduce((a, e) => a + (e.sets || []).filter((x) => x && (x.reps || x.kg)).length, 0);
-    return sets ? sets * 150 : null;
+  if (s.kind === "hyrox") {
+    const t = hyroxTotal(s);
+    if (t) return t;
+  }
+  const bl = blocksOf(s);
+  if (bl.length) {
+    const sum = bl.reduce((a, b) => a + (blockDuration(b) || 0), 0);
+    if (sum) return Math.round(sum);
   }
   if (s.kind === "wod" && s.capSec) return s.capSec;
   return null;
@@ -72,7 +78,10 @@ export function rpeOf(s, profile) {
     if (r != null) return { rpe: Math.round(r * 10) / 10, est: true, from: "hartslag" };
   }
   if (s.kind === "kracht") {
-    const rirs = (s.exercises || []).flatMap((e) => (e.sets || []).map((x) => num(x && x.rir))).filter((x) => x != null);
+    const rirs = blocksOf(s)
+      .filter((b) => b.type === "sets")
+      .flatMap((b) => (b.items || []).flatMap((e) => (e.sets || []).map((x) => num(x && x.rir))))
+      .filter((x) => x != null);
     if (rirs.length) {
       const avg = rirs.reduce((a, b) => a + b, 0) / rirs.length;
       // sessie-RPE ligt iets onder de RPE van de zwaarste sets (warming-up, rust)
@@ -95,39 +104,45 @@ export function trimpOf(s, profile) {
   return Math.round((sec / 60) * hrr * f);
 }
 
-/* Aandeel van de belasting per systeem: benen, bovenlichaam, centraal. */
-const LEG_MUSCLES = new Set(["quadriceps", "hamstrings", "bilspieren", "kuiten", "adductoren", "abductoren"]);
-export function systemSplit(s, exIndex) {
+/* Aandeel van de belasting per systeem: benen, bovenlichaam, centraal.
+   Met blokken: gewogen naar de geschatte werktijd per beweging. */
+export function systemSplit(s) {
   if (s.kind === "duur") {
     const sp = SPORTS[s.sport] || SPORTS.hardlopen;
     return { legs: sp.legs, upper: sp.upper, central: 1 - sp.legs - sp.upper };
   }
-  if (s.kind === "kracht") {
-    let legs = 0,
-      upper = 0;
-    for (const e of s.exercises || []) {
-      const n = (e.sets || []).filter((x) => x && (x.reps || x.kg)).length || 0;
-      const ex = exIndex && exIndex[e.exId];
-      const pri = ex ? ex.pri : e.muscle ? [e.muscle] : [];
-      const isLeg = pri.some((m) => LEG_MUSCLES.has(m));
-      if (isLeg) legs += n;
-      else upper += n;
-    }
-    const tot = legs + upper || 1;
-    return { legs: 0.85 * (legs / tot), upper: 0.85 * (upper / tot), central: 0.15 };
+  const bl = blocksOf(s);
+  const fromBlocks = bl.length ? blocksSystems(bl) : null;
+  if (fromBlocks) {
+    // kracht: 15% centraal; metcon en Hyrox: hart en longen wegen zwaarder
+    const central = s.kind === "kracht" && bl.every((x) => x.type === "sets") ? 0.15 : 0.3;
+    const k = (1 - central) / (fromBlocks.legs + fromBlocks.upper || 1);
+    return { legs: fromBlocks.legs * k, upper: fromBlocks.upper * k, central };
   }
   if (s.kind === "hyrox") return { legs: 0.5, upper: 0.2, central: 0.3 };
   if (s.kind === "wod") return { legs: 0.35, upper: 0.35, central: 0.3 };
+  if (s.kind === "kracht") return { legs: 0.425, upper: 0.425, central: 0.15 };
   return { legs: 0.3, upper: 0.3, central: 0.4 };
 }
 
+/* Belasting verdeeld over de pijlers. Een krachtsessie met een AMRAP als
+   afsluiter telt deels als conditie, naar verhouding van de blokduur. */
+export function pillarSplit(s) {
+  const base = pillarOf(s);
+  if (s.kind === "duur" || s.kind === "mobiliteit") return { [base]: 1 };
+  const bl = blocksOf(s).filter((b) => b.type !== "vrij");
+  if (!bl.length) return { [base]: 1 };
+  return pillarShares(bl, base);
+}
+
 /* Alle afgeleide belastingswaarden van één sessie. */
-export function sessionLoad(s, profile, exIndex) {
+export function sessionLoad(s, profile) {
   const sec = durationOf(s);
   const r = rpeOf(s, profile);
   const minutes = sec ? sec / 60 : 0;
   const srpe = Math.round(r.rpe * minutes);
-  const split = systemSplit(s, exIndex);
+  const split = systemSplit(s);
+  const shares = pillarSplit(s);
   return {
     minutes,
     rpe: r.rpe,
@@ -136,20 +151,21 @@ export function sessionLoad(s, profile, exIndex) {
     srpe,
     trimp: trimpOf(s, profile),
     pillar: pillarOf(s),
+    pillars: Object.fromEntries(Object.entries(shares).map(([k, v]) => [k, Math.round(srpe * v)])),
     systems: { legs: Math.round(srpe * split.legs), upper: Math.round(srpe * split.upper), central: Math.round(srpe * split.central) },
     zone: s.kind === "duur" ? hrZoneOf(profile, num(s.avgHr)) : null,
   };
 }
 
 /* Dagelijkse belasting van `from` t/m `to` (ISO-datums). */
-export function dailyLoads(sessions, profile, from, to, exIndex) {
+export function dailyLoads(sessions, profile, from, to) {
   const a = dayNum(from),
     b = dayNum(to);
   const days = Array.from({ length: Math.max(0, b - a + 1) }, (_, i) => ({ date: isoOfNum(a + i), load: 0, legs: 0, upper: 0, central: 0 }));
   for (const s of sessions) {
     const i = dayNum(s.date) - a;
     if (i < 0 || i >= days.length) continue;
-    const L = sessionLoad(s, profile, exIndex);
+    const L = sessionLoad(s, profile);
     const d = days[i];
     d.load += L.srpe;
     d.legs += L.systems.legs;
@@ -164,11 +180,11 @@ export function dailyLoads(sessions, profile, from, to, exIndex) {
    `since`: dagen sinds de eerste sessie (voor "nog aan het opbouwen"). */
 export const CTL_DAYS = 42;
 export const ATL_DAYS = 7;
-export function fitnessSeries(sessions, profile, from, to, exIndex) {
+export function fitnessSeries(sessions, profile, from, to) {
   const first = sessions.length ? sessions.reduce((m, s) => (s.date < m ? s.date : m), "9999-12-31") : null;
   const start = first && first < from ? first : from;
   const firstN = first ? dayNum(first) : null;
-  const days = dailyLoads(sessions, profile, start, to, exIndex);
+  const days = dailyLoads(sessions, profile, start, to);
   const kc = 1 - Math.exp(-1 / CTL_DAYS);
   const ka = 1 - Math.exp(-1 / ATL_DAYS);
   let ctl = 0,
@@ -199,7 +215,7 @@ export function formStatus(point) {
 }
 
 /* Weekoverzicht: belasting per pijler, minuten en afstand per sport. */
-export function weekSummary(sessions, profile, mondayISO, exIndex) {
+export function weekSummary(sessions, profile, mondayISO) {
   const a = dayNum(mondayISO);
   const inWeek = sessions.filter((s) => {
     const n = dayNum(s.date) - a;
@@ -210,24 +226,31 @@ export function weekSummary(sessions, profile, mondayISO, exIndex) {
   let total = 0,
     minutes = 0;
   for (const s of inWeek) {
-    const L = sessionLoad(s, profile, exIndex);
-    pillars[L.pillar] += L.srpe;
+    const L = sessionLoad(s, profile);
+    for (const [k, v] of Object.entries(L.pillars)) pillars[k] = (pillars[k] || 0) + v;
     total += L.srpe;
     minutes += L.minutes;
     if (s.kind === "duur") {
       const k = s.sport || "hardlopen";
-      sports[k] = sports[k] || { count: 0, distanceM: 0, minutes: 0 };
+      sports[k] = sports[k] || { count: 0, distanceM: 0, minutes: 0, inBlocks: 0 };
       sports[k].count++;
       sports[k].distanceM += num(s.distanceM, 0);
       sports[k].minutes += L.minutes;
+    } else {
+      // meters binnen WOD's en intervallen (bijv. 5 × 500 m roeien) tellen mee
+      for (const [k, d] of Object.entries(sessionVolume(blocksOf(s)).sport)) {
+        sports[k] = sports[k] || { count: 0, distanceM: 0, minutes: 0, inBlocks: 0 };
+        sports[k].distanceM += d;
+        sports[k].inBlocks += d;
+      }
     }
   }
   return { monday: mondayISO, count: inWeek.length, total, minutes, pillars, sports };
 }
 
-export function weeklySeries(sessions, profile, weeks, todayISO, exIndex) {
+export function weeklySeries(sessions, profile, weeks, todayISO) {
   const m = dayNum(mondayOf(todayISO));
-  return Array.from({ length: weeks }, (_, i) => weekSummary(sessions, profile, isoOfNum(m - (weeks - 1 - i) * 7), exIndex));
+  return Array.from({ length: weeks }, (_, i) => weekSummary(sessions, profile, isoOfNum(m - (weeks - 1 - i) * 7)));
 }
 
 /* Intensiteitsverdeling van duursessies (Seiler, drie zones), in minuten.
@@ -258,6 +281,19 @@ export function intensityDistribution(sessions, profile, fromISO, toISO) {
       zm.forEach((m, z) => (out[seilerOf(z)] += m));
       continue;
     }
+    // intervallen in de sessie: het werk telt als zwaar, de rest als rustig
+    const iv = blocksOf(s).filter((b) => b.type === "interval");
+    if (iv.length && (s.type === "rustig" || s.type === "lang" || !s.type)) {
+      const total = (durationOf(s) || 0) / 60;
+      const work = Math.min(total, iv.reduce((a, b) => {
+        const sp = ((b.result && b.result.splits) || []).filter((x) => x > 0);
+        const per = sp.length ? sp.reduce((x, y) => x + y, 0) / sp.length : (blockDuration(b) || 0) / Math.max(1, num(b.rounds, 1)) / 2;
+        return a + (per * num(b.rounds, 1)) / 60;
+      }, 0));
+      out[3] += work;
+      out[1] += Math.max(0, total - work);
+      continue;
+    }
     const min = (durationOf(s) || 0) / 60;
     const z = (s.type && s.type !== "rustig" && s.type !== "lang" ? TYPE_ZONE[s.type] : null) || seilerOf(hrZoneOf(profile, num(s.avgHr))) || TYPE_ZONE[s.type] || 1;
     out[z] += min;
@@ -271,16 +307,63 @@ export const e1rm = (kg, reps) => (kg > 0 && reps > 0 ? (reps === 1 ? kg : kg * 
 export function strengthRecords(sessions) {
   const best = {};
   for (const s of sessions) {
-    if (s.kind !== "kracht") continue;
-    for (const e of s.exercises || []) {
-      for (const x of e.sets || []) {
-        const v = e1rm(num(x && x.kg, 0), num(x && x.reps, 0));
-        const key = e.exId || e.name;
-        if (v && (!best[key] || v > best[key].e1rm)) best[key] = { name: e.name, e1rm: v, kg: num(x.kg), reps: num(x.reps), date: s.date };
+    for (const b of blocksOf(s)) {
+      if (b.type !== "sets") continue;
+      for (const e of b.items || []) {
+        for (const x of e.sets || []) {
+          const v = e1rm(num(x && x.kg, 0), num(x && x.reps, 0));
+          const key = e.moveId || e.name;
+          if (v && (!best[key] || v > best[key].e1rm)) best[key] = { name: e.name, e1rm: v, kg: num(x.kg), reps: num(x.reps), date: s.date };
+        }
       }
     }
   }
   return Object.values(best).sort((a, b) => b.e1rm - a.e1rm);
+}
+
+/* Beste tijden op vaste afstanden binnen blokken: intervallen (snelste
+   split) en doorlopende stukken, bijv. 500 m roeien of 1000 m SkiErg. */
+export function pieceRecords(sessions) {
+  const best = {};
+  const put = (mv, dist, sec, date) => {
+    if (!mv || !dist || !sec) return;
+    const key = `${mv.id}:${dist}`;
+    if (!best[key] || sec < best[key].sec) best[key] = { moveId: mv.id, name: mv.name, distanceM: dist, sec, date };
+  };
+  for (const s of sessions) {
+    for (const b of blocksOf(s)) {
+      const items = b.items || [];
+      if (items.length !== 1) continue;
+      const it = items[0];
+      const mv = movementById(it.moveId);
+      const dist = num(it.distanceM);
+      if (!mv || !dist) continue;
+      if (b.type === "interval") for (const sp of (b.result && b.result.splits) || []) if (sp > 0) put(mv, dist, sp, s.date);
+      if (b.type === "doorlopend") put(mv, dist, num(b.result && b.result.timeSec), s.date);
+    }
+    // losse duursessies op een standaardafstand (roeien en SkiErg)
+    if (s.kind === "duur" && (s.sport === "roeien" || s.sport === "skierg") && [500, 1000, 2000, 5000].includes(Math.round(num(s.distanceM, 0)))) {
+      put(movementById(s.sport === "roeien" ? "row" : "ski"), Math.round(s.distanceM), s.durationSec, s.date);
+    }
+  }
+  return Object.values(best).sort((a, b) => a.name.localeCompare(b.name) || a.distanceM - b.distanceM);
+}
+
+/* Benchmarks: blokken met een naam (bijv. "Fran") en hun beste resultaat. */
+export function benchmarkRecords(sessions) {
+  const best = {};
+  for (const s of sessions) {
+    for (const b of blocksOf(s)) {
+      if (!b.name) continue;
+      const sc = blockScore(b);
+      if (sc == null) continue;
+      const key = b.name.toLowerCase();
+      const entry = { name: b.name, score: sc, result: blockResult(b), header: blockHeader(b), date: s.date, count: ((best[key] && best[key].count) || 0) + 1 };
+      if (!best[key] || sc > best[key].score) best[key] = entry;
+      else best[key].count = entry.count;
+    }
+  }
+  return Object.values(best).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /* Duurrecords: snelste gemiddelde tempo op standaardafstanden (hardlopen),

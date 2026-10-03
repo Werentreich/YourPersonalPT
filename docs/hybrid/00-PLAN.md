@@ -362,3 +362,22 @@ review van u voordat de volgende fase start.
   - Afwijking van het plan: de vorm is fitheid − vermoeidheid aan het eind
     van de dag (niet de stand van gisteren), zodat de getallen op elk scherm
     optellen.
+- **Hybride indeling** (2026-10-03, vóór fase 2): sessies bestaan uit
+  blokken in plaats van alleen sets × herhalingen × kg.
+  - Bloktypes: sets, rondes (ook reeksen zoals 21-15-9), AMRAP, EMOM
+    (elke 1/1:30/2/3 min, wisselend of alles), For Time (met cap),
+    intervallen (met rust en splits) en doorlopend.
+  - Bewegingenbibliotheek (~70) met eigen maten per beweging: meters, tijd,
+    calorieën, herhalingen, kg (ook per hand) en hoogte; plus alle
+    oefeningen uit Nexa.
+  - Volume per blok (meters per sport, herhalingen, calorieën, tonnage),
+    geschatte duur, pijlerverdeling binnen een sessie (kracht met afsluiter
+    telt deels als conditie) en systeemverdeling per beweging.
+  - Roeimeters in een WOD tellen mee bij roeien; intervallen in een rustige
+    sessie tellen als zwaar werk in de intensiteitsverdeling.
+  - Records: benchmarks met naam (Fran, Cindy, eigen namen), beste tijden op
+    vaste stukken (bijv. 500 m roeien) en 1RM uit sets.
+  - Bekende workouts als startpunt: Cindy, Fran, Helen, Grace, Murph,
+    6 × 500 m roeien, Hyrox-stations en een EMOM.
+  - Oude sessies uit fase 1 worden automatisch omgezet.
+  Dit is ook de structuur waarin de planner in fase 2 trainingen voorschrijft.

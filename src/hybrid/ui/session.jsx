@@ -6,7 +6,6 @@ import { K } from "../theme.js";
 import {
   SPORTS,
   ENDURANCE_TYPES,
-  WOD_FORMATS,
   HYROX_STATIONS,
   HYROX_MODES,
   KINDS,
@@ -15,13 +14,16 @@ import {
   fmtDuration,
   fmtKm,
   hyroxTotal,
-  sessionTitle,
-} from "../engine/model.js";
+  } from "../engine/model.js";
 import { sessionLoad } from "../engine/load.js";
+import { blocksOf, newBlock, titleOf } from "../engine/blocks.js";
+import { registerNexaExercises } from "../engine/movements.js";
+import { BlocksEditor } from "./blocks.jsx";
 import { importActivity } from "../import/files.js";
 import { Field, TextInput, NumInput, DurationInput, Choice, RpeInput, HIcon, PillarDot } from "./kit.jsx";
 
 export const EX_INDEX = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
+registerNexaExercises(EXERCISES);
 
 /* ---------------- soort kiezen ---------------- */
 const STARTS = [
@@ -141,110 +143,34 @@ function EnduranceForm({ s, set }) {
   );
 }
 
-function ExercisePicker({ onAdd }) {
-  const [q, setQ] = useState("");
-  const hits = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    if (!t) return [];
-    return EXERCISES.filter((e) => e.name.toLowerCase().includes(t)).slice(0, 6);
-  }, [q]);
-  const add = (ex) => {
-    onAdd(ex ? { exId: ex.id, name: ex.name, muscle: ex.pri[0] } : { name: q.trim() });
-    setQ("");
-  };
-  return (
-    <div>
-      <TextInput value={q} onChange={setQ} placeholder="Oefening zoeken of typen, bijv. squat" ariaLabel="Oefening zoeken" />
-      {q.trim() && (
-        <div className="mt-1.5 overflow-hidden" style={{ border: `1px solid ${C.line}`, borderRadius: R.field }}>
-          {hits.map((e) => (
-            <button key={e.id} onClick={() => add(e)} className="tap w-full text-left px-3 py-2 text-sm" style={{ color: C.ink, borderBottom: `1px solid ${C.lineSoft}`, background: C.panel }}>
-              {e.name}
-            </button>
-          ))}
-          <button onClick={() => add(null)} className="tap w-full text-left px-3 py-2 text-sm" style={{ color: C.accent, background: C.panel, fontWeight: 600 }}>
-            "{q.trim()}" toevoegen als eigen oefening
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StrengthForm({ s, set }) {
-  const ex = s.exercises || [];
-  const upd = (i, patch) => set({ exercises: ex.map((e, k) => (k === i ? { ...e, ...patch } : e)) });
-  const setRow = (i, j, patch) => upd(i, { sets: ex[i].sets.map((x, k) => (k === j ? { ...x, ...patch } : x)) });
+/* Kracht en conditie: alles in blokken. */
+function BlocksForm({ s, set }) {
   return (
     <div className="space-y-4">
       <Field label="Naam (optioneel)">
-        <TextInput value={s.title} onChange={(v) => set({ title: v })} placeholder="bijv. Onderlichaam zwaar" ariaLabel="Naam van de training" />
+        <TextInput value={s.title} onChange={(v) => set({ title: v })} placeholder={s.kind === "kracht" ? "bijv. Onderlichaam zwaar" : "bijv. Zaterdag-engine"} ariaLabel="Naam van de training" />
       </Field>
-      {ex.map((e, i) => (
-        <div key={i} className="p-3" style={{ border: `1px solid ${C.line}`, borderRadius: R.field }}>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-sm" style={{ color: C.ink, fontWeight: 600 }}>
-              {e.name}
-            </span>
-            <button onClick={() => set({ exercises: ex.filter((_, k) => k !== i) })} className="tap p-1" style={{ color: C.muted }} aria-label={`${e.name} verwijderen`}>
-              <HIcon name="trash" size={18} />
-            </button>
-          </div>
-          <div className="grid gap-1.5 text-xs mb-1" style={{ gridTemplateColumns: "28px 1fr 1fr 1fr 28px", color: C.muted }}>
-            <span>Set</span>
-            <span>kg</span>
-            <span>Herh.</span>
-            <span title="Herhalingen in reserve">RIR</span>
-            <span />
-          </div>
-          {e.sets.map((x, j) => (
-            <div key={j} className="grid gap-1.5 items-center mb-1.5" style={{ gridTemplateColumns: "28px 1fr 1fr 1fr 28px" }}>
-              <span className="text-sm tnum" style={{ color: C.muted }}>
-                {j + 1}
-              </span>
-              <NumInput value={x.kg} onChange={(v) => setRow(i, j, { kg: v })} ariaLabel={`Set ${j + 1} kilogram`} />
-              <NumInput value={x.reps} onChange={(v) => setRow(i, j, { reps: v })} step="1" ariaLabel={`Set ${j + 1} herhalingen`} />
-              <NumInput value={x.rir} onChange={(v) => setRow(i, j, { rir: v })} step="1" ariaLabel={`Set ${j + 1} herhalingen in reserve`} />
-              <button onClick={() => upd(i, { sets: e.sets.filter((_, k) => k !== j) })} className="tap" style={{ color: C.muted }} aria-label={`Set ${j + 1} verwijderen`}>
-                ×
-              </button>
-            </div>
-          ))}
-          <button onClick={() => upd(i, { sets: [...e.sets, { ...(e.sets[e.sets.length - 1] || { kg: null, reps: null, rir: null }) }] })} className="tap text-sm mt-1" style={{ color: C.accent, fontWeight: 600 }}>
-            + Set
-          </button>
-        </div>
-      ))}
-      <ExercisePicker onAdd={(e) => set({ exercises: [...ex, { ...e, sets: [{ kg: null, reps: null, rir: null }] }] })} />
-      <Field label="Tijd (optioneel)" hint="Leeg laten: de app schat de duur uit het aantal sets.">
-        <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Tijd" />
+      <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} />
+      <Field label="Totale tijd van de sessie (optioneel)" hint="Inclusief warming-up. Leeg laten: de app rekent het uit de blokken.">
+        <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Totale tijd" />
       </Field>
     </div>
   );
 }
 
-const wodOpts = Object.entries(WOD_FORMATS).map(([value, w]) => ({ value, label: w.label }));
-function WodForm({ s, set }) {
-  const f = WOD_FORMATS[s.format] || WOD_FORMATS.amrap;
+/* Optionele opbouw bij duur en Hyrox (intervallen, stations). */
+function OptionalBlocks({ s, set, label, types }) {
+  const [open, setOpen] = useState((s.blocks || []).length > 0);
+  if (!open)
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="tap text-sm" style={{ color: C.accent, fontWeight: 600 }}>
+        + {label}
+      </button>
+    );
   return (
-    <div className="space-y-4">
-      <Field label="Vorm" hint={f.hint}>
-        <Choice options={wodOpts} value={s.format} onChange={(v) => set({ format: v })} ariaLabel="WOD-vorm" />
-      </Field>
-      <Field label="Oefeningen" hint="Eén per regel, bijv. 10 thrusters 40 kg">
-        <TextInput multiline rows={4} value={s.movements} onChange={(v) => set({ movements: v })} ariaLabel="Oefeningen" />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={s.format === "fortime" || s.format === "chipper" ? "Tijdslimiet" : "Duur"}>
-          <DurationInput value={s.capSec} onChange={(v) => set({ capSec: v })} ariaLabel="Tijdslimiet of duur" />
-        </Field>
-        <Field label="Score" hint={s.format === "amrap" ? "rondes + herhalingen, bijv. 7+12" : s.format === "fortime" || s.format === "chipper" ? "eindtijd, bijv. 12:34" : "bijv. alle rondes"}>
-          <TextInput value={s.score} onChange={(v) => set({ score: v })} ariaLabel="Score" />
-        </Field>
-      </div>
-      <Field label="Totale tijd van de sessie (optioneel)" hint="Inclusief warming-up; anders telt de duur hierboven.">
-        <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Totale tijd" />
-      </Field>
+    <div>
+      <div className="eyebrow mb-2">{label}</div>
+      <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} types={types} startAdding />
     </div>
   );
 }
@@ -283,6 +209,7 @@ function HyroxForm({ s, set }) {
           ))}
         </div>
       )}
+      <OptionalBlocks s={s} set={set} label="Stationstraining in blokken" />
     </div>
   );
 }
@@ -302,7 +229,7 @@ function MobilityForm({ s, set }) {
 
 /* ---------------- sheet ---------------- */
 export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
-  const [s, setS] = useState(initial || null);
+  const [s, setS] = useState(() => (initial ? { ...initial, blocks: blocksOf(initial) } : null));
   const [route, setRoute] = useState(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const set = (patch) => setS((x) => ({ ...x, ...patch }));
@@ -313,7 +240,7 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
     return (
       <Sheet title="Training vastleggen" onClose={onClose}>
         <KindPicker
-          onPick={(p) => setS(newSession(p.kind, p.sport ? { sport: p.sport } : {}))}
+          onPick={(p) => setS(newSession(p.kind, p.sport ? { sport: p.sport } : p.kind === "kracht" ? { blocks: [newBlock("sets")] } : {}))}
           onImported={(r) => {
             setS(newSession("duur", { ...r.draft, source: r.format, date: r.draft.date || newSession("duur").date }));
             setRoute(r.route);
@@ -323,9 +250,10 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
     );
   }
 
-  const canSave = s.kind === "kracht" ? (s.exercises || []).length > 0 || s.durationSec : s.kind === "hyrox" ? !!hyroxTotal(s) : s.kind === "wod" ? !!(s.durationSec || s.capSec) : !!s.durationSec;
+  const hasBlocks = (s.blocks || []).some((b) => (b.items || []).length || b.text);
+  const canSave = s.kind === "kracht" || s.kind === "wod" ? hasBlocks || !!s.durationSec : s.kind === "hyrox" ? !!hyroxTotal(s) || hasBlocks : !!s.durationSec;
   return (
-    <Sheet title={editing ? sessionTitle(s) : `${s.kind === "duur" ? (SPORTS[s.sport] || SPORTS.hardlopen).label : (KINDS[s.kind] || {}).label || "Training"} vastleggen`} onClose={onClose}>
+    <Sheet title={editing ? titleOf(s) : `${s.kind === "duur" ? (SPORTS[s.sport] || SPORTS.hardlopen).label : (KINDS[s.kind] || {}).label || "Training"} vastleggen`} onClose={onClose}>
       <div className="space-y-5 pb-2">
         {s.source && s.source !== "handmatig" && (
           <p className="text-xs leading-relaxed px-3 py-2" style={{ background: "var(--accent-soft)", color: C.ink, borderRadius: R.field }}>
@@ -346,8 +274,8 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
           />
         </Field>
         {s.kind === "duur" && <EnduranceForm s={s} set={set} />}
-        {s.kind === "kracht" && <StrengthForm s={s} set={set} />}
-        {s.kind === "wod" && <WodForm s={s} set={set} />}
+        {s.kind === "duur" && <OptionalBlocks s={s} set={set} label="Opbouw toevoegen (bijv. 6 × 500 m)" types={["interval", "doorlopend", "vrij"]} />}
+        {(s.kind === "kracht" || s.kind === "wod") && <BlocksForm s={s} set={set} />}
         {s.kind === "hyrox" && <HyroxForm s={s} set={set} />}
         {s.kind === "mobiliteit" && <MobilityForm s={s} set={set} />}
         <RpeInput value={s.rpe} onChange={(v) => set({ rpe: v })} estimate={load && load.rpeEst && load.minutes ? Math.round(load.rpe * 10) / 10 : null} />
@@ -365,7 +293,15 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
           </div>
         )}
         <div className="flex gap-2">
-          <TBtn full disabled={!canSave} onClick={() => onSave(s, route)}>
+          <TBtn
+            full
+            disabled={!canSave}
+            onClick={() => {
+              // oude velden (fase 1) vervallen zodra er blokken zijn opgeslagen
+              const { exercises, movements, score, format, capSec, ...clean } = s;
+              onSave(s.kind === "kracht" || s.kind === "wod" ? clean : s, route);
+            }}
+          >
             {editing ? "Opslaan" : "Vastleggen"}
           </TBtn>
         </div>
