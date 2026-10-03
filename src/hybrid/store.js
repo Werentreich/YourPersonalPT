@@ -14,6 +14,9 @@ export const HYBRID_KEY = "macroverdeling:hybrid:v1";
 export const NEXA_KEY = "macroverdeling:v1";
 export const ROUTE_PREFIX = "nexa:hybrid-route:";
 const SAVE_DELAY = 600;
+/* Versie van de planner: hoger = weken die met een oudere versie gemaakt zijn
+   worden bij openen voor de komende dagen opnieuw berekend. */
+export const PLAN_V = 2;
 
 export function useHybridStore() {
   const [data, setData] = useState(STORE_DEFAULT);
@@ -163,7 +166,7 @@ export function useHybridStore() {
         const busy = new Set(keep.filter((x) => x.date >= monday && x.status === "gedaan").map((x) => x.date));
         const fresh = wk.items.filter((x) => x.date >= today && !busy.has(x.date));
         const items = [...keep.filter((x) => !(x.date >= today && x.status === "gepland")), ...fresh];
-        const weeks = { ...((prev && prev.weeks) || {}), [monday]: { phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } };
+        const weeks = { ...((prev && prev.weeks) || {}), [monday]: { v: PLAN_V, phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } };
         return { ...d, plan: { settings: s, items, weeks, applied: (prev && prev.applied) || {}, createdOn: (prev && prev.createdOn) || today } };
       });
     },
@@ -173,17 +176,25 @@ export function useHybridStore() {
     /* De week maken als die er nog niet is (eens per week, bij openen). */
     ensureWeek(monday) {
       setData((d) => {
-        if (!d.plan || (d.plan.weeks || {})[monday]) return d;
+        if (!d.plan) return d;
+        const known = (d.plan.weeks || {})[monday];
+        // bestaat de week al en is hij met de huidige planner gemaakt: niets doen
+        if (known && (known.v || 1) >= PLAN_V) return d;
         if (monday < mondayOf(d.plan.settings.startDate || monday)) return d;
         const ctx = { sessions: d.sessions, profile: d.profile, checkins: d.checkins, planItems: d.plan.items };
         const wk = generateWeek(d.plan.settings, ctx, monday);
-        const others = d.plan.items.filter((x) => !(x.date >= monday && x.date <= isoOfNum(dayNum(monday) + 6) && x.status === "gepland"));
+        const end = isoOfNum(dayNum(monday) + 6);
+        // een oudere week: alleen de nog komende, niet gedane sessies vervangen
+        const from = known ? localISO() : monday;
+        const busy = new Set(d.plan.items.filter((x) => x.date >= monday && x.date <= end && x.status !== "gepland").map((x) => x.date));
+        const others = d.plan.items.filter((x) => !(x.date >= from && x.date <= end && x.status === "gepland"));
+        const fresh = wk.items.filter((x) => x.date >= from && !busy.has(x.date));
         return {
           ...d,
           plan: {
             ...d.plan,
-            items: [...others, ...wk.items],
-            weeks: { ...d.plan.weeks, [monday]: { phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } },
+            items: [...others, ...fresh],
+            weeks: { ...d.plan.weeks, [monday]: { v: PLAN_V, phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } },
           },
         };
       });

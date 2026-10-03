@@ -140,5 +140,23 @@ const fresh = { ...S, goal: "10k", goalDate: iso(7 * 9 + 6), startDate: MON };
 ok("eerste drie weken van een schema nooit een herstelweek", [0, 7, 14].every((d) => !P.phaseFor(fresh, iso(d)).deload));
 ok("herstelweek heet ook zo", Array.from({ length: 9 }, (_, i) => P.phaseFor(fresh, iso(i * 7))).every((p) => !p.deload || p.phase === "herstel"));
 
+// ---------- beginners (duur) ----------
+{
+  const SB = { ...P.SETTINGS_DEFAULT, goal: "10k", startDate: MON, exp: { kracht: "beginner", duur: "beginner" } };
+  const w2 = P.generateWeek(SB, { sessions: [], profile: {} }, iso(7));
+  const runs = w2.items.filter((x) => x.kind === "duur");
+  const hasHard = runs.some((x) => x.blocks.some((b) => b.type === "interval" && (b.items || []).some((it) => (it.timeSec || 0) > 30)));
+  ok("beginner week 2: geen drempel- of VO2max-intervallen, alleen korte versnellingen", !hasHard && runs.some((x) => x.type === "fartlek"), runs.map((x) => x.type).join(","));
+  ok("beginner week 2: geen duursessie langer dan 35 min", runs.every((x) => x.targetMin <= 35), runs.map((x) => x.targetMin).join(","));
+  const w6 = P.generateWeek(SB, { sessions: [], profile: {} }, iso(35));
+  const vo2 = w6.items.some((x) => x.blocks.some((b) => b.type === "interval" && /VO2/i.test(String(b.intensity || ""))));
+  ok("beginner opbouw: drempel, nooit VO2max", w6.phase === "opbouw" && !vo2 && w6.items.some((x) => x.type === "drempel"));
+  const SG = { ...SB, exp: { kracht: "gevorderd", duur: "gevorderd" } };
+  const g2 = P.generateWeek(SG, { sessions: [], profile: {} }, iso(7));
+  const durSum = (x) => Math.round(x.blocks.reduce((a, b) => a + (B.blockDuration(b) || 0), 0) / 60);
+  ok("geplande minuten = inhoud van de sessie (opwarmen, kern, rust, uitlopen)", g2.items.filter((x) => x.kind === "duur" && x.type !== "rustig" && x.type !== "lang").every((x) => x.targetMin === durSum(x)), g2.items.filter((x) => x.kind === "duur").map((x) => x.targetMin + "/" + durSum(x)).join(" "));
+  ok("gevorderd: intervalsessie niet meer standaard 55 min", g2.items.filter((x) => x.slot === "D_INT").every((x) => x.targetMin < 55));
+}
+
 console.log(fails ? `${fails} FOUT(EN)` : "Alle tests geslaagd");
 process.exit(fails ? 1 : 0);

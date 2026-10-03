@@ -22,7 +22,7 @@
    Alles is puur JavaScript zonder React, zodat de tests het los draaien. */
 
 import { SPORTS, num, dayNum, isoOfNum, mondayOf, newId, localISO } from "./model.js";
-import { newBlock, newItem } from "./blocks.js";
+import { newBlock, newItem, blockDuration } from "./blocks.js";
 import { movementById } from "./movements.js";
 import { fitnessSeries, sessionLoad, strengthRecords, durationOf } from "./load.js";
 import { runPaceZones, powerZones, rowZones, hrZones } from "./zones.js";
@@ -161,7 +161,7 @@ export function arrangeWeek(slots, days, settings) {
 }
 
 /* ---------------- volume ---------------- */
-const EXP_MIN = { beginner: 90, gevorderd: 150, ervaren: 220 }; // minuten duur per week als vertrekpunt
+const EXP_MIN = { beginner: 80, gevorderd: 150, ervaren: 220 }; // minuten duur per week als vertrekpunt
 
 /* Duurminuten per week in de laatste vier volledige weken. */
 export function enduranceHistory(sessions, profile, mondayISO) {
@@ -248,11 +248,29 @@ function enduranceSession(slot, ph, settings, ctx, minutes, n) {
     };
   }
   // intervallen en tempo: warming-up, kern, cooling-down
-  const wu = 10,
-    cd = 8;
+  const exp = (settings.exp || {}).duur || "gevorderd";
+  const beginner = exp === "beginner";
+  const wu = beginner ? 8 : 10,
+    cd = beginner ? 5 : 8;
   let main, type, note, rpe;
+  // Beginners: eerst een aerobe basis. In de basisfase (en herstelweken)
+  // geen drempel- of VO2max-werk, alleen rustig lopen met een paar korte
+  // versnellingen; daarna voorzichtig drempelwerk, nooit VO2max-blokken.
+  if (beginner && (ph.phase === "basis" || ph.deload || ph.phase === "herstel" || ph.phase === "na")) {
+    const easy = slot === "D_TEMPO" ? 25 : 20;
+    const blocks = [newBlock("doorlopend", { intensity: intensityText(profile, sport, "rustig"), items: [newItem(mv, { timeSec: easy * 60 })] })];
+    if (slot === "D_INT" && !ph.deload) blocks.push(newBlock("interval", { rounds: 4, restSec: 60, intensity: "vlot maar ontspannen, geen sprint", items: [newItem(mv, { timeSec: 20 })] }));
+    blocks.push(cooldown(sport, cd));
+    const out = { sport, type: slot === "D_INT" && !ph.deload ? "fartlek" : "rustig", rpeTarget: 4, blocks, note: slot === "D_INT" ? "U bouwt eerst een basis: rustig lopen met een paar korte versnellingen. Echte intervallen komen later." : "Rustig, op praattempo. Snelheid komt later." };
+    return { ...out, targetMin: minutesOf(out.blocks) };
+  }
+  if (beginner && slot !== "D_TEMPO" && (ph.phase === "opbouw" || ph.phase === "piek")) {
+    main = newBlock("interval", { rounds: 4, restSec: 120, intensity: intensityText(profile, sport, "drempel"), items: [newItem(mv, { timeSec: 4 * 60 })] });
+    const out = { sport, type: "drempel", rpeTarget: 7, blocks: [warmup(sport, wu), main, cooldown(sport, cd)], note: "Stevig maar beheerst: u kunt nog een paar woorden zeggen." };
+    return { ...out, targetMin: minutesOf(out.blocks) };
+  }
   if (slot === "D_TEMPO") {
-    const blockMin = ph.phase === "basis" ? 10 : 12;
+    const blockMin = beginner ? 6 : ph.phase === "basis" ? 10 : 12;
     main = newBlock("interval", { rounds: ph.deload ? 1 : 2, restSec: 180, intensity: intensityText(profile, sport, "drempel"), items: [newItem(mv, { timeSec: blockMin * 60 })] });
     type = "drempel";
     rpe = 7;
@@ -284,7 +302,14 @@ function enduranceSession(slot, ph, settings, ctx, minutes, n) {
     rpe = 6;
     note = "Kort en scherp, zonder moe te worden.";
   }
-  return { sport, type, targetMin: minutes, rpeTarget: rpe, blocks: [warmup(sport, wu), main, cooldown(sport, cd)], note };
+  const blocks = [warmup(sport, wu), main, cooldown(sport, cd)];
+  // de geplande duur volgt uit wat er werkelijk in de sessie staat
+  return { sport, type, targetMin: minutesOf(blocks), rpeTarget: rpe, blocks, note };
+}
+
+/* Totale duur van een geplande sessie in minuten (opwarmen, kern, rust, uitlopen). */
+function minutesOf(blocks) {
+  return Math.round(blocks.reduce((a, b) => a + (blockDuration(b) || 0), 0) / 60);
 }
 
 /* Krachtoefeningen per materiaal. Eerste oefening = hoofdoefening. */
@@ -503,8 +528,10 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
 
   const endurMin = enduranceTarget(settings, ctx, mondayISO, factor);
   const dSlots = arr.filter((x) => SLOTS[x.slot].kind === "duur");
-  const hardMin = Math.min(settings.minutes, 55);
-  const longMin = Math.round(Math.min(settings.longMinutes || 100, Math.max(45, endurMin * 0.33)));
+  // schatting voor de verdeling van de weekminuten; de echte duur volgt uit de inhoud
+  const hardMin = Math.min(settings.minutes, { beginner: 30, gevorderd: 45, ervaren: 55 }[(settings.exp || {}).duur] || 45);
+  const longFloor = (settings.exp || {}).duur === "beginner" ? 30 : 45;
+  const longMin = Math.round(Math.min(settings.longMinutes || 100, Math.max(longFloor, endurMin * 0.33)));
   const fixed = dSlots.reduce((a, x) => a + (x.slot === "D_LONG" ? longMin : x.slot === "D_EASY" ? 0 : hardMin), 0);
   const easyN = dSlots.filter((x) => x.slot === "D_EASY").length;
   const easyMin = easyN ? Math.round(Math.max(25, Math.min(settings.minutes, (endurMin - fixed) / easyN))) : 0;
