@@ -305,8 +305,8 @@ Strava-voorwaarden.
 
 | Fase | Inhoud | Klaar als |
 |---|---|---|
-| **0. Fundering** | Buildtarget, merk, thema, opslag, exports uit `App.jsx`, lege schil met tabs, abonnementsniveau | `node build.mjs hybrid` levert een werkende, installeerbare lege app; Nexa-tests blijven groen |
-| **1. Loggen en belasting** | Alle sessietypen loggen (kracht, duur, WOD, Hyrox), zones, sRPE/TRIMP, CTL/ATL/TSB, FIT/GPX-import | Een week trainen loggen en een correcte belastingsgrafiek zien |
+| **0. Fundering** ✓ | Buildtarget, merk, thema, opslag, exports uit `App.jsx`, lege schil met tabs, abonnementsniveau | `node build.mjs hybrid` levert een werkende, installeerbare lege app; Nexa-tests blijven groen |
+| **1. Loggen en belasting** ✓ | Alle sessietypen loggen (kracht, duur, WOD, Hyrox), zones, sRPE/TRIMP, CTL/ATL/TSB, FIT/GPX-import | Een week trainen loggen en een correcte belastingsgrafiek zien |
 | **2. Adaptieve planner** | Intake, weekgenerator, interferentieregels, periodisering, tests, herstel en dagelijks bijsturen | De planner maakt voor 5 testprofielen een verantwoord schema (unit-tests) en stuurt bij op gemiste sessies en slecht herstel |
 | **3. Hybride voeding** | Koolhydraten naar belasting, fueling, wedstrijdvoeding | De macro's per dag bewegen mee met het weekplan |
 | **4. Strava** | OAuth, webhook, import en ontdubbelen | Een Strava-activiteit verschijnt binnen een minuut in de app |
@@ -339,3 +339,26 @@ review van u voordat de volgende fase start.
 - Jeukendrup A. (2014). *A step towards personalized sports nutrition: carbohydrate intake during exercise.* Sports Med 44(S1).
 - Strava API Agreement (bijgewerkt november 2024): https://www.strava.com/legal/api
 - Strava rate limits: https://developers.strava.com/docs/rate-limits/
+
+---
+
+## Stand van zaken
+
+- **Fase 0** (2026-10-03): klaar. Tweede build, merk, upgrade-abonnement.
+- **Fase 1** (2026-10-03): klaar.
+  - Loggen van kracht (oefeningen uit de Nexa-bibliotheek of eigen, sets met
+    kg/herhalingen/RIR), duur (zes sporten, zeven soorten sessies), WOD
+    (AMRAP, EMOM, For Time, Chipper, intervallen), Hyrox (wedstrijd, simulatie
+    of stations, met splits) en mobiliteit.
+  - Import van FIT, GPX en TCX zonder externe bibliotheek; route alleen op
+    het apparaat, hartslag als histogram zodat zones later kloppen.
+  - Belasting: sRPE met geschatte RPE uit hartslag, RIR of soort sessie;
+    TRIMP; fitheid/vermoeidheid/vorm; belasting per systeem (benen,
+    bovenlichaam, centraal) als basis voor de interferentieregels in fase 2.
+  - Zones: hartslag (LTHR, reserve of % max), hardlopen (Riegel), fietsen
+    (FTP), roeien (2 km), zwemmen (CSS).
+  - Voortgang: grafieken met tooltip en tabelweergave, intensiteitsverdeling
+    en records. Kleuren gevalideerd op kleurenblindheid.
+  - Afwijking van het plan: de vorm is fitheid − vermoeidheid aan het eind
+    van de dag (niet de stand van gisteren), zodat de getallen op elk scherm
+    optellen.

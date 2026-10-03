@@ -53,6 +53,10 @@ Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
   functies uit `App.jsx`).
 - Opslag onder `macroverdeling:hybrid:*`, zodat het Nexa-account het
   vanzelf synchroniseert.
+- Rekenkern in `src/hybrid/engine/` (model, zones, belasting), import in
+  `src/hybrid/import/files.js` (FIT/GPX/TCX), schermen in `src/hybrid/ui/`.
+  Tests: `tests/hybrid-test.mjs` en `tests/hybrid-engine-test.mjs`.
+- Routes (GPS) staan alleen op het apparaat onder `nexa:hybrid-route:<id>`.
 - Abonnement: plannen `hybrid_maand` en `hybrid_jaar` (Stripe-lookup keys
   `nexa_hybrid_maand` / `nexa_hybrid_jaar`). Coach naar Hybrid wordt direct
   geüpgraded op hetzelfde Stripe-abonnement, naar rato verrekend.

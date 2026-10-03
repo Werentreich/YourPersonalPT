@@ -1,7 +1,7 @@
 /* =========================================================================
    NEXA HYBRID
-   Schil van de app: merk, navigatie, toegang (upgrade boven Nexa Coach) en
-   account. De trainingsmotor volgt per fase (docs/hybrid/00-PLAN.md).
+   Schil van de app: merk, navigatie, toegang (upgrade boven Nexa Coach),
+   account en de schermen. Rekenkern in engine/, schermen in ui/.
    Gedeelde onderdelen (account, sheet, knoppen) komen uit Nexa en nemen via
    CSS-variabelen vanzelf de Hybrid-kleuren over.
    ========================================================================= */
@@ -9,11 +9,12 @@ import React, { useEffect, useState } from "react";
 import { STYLE, C, R, Section, Row, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur } from "../App.jsx";
 import { HYBRID_STYLE, K } from "./theme.js";
 import { hybridAccess, upgradeDelta } from "./entitlement.js";
+import { useHybridStore, HYBRID_KEY } from "./store.js";
+import { Card, Contours, HIcon } from "./ui/kit.jsx";
+import { SessionSheet } from "./ui/session.jsx";
+import { TodayView, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
 
-/* Opslagsleutels. Het voorvoegsel "macroverdeling:" zorgt dat het
-   Nexa-account ze vanzelf meesynchroniseert (src/sync.js). */
-export const HYBRID_KEY = "macroverdeling:hybrid:v1";
-const NEXA_KEY = "macroverdeling:v1";
+export { HYBRID_KEY };
 
 /* ---------------- merkteken ----------------
    Een zware rechte lijn (kracht, gloed) kruist een golvende hoogtelijn
@@ -39,40 +40,6 @@ function Wordmark() {
   );
 }
 
-/* Hoogtelijnen als achtergrondmotief (geen strepen of tape). */
-function Contours({ seed = 0 }) {
-  const lines = Array.from({ length: 7 }, (_, i) => {
-    const y = 18 + i * 15 + seed * 3;
-    const a = 9 + ((i * 5 + seed) % 7);
-    return `M-10 ${y} C 60 ${y - a}, 110 ${y + a}, 170 ${y - a / 2} S 280 ${y + a}, 340 ${y}`;
-  });
-  return (
-    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 330 130" preserveAspectRatio="none" aria-hidden="true">
-      {lines.map((d, i) => (
-        <path key={i} d={d} fill="none" stroke="var(--contour)" strokeWidth="1.2" />
-      ))}
-    </svg>
-  );
-}
-
-/* ---------------- iconen (eigen set, lijn 1,8) ---------------- */
-const ICONS = {
-  vandaag: ["M12 3v2", "M12 19v2", "M3 12h2", "M19 12h2", "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8"],
-  week: ["M4 6h16", "M4 6v13h16V6", "M8 3v4", "M16 3v4", "M8 12h2", "M14 12h2", "M8 16h2"],
-  log: ["M5 4h14v16H5z", "M9 9h6", "M9 13h6", "M9 17h3"],
-  voortgang: ["M4 19h16", "M5 15l4-4 3 3 7-7", "M15 7h4v4"],
-  profiel: ["M12 4a4 4 0 1 0 0 8a4 4 0 1 0 0-8", "M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"],
-  check: ["M5 12.5l4.5 4.5L19 7.5"],
-};
-function HIcon({ name, size = 22 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {ICONS[name].map((d, i) => (
-        <path key={i} d={d} />
-      ))}
-    </svg>
-  );
-}
 
 const TABS = [
   { id: "vandaag", label: "Vandaag" },
@@ -82,18 +49,9 @@ const TABS = [
   { id: "profiel", label: "Profiel" },
 ];
 
-/* ---------------- kaarten ---------------- */
-function Card({ children, className = "", style }) {
-  return (
-    <div className={`relative overflow-hidden ${className}`} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card, boxShadow: C.shadow, ...style }}>
-      {children}
-    </div>
-  );
-}
-
 const ROADMAP = [
   { fase: 0, title: "Fundering", body: "Eigen app, merk, account en abonnement.", done: true },
-  { fase: 1, title: "Loggen en belasting", body: "Kracht, duur, WOD's en Hyrox loggen. Eén belastingsmaat, zones en uw vorm over de weken.", pillar: "duur" },
+  { fase: 1, title: "Loggen en belasting", body: "Kracht, duur, WOD's en Hyrox loggen. Eén belastingsmaat, zones en uw vorm over de weken.", done: true },
   { fase: 2, title: "Adaptieve planner", body: "Een weekschema dat meebeweegt met uw herstel, gemiste sessies en voortgang.", pillar: "kracht" },
   { fase: 3, title: "Hybride voeding", body: "Koolhydraten die meebewegen met de belasting van de dag, en fueling tijdens lange sessies.", pillar: "conditie" },
   { fase: 4, title: "Strava en bestanden", body: "Activiteiten automatisch binnen, of als FIT/GPX-bestand.", pillar: "duur" },
@@ -103,7 +61,7 @@ const ROADMAP = [
 function Roadmap() {
   return (
     <Card>
-      <div className="px-4 pt-4 pb-1 eyebrow">Wat eraan komt</div>
+      <div className="px-4 pt-4 pb-1 eyebrow">Zo groeit Nexa Hybrid</div>
       <ol className="px-4 pb-3">
         {ROADMAP.map((r, i) => (
           <li key={r.fase} className="flex gap-3 py-2.5" style={{ borderTop: i ? `1px solid ${C.lineSoft}` : "none" }}>
@@ -136,31 +94,6 @@ function Roadmap() {
   );
 }
 
-function PillarLegend() {
-  return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-      {Object.entries(K).map(([k, v]) => (
-        <span key={k} className="flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: v.fill }} />
-          {v.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function NexaLink({ found }) {
-  return (
-    <Card className="px-4 py-3.5">
-      <div className="eyebrow mb-1">Gekoppeld aan Nexa</div>
-      <p className="text-sm leading-relaxed" style={{ color: C.ink }}>
-        {found
-          ? "Uw voedingsprofiel uit Nexa staat al op dit apparaat. Hybrid gebruikt het straks om uw koolhydraten af te stemmen op uw trainingsweek."
-          : "Hybrid gebruikt dezelfde voedingsmotor als Nexa. Uw profiel stelt u straks één keer in, voor beide apps."}
-      </p>
-    </Card>
-  );
-}
 
 /* ---------------- toegang: upgrade of abonneren ---------------- */
 const HYBRID_FEATURES = [
@@ -252,52 +185,8 @@ function Paywall({ acc, onStart, busy }) {
   );
 }
 
-/* ---------------- tabs ---------------- */
-const dayLine = () => new Date().toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
 
-function Today({ acc, onStart, nexaFound, notice }) {
-  return (
-    <div className="space-y-4">
-      <Reveal>
-        <div>
-          <div className="eyebrow">{dayLine()}</div>
-          <h1 className="disp text-[34px] leading-none mt-1" style={{ color: C.ink, fontWeight: 600 }}>
-            Vandaag
-          </h1>
-        </div>
-      </Reveal>
-      {notice && (
-        <Card className="px-4 py-3" style={{ borderColor: C.accent }}>
-          <p className="text-sm" style={{ color: C.ink }} role="status">
-            {notice}
-          </p>
-        </Card>
-      )}
-      {acc.locked ? (
-        <Paywall acc={acc} onStart={onStart} busy={acc.busy} />
-      ) : (
-        <Card className="px-4 pt-5 pb-4">
-          <Contours />
-          <div className="relative">
-            <div className="eyebrow">Fase 0 · fundering</div>
-            <h2 className="disp text-[26px] leading-tight mt-1" style={{ color: C.ink, fontWeight: 600 }}>
-              Twee systemen, één motor.
-            </h2>
-            <p className="text-sm leading-relaxed mt-2" style={{ color: C.muted, maxWidth: "52ch" }}>
-              Hier verschijnt straks uw training van vandaag: een sessie kracht, duur of conditie, afgestemd op hoe u er vandaag bij staat.
-            </p>
-            <div className="mt-4">
-              <PillarLegend />
-            </div>
-          </div>
-        </Card>
-      )}
-      <NexaLink found={nexaFound} />
-      <Roadmap />
-    </div>
-  );
-}
-
+/* ---------------- tabs zonder inhoud ---------------- */
 function Empty({ title, body, fase, pillar = "duur" }) {
   return (
     <div className="space-y-4">
@@ -318,13 +207,14 @@ function Empty({ title, body, fase, pillar = "duur" }) {
   );
 }
 
-function Profile({ nx, acc, onConsent }) {
+function Profile({ nx, acc, onConsent, data, api }) {
   const manage = () => window.nexaSync && window.nexaSync.portal({ from: "hybrid" }).catch(() => {});
   return (
     <div>
       <h1 className="disp text-[34px] leading-none mb-5" style={{ color: C.ink, fontWeight: 600 }}>
         Profiel
       </h1>
+      <AthleteSection profile={data.profile} setProfile={api.setProfile} />
       <AccountSection s={nx} onConsent={onConsent} />
       {acc.on && acc.sub && (
         <Section title="Abonnement" accent="var(--ember-fill)">
@@ -342,6 +232,9 @@ function Profile({ nx, acc, onConsent }) {
           </a>
         </Row>
       </Section>
+      <div className="mb-8">
+        <Roadmap />
+      </div>
     </div>
   );
 }
@@ -381,23 +274,17 @@ class HybridBoundary extends React.Component {
   }
 }
 
+
 /* ---------------- app ---------------- */
 function HybridApp() {
   const nx = useNexaSync();
   const acc = hybridAccess(nx);
+  const [data, api, loaded] = useHybridStore();
   const [tab, setTab] = useState("vandaag");
   const [accountOpen, setAccountOpen] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
-  const [nexaFound, setNexaFound] = useState(false);
+  const [sheet, setSheet] = useState(null); // null | { session? }
   const [notice, setNotice] = useState(null);
-
-  useEffect(() => {
-    if (!window.storage) return;
-    window.storage
-      .get(NEXA_KEY)
-      .then((r) => setNexaFound(!!(r && r.value)))
-      .catch(() => setNexaFound(false));
-  }, []);
 
   /* Terug van Stripe: status verversen en de vraag uit de adresbalk halen. */
   useEffect(() => {
@@ -415,22 +302,31 @@ function HybridApp() {
     if (!acc.loggedIn) return setAccountOpen(true);
     window.nexaSync.checkout(plan, { from: "hybrid" }).catch(() => {});
   };
+  const add = () => setSheet({});
+  const open = (s) => setSheet({ session: s });
 
-  const page =
-    tab === "vandaag" ? (
-      <Today acc={acc} onStart={start} nexaFound={nexaFound} notice={notice} />
-    ) : tab === "week" ? (
-      <Empty title="Week" fase={2} pillar="kracht" body="Uw weekschema met kracht, duur en conditie, slim verdeeld zodat zware sessies elkaar niet in de weg zitten." />
-    ) : tab === "log" ? (
-      <Empty title="Log" fase={1} pillar="duur" body="Elke training vastleggen: sets en gewichten, afstand en tempo, of uw WOD-tijd. Alles telt mee in één belastingsmaat." />
-    ) : tab === "voortgang" ? (
-      <Empty title="Voortgang" fase={1} pillar="conditie" body="Uw fitheid, vermoeidheid en vorm over de weken, plus records per discipline." />
-    ) : (
-      <Profile nx={nx} acc={acc} onConsent={() => setConsentOpen(true)} />
-    );
+  const locked = acc.locked && tab !== "profiel";
+  const page = locked ? (
+    <div className="space-y-4">
+      <h1 className="disp text-[34px] leading-none" style={{ color: C.ink, fontWeight: 600 }}>
+        Nexa Hybrid
+      </h1>
+      <Paywall acc={acc} onStart={start} busy={acc.busy} />
+    </div>
+  ) : !loaded ? null : tab === "vandaag" ? (
+    <TodayView data={data} onAdd={add} onOpen={open} />
+  ) : tab === "week" ? (
+    <Empty title="Week" fase={2} pillar="kracht" body="Uw weekschema met kracht, duur en conditie, slim verdeeld zodat zware sessies elkaar niet in de weg zitten." />
+  ) : tab === "log" ? (
+    <LogView data={data} onAdd={add} onOpen={open} />
+  ) : tab === "voortgang" ? (
+    <ProgressView data={data} />
+  ) : (
+    <Profile nx={nx} acc={acc} onConsent={() => setConsentOpen(true)} data={data} api={api} />
+  );
 
   return (
-    <div className="min-h-screen w-full" style={{ background: C.bg, color: C.ink }}>
+    <div className="hybrid min-h-screen w-full" style={{ background: C.bg, color: C.ink }}>
       <style>{STYLE + HYBRID_STYLE}</style>
       <div className="macroapp hybrid mx-auto max-w-2xl px-4" style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 14px)", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 96px)" }}>
         <header className="flex items-center justify-between mb-6">
@@ -441,6 +337,13 @@ function HybridApp() {
             </button>
           )}
         </header>
+        {notice && (
+          <Card className="px-4 py-3 mb-4" style={{ borderColor: C.accent }}>
+            <p className="text-sm" style={{ color: C.ink }} role="status">
+              {notice}
+            </p>
+          </Card>
+        )}
         <HybridBoundary key={tab}>{page}</HybridBoundary>
       </div>
 
@@ -468,6 +371,26 @@ function HybridApp() {
         </div>
       </nav>
 
+      {sheet && (
+        <SessionSheet
+          initial={sheet.session || null}
+          profile={data.profile}
+          onClose={() => setSheet(null)}
+          onSave={(s, route) => {
+            api.saveSession(s);
+            if (route) api.saveRoute(s.id, route);
+            setSheet(null);
+          }}
+          onDelete={
+            sheet.session
+              ? (id) => {
+                  api.deleteSession(id);
+                  setSheet(null);
+                }
+              : null
+          }
+        />
+      )}
       {accountOpen && (
         <Sheet title="Nexa-account" onClose={() => setAccountOpen(false)}>
           <p className="text-sm leading-relaxed mb-4" style={{ color: C.muted }}>
