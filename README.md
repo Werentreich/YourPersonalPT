@@ -57,6 +57,7 @@ Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
   blokken: sets, rondes, AMRAP, EMOM, For Time, intervallen, doorlopend), import in
   `src/hybrid/import/files.js` (FIT/GPX/TCX), schermen in `src/hybrid/ui/`.
   Planner en herstel in `src/hybrid/engine/planner.js` en `readiness.js`,
+  voeding in `src/hybrid/engine/fuel.js` (gebruikt Nexa's rustverbruik),
   live timer in `src/hybrid/ui/timer.jsx`.
   Tests: `tests/hybrid-*.mjs` (toegang, motor, blokken, planner, timer).
 - Routes (GPS) staan alleen op het apparaat onder `nexa:hybrid-route:<id>`.

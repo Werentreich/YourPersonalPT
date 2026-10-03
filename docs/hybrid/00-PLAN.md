@@ -308,7 +308,7 @@ Strava-voorwaarden.
 | **0. Fundering** ✓ | Buildtarget, merk, thema, opslag, exports uit `App.jsx`, lege schil met tabs, abonnementsniveau | `node build.mjs hybrid` levert een werkende, installeerbare lege app; Nexa-tests blijven groen |
 | **1. Loggen en belasting** ✓ | Alle sessietypen loggen (kracht, duur, WOD, Hyrox), zones, sRPE/TRIMP, CTL/ATL/TSB, FIT/GPX-import | Een week trainen loggen en een correcte belastingsgrafiek zien |
 | **2. Adaptieve planner** ✓ | Intake, weekgenerator, interferentieregels, periodisering, tests, herstel en dagelijks bijsturen | De planner maakt voor 5 testprofielen een verantwoord schema (unit-tests) en stuurt bij op gemiste sessies en slecht herstel |
-| **3. Hybride voeding** | Koolhydraten naar belasting, fueling, wedstrijdvoeding | De macro's per dag bewegen mee met het weekplan |
+| **3. Hybride voeding** ✓ | Koolhydraten naar belasting, fueling, wedstrijdvoeding | De macro's per dag bewegen mee met het weekplan |
 | **4. Strava** | OAuth, webhook, import en ontdubbelen | Een Strava-activiteit verschijnt binnen een minuut in de app |
 | **5. Coach en native** | AI-coach voor hybride, Capacitor-app, GPS, HealthKit/Health Connect, Garmin | Apart te plannen na fase 4 |
 
@@ -429,3 +429,22 @@ review van u voordat de volgende fase start.
   - Live timer voor EMOM/every X min, Tabata, intervallen (met splits),
     Death by, AMRAP en For Time; piepjes, trillen, scherm aan; het resultaat
     gaat terug naar het blok.
+- **Fase 3** (2026-10-03): klaar.
+  - Voedingsprofiel uit Nexa (zelfde rustverbruik via stappen, eiwit en
+    tempo van afvallen/aankomen) of eigen instellingen.
+  - Verbruik per sessie met MET-waarden per sport en soort (Compendium),
+    gemengde sessies naar pijler, fietsen met vermogen via kJ.
+  - Dagklassen rust/licht/gemiddeld/zwaar/zeer zwaar met koolhydraten in
+    g/kg (ACSM 2016), ook op basis van morgen (fuel for the work required);
+    energie = rustverbruik + training ± doel; vet ≥ 0,8 g/kg.
+  - Bij een cut zakken koolhydraten eerst één klasse; past het dan nog niet,
+    dan gaat de energie omhoog met uitleg. Waarschuwing bij een
+    energiebeschikbaarheid onder 30 kcal/kg vetvrije massa (RED-S).
+  - Rond elke training: vooraf, tijdens (30–60 of 60–90 g/u), vocht en
+    natrium, na afloop (eiwit, snel herstel bij een tweede sessie).
+  - Wedstrijdvoeding bij de wedstrijd in het plan: carb-loading bij > 90 min,
+    ontbijt, cafeïne, tijdens en herstel; duur geschat met Riegel.
+  - Schermen: voeding op Vandaag, koolhydraten per dag in Week, voeding bij
+    elke geplande sessie, voedingsinstellingen in Profiel.
+  - Correcties: geen herstelweek in de eerste drie weken van een schema;
+    een herstelweek heet ook zo in het overzicht.

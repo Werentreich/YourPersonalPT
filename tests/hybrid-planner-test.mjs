@@ -29,7 +29,7 @@ ok("geen check-in: geen score", RD.readinessFor([], MON).score === null);
 const S = { ...P.SETTINGS_DEFAULT, startDate: MON };
 ok("zonder doel: week 1–3 basis, week 4 herstel", P.phaseFor(S, MON).phase === "basis" && P.phaseFor(S, iso(21)).phase === "herstel" && P.phaseFor(S, iso(28)).phase === "opbouw");
 const race = { ...S, goal: "10k", goalDate: iso(7 * 10 + 6) }; // zondag over 10 weken
-ok("10 km: wedstrijdweek, taper, piek", P.phaseFor(race, iso(70)).phase === "wedstrijd" && P.phaseFor(race, iso(63)).phase === "taper" && P.phaseFor(race, iso(56)).phase === "piek" && P.phaseFor(race, iso(42)).phase === "piek" && P.phaseFor(race, iso(35)).phase === "opbouw");
+ok("10 km: wedstrijdweek, taper, piek, herstelweek vlak vóór de piek", P.phaseFor(race, iso(70)).phase === "wedstrijd" && P.phaseFor(race, iso(63)).phase === "taper" && P.phaseFor(race, iso(56)).phase === "piek" && P.phaseFor(race, iso(42)).phase === "piek" && P.phaseFor(race, iso(35)).phase === "herstel" && P.phaseFor(race, iso(28)).phase === "opbouw");
 const mar = { ...S, goal: "marathon", goalDate: iso(7 * 20 + 6) };
 ok("marathon: twee weken taper, ver weg basis", P.phaseFor(mar, iso(126)).phase === "taper" && P.phaseFor(mar, iso(133)).phase === "taper" && P.phaseFor(mar, MON).phase === "basis");
 const deloads = Array.from({ length: 15 }, (_, i) => P.phaseFor(mar, iso(i * 7))).filter((p) => p.deload).length;
@@ -135,6 +135,10 @@ const plainItems = [{ id: "u", slot: "K_UPPER", kind: "kracht", title: "Kracht b
 ok("laag herstel, gewone sessie: minder volume", P.dailySuggestions(plainItems, MON, { score: 35, level: "laag" }, S).some((s) => s.level === "minder"));
 ok("zeer laag herstel: rust", P.dailySuggestions(plainItems, MON, { score: 10, level: "laag" }, S).some((s) => s.level === "rust"));
 ok("goed herstel, gewone sessie: geen voorstel", P.dailySuggestions(plainItems, MON, { score: 80, level: "goed" }, S).length === 0);
+
+const fresh = { ...S, goal: "10k", goalDate: iso(7 * 9 + 6), startDate: MON };
+ok("eerste drie weken van een schema nooit een herstelweek", [0, 7, 14].every((d) => !P.phaseFor(fresh, iso(d)).deload));
+ok("herstelweek heet ook zo", Array.from({ length: 9 }, (_, i) => P.phaseFor(fresh, iso(i * 7))).every((p) => !p.deload || p.phase === "herstel"));
 
 console.log(fails ? `${fails} FOUT(EN)` : "Alle tests geslaagd");
 process.exit(fails ? 1 : 0);

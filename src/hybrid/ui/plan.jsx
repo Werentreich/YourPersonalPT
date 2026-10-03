@@ -8,6 +8,7 @@ import { GOALS, SLOTS, PHASES, EXPERIENCE, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAUL
 import { blockHeader, itemLine, BLOCK_TYPES, ROLES } from "../engine/blocks.js";
 import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js";
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
+import { ItemFuel, WeekNutrition } from "./fuel.jsx";
 
 const pillarOfKind = (k) => (k === "kracht" ? "kracht" : k === "duur" ? "duur" : k === "mobiliteit" ? "mobiliteit" : "conditie");
 const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : C.panel, color: C.ink, fontWeight: on ? 600 : 500 });
@@ -170,7 +171,7 @@ export function BlocksPreview({ blocks }) {
   );
 }
 
-export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onReplace, onUpdate, onOpenSession }) {
+export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onReplace, onUpdate, onOpenSession, fuel }) {
   const [moving, setMoving] = useState(false);
   const monday = mondayOf(item.date);
   const preview = (date) => conflictsFor(weekItems.map((x) => (x.id === item.id ? { ...x, date } : x)), monday).filter((c) => c.a === item.id || c.b === item.id);
@@ -201,6 +202,7 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onRe
           </p>
         ))}
         <BlocksPreview blocks={item.blocks} />
+        {fuel}
         {done ? (
           <TBtn full onClick={() => onOpenSession(item.doneId)}>
             Vastgelegde training bekijken
@@ -294,7 +296,7 @@ export function PlanItemRow({ item, onOpen, border = true }) {
 }
 
 /* ---------------- weekoverzicht ---------------- */
-export function WeekView({ data, api, onLog, onOpenSession }) {
+export function WeekView({ data, api, onLog, onOpenSession, nbase }) {
   const today = localISO();
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -437,6 +439,8 @@ export function WeekView({ data, api, onLog, onOpenSession }) {
         })}
       </Card>
 
+      {nbase && !preview && <WeekNutrition data={data} base={nbase} monday={monday} />}
+
       {editing && (
         <PlanSheet
           initial={plan.settings}
@@ -468,6 +472,7 @@ export function WeekView({ data, api, onLog, onOpenSession }) {
             setOpen(null);
             onOpenSession(id);
           }}
+          fuel={nbase ? <ItemFuel item={openItem} data={data} base={nbase} /> : null}
         />
       )}
     </div>
@@ -581,7 +586,7 @@ export function CheckinCard({ checkins, onSave }) {
 }
 
 /* ---------------- plan op Vandaag ---------------- */
-export function TodayPlan({ data, api, onLog, onOpenSession }) {
+export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
   const plan = data.plan;
   const today = localISO();
   const [open, setOpen] = useState(null);
@@ -669,6 +674,7 @@ export function TodayPlan({ data, api, onLog, onOpenSession }) {
             setOpen(null);
             onOpenSession(id);
           }}
+          fuel={nbase ? <ItemFuel item={openItem} data={data} base={nbase} /> : null}
         />
       )}
     </>

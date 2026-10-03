@@ -17,6 +17,7 @@ const SAVE_DELAY = 600;
 export function useHybridStore() {
   const [data, setData] = useState(STORE_DEFAULT);
   const [loaded, setLoaded] = useState(false);
+  const [nexa, setNexa] = useState(null); // voedingsprofiel uit Nexa (f), alleen in het geheugen
   const skipSave = useRef(true);
 
   useEffect(() => {
@@ -30,6 +31,14 @@ export function useHybridStore() {
         d = null; // nog niets bewaard
       }
       let next = normalizeStore(d);
+      let nexaF = null;
+      try {
+        const r = await window.storage.get(NEXA_KEY);
+        nexaF = r && r.value ? (JSON.parse(r.value) || {}).f || null : null;
+      } catch (e) {
+        nexaF = null; // geen Nexa-profiel op dit apparaat
+      }
+      if (alive) setNexa(nexaF);
       // eerste keer: geslacht, leeftijd en gewicht uit Nexa overnemen
       if (!d) {
         try {
@@ -98,6 +107,9 @@ export function useHybridStore() {
       } catch (e) {
         /* geen route */
       }
+    },
+    setNutrition(patch) {
+      setData((d) => ({ ...d, nutrition: { ...(d.nutrition || {}), ...patch } }));
     },
     setProfile(patch) {
       setData((d) => ({ ...d, profile: { ...d.profile, ...patch } }));
@@ -184,5 +196,5 @@ export function useHybridStore() {
       }
     },
   };
-  return [data, api, loaded];
+  return [data, api, loaded, nexa];
 }

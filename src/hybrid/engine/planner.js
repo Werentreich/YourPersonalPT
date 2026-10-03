@@ -96,8 +96,9 @@ export function phaseFor(settings, mondayISO) {
     if (left <= goal.taper + 3) return { phase: "piek", week: w, blockWeek: goal.taper + 3 - left, weeksLeft: left, deload: false };
     // tellen vanaf het begin van de piek terug, zodat de herstelweek vlak vóór de piek valt
     const toPeak = left - goal.taper - 3;
-    const deload = toPeak % 4 === 1 && toPeak > 0;
-    return { phase: left > 12 + goal.taper ? "basis" : "opbouw", week: w, blockWeek: (4 - (toPeak % 4)) % 4, weeksLeft: left, deload };
+    // herstelweek vlak vóór elk blok van drie, maar nooit in de eerste drie weken van het schema
+    const deload = toPeak % 4 === 1 && toPeak > 0 && w >= 3;
+    return { phase: deload ? "herstel" : left > 12 + goal.taper ? "basis" : "opbouw", week: w, blockWeek: (4 - (toPeak % 4)) % 4, weeksLeft: left, deload };
   }
   const blockWeek = w % 4;
   return { phase: blockWeek === 3 ? "herstel" : w < 4 ? "basis" : "opbouw", week: w, blockWeek, weeksLeft: null, deload: blockWeek === 3 };

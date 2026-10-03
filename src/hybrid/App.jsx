@@ -14,6 +14,7 @@ import { Card, Contours, HIcon } from "./ui/kit.jsx";
 import { SessionSheet } from "./ui/session.jsx";
 import { TodayView, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
 import { WeekView, TodayPlan, CheckinCard, useAutoAdjust } from "./ui/plan.jsx";
+import { useNutritionBase, NutritionToday, NutritionSection } from "./ui/fuel.jsx";
 
 export { HYBRID_KEY };
 
@@ -54,7 +55,7 @@ const ROADMAP = [
   { fase: 0, title: "Fundering", body: "Eigen app, merk, account en abonnement.", done: true },
   { fase: 1, title: "Loggen en belasting", body: "Kracht, duur, WOD's en Hyrox loggen. Eén belastingsmaat, zones en uw vorm over de weken.", done: true },
   { fase: 2, title: "Adaptieve planner", body: "Een weekschema dat meebeweegt met uw herstel, gemiste sessies en voortgang. Met live timer.", done: true },
-  { fase: 3, title: "Hybride voeding", body: "Koolhydraten die meebewegen met de belasting van de dag, en fueling tijdens lange sessies.", pillar: "conditie" },
+  { fase: 3, title: "Hybride voeding", body: "Koolhydraten die meebewegen met de belasting van de dag, en fueling tijdens lange sessies.", done: true },
   { fase: 4, title: "Strava en bestanden", body: "Activiteiten automatisch binnen, of als FIT/GPX-bestand.", pillar: "duur" },
   { fase: 5, title: "Coach en eigen app", body: "AI-coach, iOS- en Android-app met GPS, Apple Health en Health Connect.", pillar: "mobiliteit" },
 ];
@@ -187,7 +188,7 @@ function Paywall({ acc, onStart, busy }) {
 }
 
 
-function Profile({ nx, acc, onConsent, data, api }) {
+function Profile({ nx, acc, onConsent, data, api, nexa, nbase }) {
   const manage = () => window.nexaSync && window.nexaSync.portal({ from: "hybrid" }).catch(() => {});
   return (
     <div>
@@ -195,6 +196,7 @@ function Profile({ nx, acc, onConsent, data, api }) {
         Profiel
       </h1>
       <AthleteSection profile={data.profile} setProfile={api.setProfile} />
+      <NutritionSection data={data} api={api} nexa={nexa} base={nbase} />
       <AccountSection s={nx} onConsent={onConsent} />
       {acc.on && acc.sub && (
         <Section title="Abonnement" accent="var(--ember-fill)">
@@ -259,7 +261,8 @@ class HybridBoundary extends React.Component {
 function HybridApp() {
   const nx = useNexaSync();
   const acc = hybridAccess(nx);
-  const [data, api, loaded] = useHybridStore();
+  const [data, api, loaded, nexa] = useHybridStore();
+  const nbase = useNutritionBase(data, nexa);
   const [tab, setTab] = useState("vandaag");
   const [accountOpen, setAccountOpen] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
@@ -307,18 +310,27 @@ function HybridApp() {
       top={
         <>
           <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
-          <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} />
+          <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
+          {nbase ? (
+            <NutritionToday data={data} base={nbase} />
+          ) : (
+            <Card className="px-4 py-3.5">
+              <p className="text-sm" style={{ color: C.ink }}>
+                Vul uw gewicht in bij Profiel, of gebruik uw Nexa-profiel, dan ziet u hier uw voeding per dag.
+              </p>
+            </Card>
+          )}
         </>
       }
     />
   ) : tab === "week" ? (
-    <WeekView data={data} api={api} onLog={logDraft} onOpenSession={openSession} />
+    <WeekView data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
   ) : tab === "log" ? (
     <LogView data={data} onAdd={add} onOpen={open} />
   ) : tab === "voortgang" ? (
     <ProgressView data={data} />
   ) : (
-    <Profile nx={nx} acc={acc} onConsent={() => setConsentOpen(true)} data={data} api={api} />
+    <Profile nx={nx} acc={acc} onConsent={() => setConsentOpen(true)} data={data} api={api} nexa={nexa} nbase={nbase} />
   );
 
   return (
