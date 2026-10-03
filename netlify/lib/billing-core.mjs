@@ -220,3 +220,15 @@ export async function labelQuota(token) {
   if (!r.ok) throw new Error(`quotum: ${r.status}`);
   return Number(await r.json());
 }
+
+/* Dagquotum van de AI-coach van Nexa Hybrid (Supabase-functie coach_quota),
+   op dezelfde manier als labelQuota. */
+export async function coachQuota(token) {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/coach_quota`, {
+    method: "POST",
+    headers: { apikey: SB_PUBLISHABLE, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!r.ok) throw new Error(`quotum: ${r.status}`);
+  return Number(await r.json());
+}

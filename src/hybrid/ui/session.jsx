@@ -39,7 +39,7 @@ const STARTS = [
   { id: "mobiliteit", label: "Mobiliteit", kind: "mobiliteit" },
 ];
 
-function KindPicker({ onPick, onImported }) {
+function KindPicker({ onPick, onImported, onLive }) {
   const file = useRef(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -77,6 +77,15 @@ function KindPicker({ onPick, onImported }) {
           );
         })}
       </div>
+      {onLive && (
+        <button
+          onClick={onLive}
+          className="tap w-full flex items-center justify-center gap-2 py-3 text-sm"
+          style={{ border: `1.5px solid ${C.accent}`, borderRadius: R.field, color: C.accent, fontWeight: 600, background: "transparent" }}
+        >
+          <HIcon name="gps" size={18} /> Live opnemen met GPS
+        </button>
+      )}
       <div className="pt-1">
         <input ref={file} type="file" accept=".fit,.gpx,.tcx,application/gpx+xml,application/vnd.garmin.tcx+xml,application/octet-stream" className="hidden" onChange={onFile} />
         <button
@@ -139,6 +148,18 @@ function EnduranceForm({ s, set }) {
           </Field>
         )}
       </div>
+      {s.kmSplits && s.kmSplits.sec && s.kmSplits.sec.length > 0 && (
+        <div>
+          <div className="eyebrow mb-1.5">Splits per {s.kmSplits.unit >= 1000 ? `${s.kmSplits.unit / 1000} km` : `${s.kmSplits.unit} m`}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {s.kmSplits.sec.map((x, i) => (
+              <span key={i} className="text-xs tnum px-2 py-1" style={{ borderRadius: 8, background: "var(--accent-soft)", color: C.ink }}>
+                {i + 1}: {fmtDuration(x)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -229,10 +250,10 @@ function MobilityForm({ s, set, tpl }) {
 }
 
 /* ---------------- sheet ---------------- */
-export function SessionSheet({ initial, profile, onSave, onDelete, onClose, onRepeat, templates, onSaveTemplate, onDeleteTemplate }) {
+export function SessionSheet({ initial, initialRoute, profile, onSave, onDelete, onClose, onRepeat, onLive, templates, onSaveTemplate, onDeleteTemplate }) {
   const tpl = { customTemplates: templates || [], onSaveTemplate, onDeleteTemplate };
   const [s, setS] = useState(() => (initial ? { ...initial, blocks: blocksOf(initial) } : null));
-  const [route, setRoute] = useState(null);
+  const [route, setRoute] = useState(initialRoute || null);
   const [confirmDel, setConfirmDel] = useState(false);
   const set = (patch) => setS((x) => ({ ...x, ...patch }));
   const editing = !!(initial && initial.createdAt && onDelete);
@@ -242,6 +263,7 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose, onRe
     return (
       <Sheet title="Training vastleggen" onClose={onClose}>
         <KindPicker
+          onLive={onLive}
           onPick={(p) => setS(newSession(p.kind, p.sport ? { sport: p.sport } : p.kind === "kracht" ? { blocks: [newBlock("sets")] } : {}))}
           onImported={(r) => {
             setS(newSession("duur", { ...r.draft, source: r.format, date: r.draft.date || newSession("duur").date }));
@@ -259,7 +281,7 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose, onRe
       <div className="space-y-5 pb-2">
         {s.source && s.source !== "handmatig" && (
           <p className="text-xs leading-relaxed px-3 py-2" style={{ background: "var(--accent-soft)", color: C.ink, borderRadius: R.field }}>
-            Geïmporteerd uit een {s.source.toUpperCase()}-bestand
+            {s.source === "gps" ? "Live opgenomen met GPS" : s.source === "strava" ? "Uit Strava" : `Geïmporteerd uit een ${s.source.toUpperCase()}-bestand`}
             {s.name ? ` ("${s.name}")` : ""}
             {s.distanceM ? `: ${fmtKm(s.distanceM)}` : ""}
             {s.durationSec ? ` in ${fmtDuration(s.durationSec)}` : ""}. Controleer de sport en vul de inspanning in.

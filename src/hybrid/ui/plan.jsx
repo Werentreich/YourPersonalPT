@@ -1,6 +1,8 @@
 /* Planner-schermen: intake, weekoverzicht, details per geplande sessie,
    herstel-check-in en voorstellen voor vandaag. */
 import React, { useEffect, useMemo, useState } from "react";
+import { healthAvailable, readRecovery } from "../native/health.js";
+import { platform } from "../native/platform.js";
 import { C, R, Sheet, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
 import { SPORTS, localISO, mondayOf, dayNum, isoOfNum, fmtDuration, num } from "../engine/model.js";
@@ -506,6 +508,15 @@ export function CheckinCard({ checkins, onSave }) {
   const [editing, setEditing] = useState(!existing);
   const [c, setC] = useState(existing || { date: today, sleepH: 7.5 });
   const [more, setMore] = useState(!!(existing && (existing.hrv || existing.rhr)));
+  const [health, setHealth] = useState(false);
+  const [healthMsg, setHealthMsg] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    healthAvailable().then((v) => alive && setHealth(v));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const r = readinessFor(checkins || [], today);
   if (!editing && existing && r.score != null) {
     const t = READINESS_TEXT[r.level];
@@ -533,12 +544,36 @@ export function CheckinCard({ checkins, onSave }) {
     );
   }
   const filled = QUESTIONS.every((q) => c[q.id]);
+  const fromHealth = async () => {
+    setHealthMsg("Ophalen…");
+    try {
+      const r = await readRecovery();
+      if (!r) return setHealthMsg("Geen gegevens van afgelopen nacht gevonden.");
+      setC((x) => ({ ...x, ...(r.sleepH ? { sleepH: r.sleepH } : {}), ...(r.hrv ? { hrv: r.hrv } : {}), ...(r.rhr ? { rhr: r.rhr } : {}), health: true }));
+      if (r.hrv || r.rhr) setMore(true);
+      setHealthMsg(null);
+    } catch (e) {
+      setHealthMsg("Geen toegang tot uw gezondheidsgegevens.");
+    }
+  };
   return (
     <Card className="px-4 py-4">
       <Eyebrow>Hoe staat u er vandaag bij?</Eyebrow>
       <p className="text-xs mt-1 mb-3" style={{ color: C.muted }}>
         Tien seconden. De app past uw training erop aan.
       </p>
+      {health && (
+        <div className="mb-3">
+          <TBtn small kind="ghost" onClick={fromHealth}>
+            {platform() === "ios" ? "Overnemen uit Apple Gezondheid" : "Overnemen uit Health Connect"}
+          </TBtn>
+          {healthMsg && (
+            <span className="text-xs ml-2" style={{ color: C.muted }} role="status">
+              {healthMsg}
+            </span>
+          )}
+        </div>
+      )}
       <div className="space-y-2.5">
         {QUESTIONS.map((q) => (
           <Scale key={q.id} label={q.label} low={q.low} high={q.high} value={c[q.id]} onChange={(v) => setC({ ...c, [q.id]: v })} />

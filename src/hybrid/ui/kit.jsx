@@ -45,6 +45,7 @@ const ICONS = {
   upload: ["M12 15V4", "M7.5 8.5L12 4l4.5 4.5", "M5 15v4h14v-4"],
   trash: ["M5 7h14", "M10 7V4h4v3", "M7 7l1 13h8l1-13"],
   chevron: ["M9 6l6 6-6 6"],
+  gps: ["M12 21s-6-5.3-6-10a6 6 0 1 1 12 0c0 4.7-6 10-6 10z", "M12 8.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5"],
 };
 export function HIcon({ name, size = 22 }) {
   return (

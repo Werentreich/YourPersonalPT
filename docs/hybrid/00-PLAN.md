@@ -310,7 +310,7 @@ Strava-voorwaarden.
 | **2. Adaptieve planner** ✓ | Intake, weekgenerator, interferentieregels, periodisering, tests, herstel en dagelijks bijsturen | De planner maakt voor 5 testprofielen een verantwoord schema (unit-tests) en stuurt bij op gemiste sessies en slecht herstel |
 | **3. Hybride voeding** ✓ | Koolhydraten naar belasting, fueling, wedstrijdvoeding | De macro's per dag bewegen mee met het weekplan |
 | **4. Strava** ✓ | OAuth, webhook, import en ontdubbelen | Een Strava-activiteit verschijnt binnen een minuut in de app |
-| **5. Coach en native** | AI-coach voor hybride, Capacitor-app, GPS, HealthKit/Health Connect, Garmin | Apart te plannen na fase 4 |
+| **5. Coach en native** ✓ (code) | AI-coach voor hybride, live GPS, Capacitor-voorbereiding, HealthKit/Health Connect, Garmin (beschreven) | Coach en GPS werken in de webapp; native projecten en winkels door de beheerder (`03-NATIVE.md`) |
 
 Elke fase eindigt met tests (`npm test`), een build, `npm run verify` en een
 review van u voordat de volgende fase start.
@@ -322,7 +322,7 @@ review van u voordat de volgende fase start.
 1. Hosting: `/hybrid/` op de huidige site of een eigen domein?
 2. Prijs van de upgrade.
 3. ~~Accentkleur~~: besloten, zie `01-MERK.md`.
-4. Strava en AI: akkoord met alleen afgeleide waarden naar de coach?
+4. ~~Strava en AI~~: besloten. De coach krijgt alleen afgeleide cijfers van eigen trainingen; trainingen uit Strava gaan helemaal niet mee.
 5. Repo `YourPersonalPT` op privé zetten (sterk aanbevolen: het is nu publiek).
 
 ---
@@ -478,3 +478,43 @@ review van u voordat de volgende fase start.
 6. Limieten: standaard 200 verzoeken per 15 minuten en 2.000 per dag per
    app. Elke nieuwe activiteit kost 1–2 verzoeken; vanaf enkele honderden
    actieve gebruikers een verhoging aanvragen.
+
+- **Fase 5** (2026-10-03): klaar in code, **nog in te schakelen** (zie hieronder).
+  - **AI-coach** (`netlify/functions/hybrid-coach.mjs`, Claude `claude-opus-5-5`
+    met server-side fallback): weekanalyse (vast schema: kop, samenvatting,
+    goed, aandacht, hoogstens drie adviezen, vooruitblik) en vragen stellen
+    met een kort gesprek. Alleen voor Hybrid, inloggen verplicht, 20 per dag.
+  - De app stuurt alleen afgeleide cijfers (`src/hybrid/engine/coach.js`):
+    doel en fase, vorm, per week minuten/belasting/pijlers/verdeling,
+    naleving, herstel, recente trainingen (soort, duur, inspanning) en
+    krachtrecords. Geen notities, namen, routes of trainingen uit Strava
+    (Strava API Agreement). Uitdrukkelijke toestemming vooraf, met inzage in
+    precies wat er wordt verstuurd; intrekken kan altijd.
+  - Systeemprompt: Nederlands met "u", alleen op basis van de cijfers, binnen
+    gangbare principes (80/20, ≤ 10% opbouw, interferentie, taper), geen
+    medisch advies en doorverwijzen bij rode vlaggen (ook RED-S-signalen).
+  - **Live GPS** (`src/hybrid/engine/gps.js`, `ui/live.jsx`): hardlopen,
+    wandelen, fietsen. Filtert onnauwkeurige fixes en sprongen, telt geen
+    "afstand" bij stilstaan, automatische en handmatige pauze, splits per km
+    (fietsen per 5 km). Tussentijds bewaard op het apparaat; route blijft
+    lokaal. Op het web met Wake Lock; in de eigen app op de achtergrond.
+  - **Eigen app voorbereid**: Capacitor-configuratie, `npm run native:www`,
+    platformdetectie, CORS voor `capacitor://localhost` en
+    `https://localhost`, Apple Gezondheid / Health Connect in de check-in,
+    geen aankoop of betaallink in de app (Apple 3.1.1, Google Play), wel
+    account verwijderen. Zie `03-NATIVE.md`.
+  - **Garmin**: beschreven in `04-GARMIN.md` (Developer Program aanvragen).
+
+### Inschakelen fase 5 (eenmalig, door de beheerder)
+
+1. Supabase: `supabase/migrations/20261004_hybrid_coach.sql` toepassen
+   (dagquotum `coach_quota`).
+2. Netlify: `ANTHROPIC_API_KEY` staat er al voor de etiketscanner; daarmee
+   staat de coach aan. Netlify breekt gewone functies standaard na 10 s af;
+   de coach gebruikt daarom effort `low`. Met een hogere limiet (Site
+   configuration → Functions) kan `COACH_EFFORT=medium` voor een grondiger
+   weekanalyse.
+3. Anthropic: de Commercial Terms (met DPA) gelden; zero data retention is
+   op aanvraag mogelijk voor extra zekerheid.
+4. Eigen app: zie `03-NATIVE.md` (Mac met Xcode, Apple Developer Program
+   € 99/jaar, Google Play Console eenmalig $ 25).

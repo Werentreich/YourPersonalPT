@@ -19,7 +19,10 @@ const PREFIX = "macroverdeling:"; // alleen app-gegevens synchroniseren, geen se
 const META_KEY = "nexa:sync-meta";
 const PUSH_DELAY = 1500;
 const BILLING_KEY = "nexa:billing"; // laatst bekende abonnementsstatus, voor gebruik zonder internet
-const BILLING_URL = "/.netlify/functions/billing";
+/* In de eigen app (Capacitor) draait de code niet op de site zelf: dan naar
+   het volledige adres (de functies staan die herkomst toe). */
+const NATIVE = typeof window !== "undefined" && !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform());
+const BILLING_URL = `${NATIVE ? "https://nexa-performance.netlify.app" : ""}/.netlify/functions/billing`;
 const SUB_TABLE = "nexa_subscriptions";
 export const ACTIVE_STATUSES = ["trialing", "active", "past_due", "comp"];
 const BOOT_TIMEOUT = 3500;

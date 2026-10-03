@@ -2,10 +2,11 @@
    Tokens staan alleen op de server; de app praat met de eigen functie
    (strava-auth) en leest het eigen postvak in Supabase (row level security). */
 import { SB_URL, SB_KEY } from "../sync.js";
+import { fnUrl, openExternal } from "./native/platform.js";
 
-const FN = "/.netlify/functions/strava-auth";
+const FN = () => fnUrl("strava-auth");
 
-async function token() {
+export async function token() {
   const s = typeof window !== "undefined" ? window.nexaSync : null;
   if (!s || !s.accessToken) return null;
   return s.accessToken().catch(() => null);
@@ -16,7 +17,7 @@ export async function stravaCall(action) {
   if (!t) throw Object.assign(new Error("Log eerst in met uw Nexa-account."), { code: "inloggen" });
   let r;
   try {
-    r = await fetch(FN, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` }, body: JSON.stringify({ action }) });
+    r = await fetch(FN(), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` }, body: JSON.stringify({ action }) });
   } catch (e) {
     throw new Error("Geen verbinding. Controleer uw internet en probeer het opnieuw.");
   }
@@ -27,7 +28,7 @@ export async function stravaCall(action) {
 
 export async function stravaEnabled() {
   try {
-    const r = await fetch(FN, { cache: "no-store" });
+    const r = await fetch(FN(), { cache: "no-store" });
     const d = r.ok ? await r.json() : null;
     return !!(d && d.enabled);
   } catch (e) {
@@ -37,7 +38,7 @@ export async function stravaEnabled() {
 
 export async function connectStrava() {
   const d = await stravaCall("start");
-  location.href = d.url;
+  await openExternal(d.url);
 }
 
 /* Postvak lezen en daarna de gelezen rijen verwijderen. */

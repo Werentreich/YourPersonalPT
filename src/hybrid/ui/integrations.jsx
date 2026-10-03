@@ -57,6 +57,10 @@ export function StravaSection({ data, api, nx, acc, refreshKey }) {
   };
   useEffect(() => {
     load();
+    // terug in de app na de toestemmingspagina (systeembrowser in de eigen app)
+    const onVis = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [loggedIn, acc.locked, refreshKey]);
 
   const act = async (fn) => {

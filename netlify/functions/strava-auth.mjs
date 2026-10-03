@@ -9,7 +9,8 @@
    POST { action: "disconnect" } koppeling verbreken en postvak legen
    POST vereist het toegangstoken van de Supabase-sessie (Authorization: Bearer)
    en een Nexa Hybrid-abonnement (of gratis toegang). */
-import { billingEnabled, sameOrigin, userFromRequest } from "../lib/billing-core.mjs";
+import { billingEnabled, userFromRequest } from "../lib/billing-core.mjs";
+import { allowedOrigin, preflight, jsonFor } from "../lib/origin.mjs";
 import {
   STRAVA_OAUTH,
   SCOPE,
@@ -26,14 +27,17 @@ import {
   deauthorize,
   importActivity,
   hybridAllowed,
-  json,
+  json as plainJson,
   redirect,
 } from "../lib/strava-core.mjs";
 
 const SYNC_DAYS = 14;
 
 export default async (req) => {
+  if (req.method === "OPTIONS") return preflight(req);
   const url = new URL(req.url);
+  const origin0 = allowedOrigin(req);
+  const json = req.method === "POST" ? jsonFor(origin0) : plainJson;
   const origin = url.origin;
   const back = (q) => redirect(`${origin}/hybrid/?strava=${q}`);
   const callback = `${origin}/.netlify/functions/strava-auth`;
@@ -67,7 +71,7 @@ export default async (req) => {
   }
 
   if (req.method !== "POST") return json(405, { ok: false });
-  if (!sameOrigin(req)) return json(403, { ok: false, code: "herkomst", message: "Alleen de app zelf mag deze functie gebruiken." });
+  if (!origin0) return json(403, { ok: false, code: "herkomst", message: "Alleen de app zelf mag deze functie gebruiken." });
   if (!stravaEnabled()) return json(503, { ok: false, code: "uit", message: "De koppeling met Strava is nog niet ingeschakeld." });
   const user = await userFromRequest(req).catch(() => null);
   if (!user) return json(401, { ok: false, code: "inloggen", message: "Log eerst in met uw Nexa-account." });

@@ -9,7 +9,11 @@ import React, { useEffect, useState } from "react";
 import { STYLE, C, R, Section, Row, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur } from "../App.jsx";
 import { HYBRID_STYLE, K } from "./theme.js";
 import { hybridAccess, upgradeDelta } from "./entitlement.js";
+import { CoachCard } from "./ui/coach.jsx";
+import { LiveRecorder, savedLive } from "./ui/live.jsx";
 import { useHybridStore, HYBRID_KEY } from "./store.js";
+import { newSession } from "./engine/model.js";
+import { isNative, SITE } from "./native/platform.js";
 import { Card, Contours, HIcon } from "./ui/kit.jsx";
 import { SessionSheet } from "./ui/session.jsx";
 import { TodayView, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
@@ -59,7 +63,8 @@ const ROADMAP = [
   { fase: 2, title: "Adaptieve planner", body: "Een weekschema dat meebeweegt met uw herstel, gemiste sessies en voortgang. Met live timer.", done: true },
   { fase: 3, title: "Hybride voeding", body: "Koolhydraten die meebewegen met de belasting van de dag, en fueling tijdens lange sessies.", done: true },
   { fase: 4, title: "Strava en bestanden", body: "Activiteiten automatisch binnen, of als FIT/GPX-bestand.", done: true },
-  { fase: 5, title: "Coach en eigen app", body: "AI-coach, iOS- en Android-app met GPS, Apple Health en Health Connect.", pillar: "mobiliteit" },
+  { fase: 5, title: "Coach en live GPS", body: "AI-coach die uw week analyseert en vragen beantwoordt. Trainingen live opnemen met GPS.", done: true },
+  { fase: 6, title: "Eigen app", body: "iOS en Android, met opnemen op de achtergrond, Apple Gezondheid en Health Connect.", pillar: "mobiliteit" },
 ];
 
 function Roadmap() {
@@ -105,8 +110,36 @@ const HYBRID_FEATURES = [
   ["Past zich aan u aan", "aan uw herstel, gemiste sessies en voortgang"],
   ["Alles wat u traint", "hardlopen, fietsen, roeien, zwemmen, WOD's en Hyrox"],
   ["Voeding die meebeweegt", "meer koolhydraten op zware dagen, fueling bij lange sessies"],
+  ["Een coach die meekijkt", "weekanalyse en antwoord op uw vragen"],
   ["Inclusief Nexa Coach", "alles van Nexa Coach zit erbij"],
 ];
+
+/* In de eigen app geen aankoopknop of link naar externe betaling: Apple
+   (App Review Guideline 3.1.1/3.1.3(b)) en Google Play (Payments policy)
+   eisen daar hun eigen betaalsysteem. Wie al een abonnement heeft, logt in. */
+function NativePaywall({ acc, onLogin }) {
+  return (
+    <Card className="px-4 pt-5 pb-5">
+      <Contours seed={2} />
+      <div className="relative">
+        <div className="eyebrow">Nexa Hybrid</div>
+        <h2 className="disp text-[28px] leading-tight mt-1" style={{ color: C.ink, fontWeight: 600 }}>
+          Train kracht en duur als één systeem.
+        </h2>
+        <p className="text-sm leading-relaxed mt-3" style={{ color: C.muted }}>
+          Nexa Hybrid hoort bij uw Nexa-account. Log in met het account waarmee u Nexa Hybrid gebruikt.
+        </p>
+        {!acc.loggedIn && (
+          <div className="mt-4">
+            <TBtn full onClick={onLogin}>
+              Inloggen
+            </TBtn>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 function Paywall({ acc, onStart, busy }) {
   const [plan, setPlan] = useState("hybrid_jaar");
@@ -204,15 +237,21 @@ function Profile({ nx, acc, onConsent, data, api, nexa, nbase, stravaKey }) {
       {acc.on && acc.sub && (
         <Section title="Abonnement" accent="var(--ember-fill)">
           <Row label={acc.state === "open" ? "Nexa Hybrid" : "Nexa Coach"} hint={acc.state === "open" ? "Inclusief alles van Nexa Coach." : "Upgrade naar Hybrid op Vandaag."}>
-            <TBtn small kind="ghost" onClick={manage}>
-              Beheren
-            </TBtn>
+            {isNative() ? (
+              <span className="text-xs" style={{ color: C.muted }}>
+                Beheren via de website
+              </span>
+            ) : (
+              <TBtn small kind="ghost" onClick={manage}>
+                Beheren
+              </TBtn>
+            )}
           </Row>
         </Section>
       )}
       <Section title="Nexa" accent="var(--tide-fill)">
         <Row label="Naar Nexa" hint="Voeding en krachttraining, met hetzelfde account.">
-          <a href="/app/" className="tap text-sm font-semibold" style={{ color: C.accent }}>
+          <a href={isNative() ? `${SITE}/app/` : "/app/"} className="tap text-sm font-semibold" style={{ color: C.accent }}>
             Openen
           </a>
         </Row>
@@ -269,7 +308,9 @@ function HybridApp() {
   const [tab, setTab] = useState("vandaag");
   const [accountOpen, setAccountOpen] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
-  const [sheet, setSheet] = useState(null); // null | { session? }
+  const [sheet, setSheet] = useState(null); // null | { session?, route? }
+  const [live, setLive] = useState(false);
+  const [liveWaiting, setLiveWaiting] = useState(() => !!savedLive());
   const [notice, setNotice] = useState(null);
 
   /* Terug van Strava: melding, en bij een nieuwe koppeling de laatste 14 dagen ophalen. */
@@ -336,7 +377,7 @@ function HybridApp() {
       <h1 className="disp text-[34px] leading-none" style={{ color: C.ink, fontWeight: 600 }}>
         Nexa Hybrid
       </h1>
-      <Paywall acc={acc} onStart={start} busy={acc.busy} />
+      {isNative() ? <NativePaywall acc={acc} onLogin={() => setAccountOpen(true)} /> : <Paywall acc={acc} onStart={start} busy={acc.busy} />}
     </div>
   ) : !loaded ? null : tab === "vandaag" ? (
     <TodayView
@@ -361,7 +402,10 @@ function HybridApp() {
       }
     />
   ) : tab === "week" ? (
-    <WeekView data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
+    <div className="space-y-4">
+      <WeekView data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
+      <CoachCard data={data} api={api} nx={nx} acc={acc} />
+    </div>
   ) : tab === "log" ? (
     <LogView data={data} onAdd={add} onOpen={open} />
   ) : tab === "voortgang" ? (
@@ -382,6 +426,18 @@ function HybridApp() {
             </button>
           )}
         </header>
+        {liveWaiting && !live && (
+          <Card className="px-4 py-3 mb-4" style={{ borderColor: C.accent }}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm" style={{ color: C.ink }} role="status">
+                Er loopt nog een GPS-opname.
+              </p>
+              <TBtn small onClick={() => setLive(true)}>
+                Verder
+              </TBtn>
+            </div>
+          </Card>
+        )}
         {notice && (
           <Card className="px-4 py-3 mb-4" style={{ borderColor: C.accent }}>
             <p className="text-sm" style={{ color: C.ink }} role="status">
@@ -420,6 +476,11 @@ function HybridApp() {
         <SessionSheet
           key={(sheet.session && sheet.session.id) || "nieuw"}
           initial={sheet.session || null}
+          initialRoute={sheet.route || null}
+          onLive={() => {
+            setSheet(null);
+            setLive(true);
+          }}
           profile={data.profile}
           templates={data.templates}
           onSaveTemplate={api.saveTemplate}
@@ -439,6 +500,19 @@ function HybridApp() {
                 }
               : null
           }
+        />
+      )}
+      {live && (
+        <LiveRecorder
+          onClose={() => {
+            setLive(false);
+            setLiveWaiting(false);
+          }}
+          onFinish={({ draft, route }) => {
+            setLive(false);
+            setLiveWaiting(false);
+            setSheet({ session: newSession("duur", draft), route, fresh: true });
+          }}
         />
       )}
       {accountOpen && (

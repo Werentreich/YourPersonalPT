@@ -59,11 +59,18 @@ Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
   Planner en herstel in `src/hybrid/engine/planner.js` en `readiness.js`,
   voeding in `src/hybrid/engine/fuel.js` (gebruikt Nexa's rustverbruik),
   live timer in `src/hybrid/ui/timer.jsx`.
-  Tests: `tests/hybrid-*.mjs` (toegang, motor, blokken, planner, timer).
+  Tests: `tests/hybrid-*.mjs` (toegang, motor, blokken, planner, timer,
+  voeding, Strava, coach, GPS).
 - Routes (GPS) staan alleen op het apparaat onder `nexa:hybrid-route:<id>`.
 - Strava: `netlify/functions/strava-*.mjs` en `netlify/lib/strava-core.mjs`,
   tabel en postvak in `supabase/migrations/20261003_hybrid_strava.sql`.
   Inschakelen: zie `docs/hybrid/00-PLAN.md`, "Inschakelen".
+- AI-coach: `netlify/functions/hybrid-coach.mjs` en `netlify/lib/coach-core.mjs`
+  (Claude), context in `src/hybrid/engine/coach.js` (alleen afgeleide cijfers,
+  geen Strava-gegevens), quotum in `supabase/migrations/20261004_hybrid_coach.sql`.
+- Live GPS: `src/hybrid/engine/gps.js` en `src/hybrid/ui/live.jsx`.
+- Eigen app (Capacitor): `capacitor.config.json`, `npm run native:www`,
+  `src/hybrid/native/`; zie `docs/hybrid/03-NATIVE.md`. Garmin: `docs/hybrid/04-GARMIN.md`.
 - Abonnement: plannen `hybrid_maand` en `hybrid_jaar` (Stripe-lookup keys
   `nexa_hybrid_maand` / `nexa_hybrid_jaar`). Coach naar Hybrid wordt direct
   geüpgraded op hetzelfde Stripe-abonnement, naar rato verrekend.

@@ -120,6 +120,14 @@ export function useHybridStore() {
     setIntegration(name, patch) {
       setData((d) => ({ ...d, integrations: { ...(d.integrations || {}), [name]: { ...((d.integrations || {})[name] || {}), ...patch } } }));
     },
+    /* AI-coach: toestemming, laatste weekanalyse en een kort gesprek. */
+    setCoach(patch) {
+      setData((d) => {
+        const c = { ...(d.coach || {}), ...patch };
+        if (Array.isArray(c.chat)) c.chat = c.chat.slice(-12);
+        return { ...d, coach: c };
+      });
+    },
     setNutrition(patch) {
       setData((d) => ({ ...d, nutrition: { ...(d.nutrition || {}), ...patch } }));
     },

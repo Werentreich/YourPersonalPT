@@ -19,18 +19,21 @@ import {
   entitled,
   getSub,
   isHybridPlan,
-  json,
+  json as plainJson,
   priceFor,
-  sameOrigin,
   stripe,
   syncSubscription,
   upsertSub,
   userFromRequest,
 } from "../lib/billing-core.mjs";
+import { allowedOrigin, preflight, jsonFor, NATIVE_ORIGINS } from "../lib/origin.mjs";
 
 const WITHDRAW_DAYS = 14;
 
 export default async (req) => {
+  if (req.method === "OPTIONS") return preflight(req);
+  const caller = allowedOrigin(req);
+  const json = caller ? jsonFor(caller) : plainJson;
   if (req.method === "GET") {
     return json(200, {
       enabled: billingEnabled(),
@@ -40,7 +43,7 @@ export default async (req) => {
     });
   }
   if (req.method !== "POST") return json(405, { ok: false, code: "methode" });
-  if (!sameOrigin(req)) return json(403, { ok: false, code: "herkomst", message: "Alleen de app zelf mag deze functie gebruiken." });
+  if (!caller) return json(403, { ok: false, code: "herkomst", message: "Alleen de app zelf mag deze functie gebruiken." });
   if (!billingEnabled()) return json(503, { ok: false, code: "uit", message: "Abonnementen zijn nog niet ingeschakeld." });
 
   let body;
@@ -49,6 +52,10 @@ export default async (req) => {
   } catch {
     return json(400, { ok: false, code: "invoer", message: "Ongeldig verzoek." });
   }
+  /* Eigen app (App Store / Play Store): geen externe betaling starten of
+     beheren (Apple 3.1.1, Google Play Payments). Account verwijderen moet er
+     wel kunnen (Apple 5.1.1(v)). */
+  if (NATIVE_ORIGINS.has(caller) && body.action !== "cancel_now") return json(403, { ok: false, code: "app", message: "Uw abonnement regelt u op de website." });
 
   const user = await userFromRequest(req).catch(() => null);
   if (!user) return json(401, { ok: false, code: "inloggen", message: "Log eerst in met uw Nexa-account." });
