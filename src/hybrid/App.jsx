@@ -15,6 +15,8 @@ import { SessionSheet } from "./ui/session.jsx";
 import { TodayView, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
 import { WeekView, TodayPlan, CheckinCard, useAutoAdjust } from "./ui/plan.jsx";
 import { useNutritionBase, NutritionToday, NutritionSection } from "./ui/fuel.jsx";
+import { StravaSection, useStravaInbox, NeedsRpeCard } from "./ui/integrations.jsx";
+import { stravaCall, pullInbox, clearInboxRows } from "./strava.js";
 
 export { HYBRID_KEY };
 
@@ -56,7 +58,7 @@ const ROADMAP = [
   { fase: 1, title: "Loggen en belasting", body: "Kracht, duur, WOD's en Hyrox loggen. Eén belastingsmaat, zones en uw vorm over de weken.", done: true },
   { fase: 2, title: "Adaptieve planner", body: "Een weekschema dat meebeweegt met uw herstel, gemiste sessies en voortgang. Met live timer.", done: true },
   { fase: 3, title: "Hybride voeding", body: "Koolhydraten die meebewegen met de belasting van de dag, en fueling tijdens lange sessies.", done: true },
-  { fase: 4, title: "Strava en bestanden", body: "Activiteiten automatisch binnen, of als FIT/GPX-bestand.", pillar: "duur" },
+  { fase: 4, title: "Strava en bestanden", body: "Activiteiten automatisch binnen, of als FIT/GPX-bestand.", done: true },
   { fase: 5, title: "Coach en eigen app", body: "AI-coach, iOS- en Android-app met GPS, Apple Health en Health Connect.", pillar: "mobiliteit" },
 ];
 
@@ -188,7 +190,7 @@ function Paywall({ acc, onStart, busy }) {
 }
 
 
-function Profile({ nx, acc, onConsent, data, api, nexa, nbase }) {
+function Profile({ nx, acc, onConsent, data, api, nexa, nbase, stravaKey }) {
   const manage = () => window.nexaSync && window.nexaSync.portal({ from: "hybrid" }).catch(() => {});
   return (
     <div>
@@ -197,6 +199,7 @@ function Profile({ nx, acc, onConsent, data, api, nexa, nbase }) {
       </h1>
       <AthleteSection profile={data.profile} setProfile={api.setProfile} />
       <NutritionSection data={data} api={api} nexa={nexa} base={nbase} />
+      <StravaSection data={data} api={api} nx={nx} acc={acc} refreshKey={stravaKey} />
       <AccountSection s={nx} onConsent={onConsent} />
       {acc.on && acc.sub && (
         <Section title="Abonnement" accent="var(--ember-fill)">
@@ -269,6 +272,37 @@ function HybridApp() {
   const [sheet, setSheet] = useState(null); // null | { session? }
   const [notice, setNotice] = useState(null);
 
+  /* Terug van Strava: melding, en bij een nieuwe koppeling de laatste 14 dagen ophalen. */
+  useEffect(() => {
+    if (!loaded) return; // eerst de eigen gegevens laden, anders gaat opgehaalde data verloren
+    const q = new URLSearchParams(location.search).get("strava");
+    if (!q) return;
+    history.replaceState(null, "", location.pathname);
+    const text = {
+      gekoppeld: "Strava is gekoppeld. De activiteiten van de laatste 14 dagen worden opgehaald.",
+      geweigerd: "U heeft geen toestemming gegeven in Strava. Er is niets gekoppeld.",
+      rechten: "Geef bij het koppelen toestemming om uw activiteiten te lezen, anders kan de app niets ophalen.",
+      fout: "Koppelen met Strava is niet gelukt. Probeer het opnieuw.",
+      uit: "De koppeling met Strava is nog niet ingeschakeld.",
+    }[q];
+    if (text) setNotice(text);
+    if (q === "gekoppeld") {
+      setTab("profiel");
+      (async () => {
+        try {
+          const d = await stravaCall("sync");
+          const rows = await pullInbox();
+          if (rows.length) api.applyInbox(rows);
+          await clearInboxRows(rows.map((x) => x.id));
+          setNotice(d.count ? `Strava is gekoppeld: ${d.count} activiteiten opgehaald.` : "Strava is gekoppeld. Nieuwe activiteiten komen vanzelf binnen.");
+        } catch (e) {
+          /* ophalen lukt later bij openen */
+        }
+        setStravaKey((k) => k + 1);
+      })();
+    }
+  }, [loaded]);
+
   /* Terug van Stripe: status verversen en de vraag uit de adresbalk halen. */
   useEffect(() => {
     const q = new URLSearchParams(location.search).get("abonnement");
@@ -293,6 +327,8 @@ function HybridApp() {
     if (s) setSheet({ session: s });
   };
   useAutoAdjust(data, api, loaded);
+  useStravaInbox(api, nx, acc, loaded, setNotice);
+  const [stravaKey, setStravaKey] = useState(0);
 
   const locked = acc.locked && tab !== "profiel";
   const page = locked ? (
@@ -309,6 +345,7 @@ function HybridApp() {
       onOpen={open}
       top={
         <>
+          <NeedsRpeCard sessions={data.sessions} onOpen={open} />
           <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
           <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
           {nbase ? (
@@ -330,7 +367,7 @@ function HybridApp() {
   ) : tab === "voortgang" ? (
     <ProgressView data={data} />
   ) : (
-    <Profile nx={nx} acc={acc} onConsent={() => setConsentOpen(true)} data={data} api={api} nexa={nexa} nbase={nbase} />
+    <Profile nx={nx} acc={acc} onConsent={() => setConsentOpen(true)} data={data} api={api} nexa={nexa} nbase={nbase} stravaKey={stravaKey} />
   );
 
   return (

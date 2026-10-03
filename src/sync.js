@@ -12,8 +12,8 @@
 import { AuthClient } from "@supabase/auth-js";
 import { PostgrestClient } from "@supabase/postgrest-js";
 
-const SB_URL = "https://lrtkedstyhfnwaxylyue.supabase.co";
-const SB_KEY = "sb_publishable_QixrjzoNV-Kd1ng-BkmCyg_oIl11AJ8"; // publiceerbare sleutel, bedoeld voor in de app
+export const SB_URL = "https://lrtkedstyhfnwaxylyue.supabase.co";
+export const SB_KEY = "sb_publishable_QixrjzoNV-Kd1ng-BkmCyg_oIl11AJ8"; // publiceerbare sleutel, bedoeld voor in de app
 const TABLE = "nexa_data";
 const PREFIX = "macroverdeling:"; // alleen app-gegevens synchroniseren, geen sessie of hulpgegevens
 const META_KEY = "nexa:sync-meta";

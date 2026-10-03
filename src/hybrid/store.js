@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { STORE_DEFAULT, normalizeStore, newId, localISO, mondayOf, dayNum, isoOfNum } from "./engine/model.js";
 import { generateWeek, applySuggestion } from "./engine/planner.js";
+import { mergeInbox } from "./engine/inbox.js";
 import { blockHeader, freshBlock, itemLine } from "./engine/blocks.js";
 
 export const HYBRID_KEY = "macroverdeling:hybrid:v1";
@@ -107,6 +108,17 @@ export function useHybridStore() {
       } catch (e) {
         /* geen route */
       }
+    },
+    /* Activiteiten uit het Strava-postvak samenvoegen. */
+    applyInbox(rows, onSummary) {
+      setData((d) => {
+        const m = mergeInbox(d.sessions, d.plan ? d.plan.items : null, rows);
+        if (onSummary) setTimeout(() => onSummary(m.summary), 0);
+        return { ...d, sessions: m.sessions, plan: d.plan ? { ...d.plan, items: m.planItems } : d.plan };
+      });
+    },
+    setIntegration(name, patch) {
+      setData((d) => ({ ...d, integrations: { ...(d.integrations || {}), [name]: { ...((d.integrations || {})[name] || {}), ...patch } } }));
     },
     setNutrition(patch) {
       setData((d) => ({ ...d, nutrition: { ...(d.nutrition || {}), ...patch } }));

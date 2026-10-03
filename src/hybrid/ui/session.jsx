@@ -301,7 +301,8 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose, onRe
             onClick={() => {
               // oude velden (fase 1) vervallen zodra er blokken zijn opgeslagen
               const { exercises, movements, score, format, capSec, ...clean } = s;
-              onSave(s.kind === "kracht" || s.kind === "wod" ? clean : s, route);
+              const out = s.kind === "kracht" || s.kind === "wod" ? clean : s;
+              onSave(out.needsRpe && out.rpe != null ? { ...out, needsRpe: false } : out, route);
             }}
           >
             {editing ? "Opslaan" : "Vastleggen"}

@@ -309,7 +309,7 @@ Strava-voorwaarden.
 | **1. Loggen en belasting** ✓ | Alle sessietypen loggen (kracht, duur, WOD, Hyrox), zones, sRPE/TRIMP, CTL/ATL/TSB, FIT/GPX-import | Een week trainen loggen en een correcte belastingsgrafiek zien |
 | **2. Adaptieve planner** ✓ | Intake, weekgenerator, interferentieregels, periodisering, tests, herstel en dagelijks bijsturen | De planner maakt voor 5 testprofielen een verantwoord schema (unit-tests) en stuurt bij op gemiste sessies en slecht herstel |
 | **3. Hybride voeding** ✓ | Koolhydraten naar belasting, fueling, wedstrijdvoeding | De macro's per dag bewegen mee met het weekplan |
-| **4. Strava** | OAuth, webhook, import en ontdubbelen | Een Strava-activiteit verschijnt binnen een minuut in de app |
+| **4. Strava** ✓ | OAuth, webhook, import en ontdubbelen | Een Strava-activiteit verschijnt binnen een minuut in de app |
 | **5. Coach en native** | AI-coach voor hybride, Capacitor-app, GPS, HealthKit/Health Connect, Garmin | Apart te plannen na fase 4 |
 
 Elke fase eindigt met tests (`npm test`), een build, `npm run verify` en een
@@ -448,3 +448,33 @@ review van u voordat de volgende fase start.
     elke geplande sessie, voedingsinstellingen in Profiel.
   - Correcties: geen herstelweek in de eerste drie weken van een schema;
     een herstelweek heet ook zo in het overzicht.
+- **Fase 4** (2026-10-03): klaar in code, **nog in te schakelen** (zie hieronder).
+  - Bestandsimport (FIT/GPX/TCX) bestond al sinds fase 1.
+  - Strava OAuth (`strava-auth`): ondertekende state tegen CSRF, rechten
+    gecontroleerd (activity:read), tokens alleen op de server, automatisch
+    vernieuwd; alleen voor Hybrid-abonnees (of gratis toegang).
+  - Webhook (`strava-webhook`) antwoordt binnen 2 s en geeft door aan een
+    achtergrondfunctie met HMAC-handtekening. Omdat Strava niet ondertekent,
+    worden "verwijderd" en "ontkoppeld" eerst bij Strava gecontroleerd.
+  - Postvak in Supabase: alleen samenvattingen en hartslagverdeling, geen
+    routes; de app haalt op bij openen en bij terugkeren, voegt samen en
+    leegt het postvak. Dubbele trainingen worden herkend; een activiteit
+    wordt automatisch aan de geplande sessie gekoppeld.
+  - Aparte, uitdrukkelijke toestemming bij koppelen; ontkoppelen trekt de
+    toestemming bij Strava in en verwijdert koppeling en postvak.
+
+### Inschakelen (eenmalig, door de beheerder)
+
+1. Supabase: `supabase/migrations/20261003_hybrid_strava.sql` toepassen.
+2. Strava: een API-app maken op strava.com/settings/api; *Authorization
+   Callback Domain* = het domein van de site.
+3. Netlify, omgevingsvariabelen: `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`,
+   `STRAVA_VERIFY_TOKEN` (zelf gekozen), optioneel `STRAVA_SUBSCRIPTION_ID`.
+4. Webhook aanmelden (zie de kop van `netlify/functions/strava-webhook.mjs`)
+   en het teruggegeven `id` als `STRAVA_SUBSCRIPTION_ID` zetten.
+5. Strava-huisstijl: vervang de tekstknop door de officiële knop "Connect
+   with Strava" en voeg het officiële "Powered by Strava"-logo toe
+   (developers.strava.com/guidelines). Dat is een voorwaarde van Strava.
+6. Limieten: standaard 200 verzoeken per 15 minuten en 2.000 per dag per
+   app. Elke nieuwe activiteit kost 1–2 verzoeken; vanaf enkele honderden
+   actieve gebruikers een verhoging aanvragen.
