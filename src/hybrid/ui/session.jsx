@@ -14,13 +14,14 @@ import {
   fmtDuration,
   fmtKm,
   hyroxTotal,
+  localISO,
   } from "../engine/model.js";
 import { sessionLoad } from "../engine/load.js";
 import { blocksOf, newBlock, titleOf, freshBlock } from "../engine/blocks.js";
 import { registerNexaExercises } from "../engine/movements.js";
 import { BlocksEditor } from "./blocks.jsx";
 import { importActivity } from "../import/files.js";
-import { Field, TextInput, NumInput, DurationInput, Choice, RpeInput, HIcon, PillarDot } from "./kit.jsx";
+import { Field, TextInput, NumInput, DurationInput, Choice, RpeInput, HIcon, PillarDot, dateLabel } from "./kit.jsx";
 
 export const EX_INDEX = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
 registerNexaExercises(EXERCISES);
@@ -39,8 +40,11 @@ const STARTS = [
   { id: "mobiliteit", label: "Mobiliteit", kind: "mobiliteit" },
 ];
 
+const MAIN_STARTS = ["kracht", "hardlopen", "fietsen", "wod"];
+
 function KindPicker({ onPick, onImported, onLive }) {
   const file = useRef(null);
+  const [all, setAll] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const onFile = async (e) => {
@@ -62,7 +66,7 @@ function KindPicker({ onPick, onImported, onLive }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
-        {STARTS.map((s) => {
+        {STARTS.filter((s) => all || MAIN_STARTS.includes(s.id)).map((s) => {
           const pillar = KINDS[s.kind].pillar;
           return (
             <button
@@ -77,6 +81,11 @@ function KindPicker({ onPick, onImported, onLive }) {
           );
         })}
       </div>
+      {!all && (
+        <button type="button" onClick={() => setAll(true)} className="tap text-sm" style={{ color: C.accent, fontWeight: 600 }}>
+          Meer soorten (roeien, zwemmen, Hyrox, mobiliteit…)
+        </button>
+      )}
       {onLive && (
         <button
           onClick={onLive}
@@ -166,15 +175,25 @@ function EnduranceForm({ s, set }) {
 
 /* Kracht en conditie: alles in blokken. */
 function BlocksForm({ s, set, tpl }) {
+  // eenvoudig standaard: eerst de oefeningen; naam en totale tijd zijn optioneel en zitten achter een knop
+  const [more, setMore] = useState(!!(s.title || s.durationSec));
   return (
     <div className="space-y-4">
-      <Field label="Naam (optioneel)">
-        <TextInput value={s.title} onChange={(v) => set({ title: v })} placeholder={s.kind === "kracht" ? "bijv. Onderlichaam zwaar" : "bijv. Zaterdag-engine"} ariaLabel="Naam van de training" />
-      </Field>
       <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} {...tpl} />
-      <Field label="Totale tijd van de sessie (optioneel)" hint="Inclusief warming-up. Leeg laten: de app rekent het uit de blokken.">
-        <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Totale tijd" />
-      </Field>
+      {more ? (
+        <>
+          <Field label="Naam van de training (optioneel)">
+            <TextInput value={s.title} onChange={(v) => set({ title: v })} placeholder={s.kind === "kracht" ? "bijv. Onderlichaam zwaar" : "bijv. Zaterdag-engine"} ariaLabel="Naam van de training" />
+          </Field>
+          <Field label="Totale tijd (optioneel)" hint="Inclusief warming-up. Leeg laten: de app rekent het uit.">
+            <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Totale tijd" />
+          </Field>
+        </>
+      ) : (
+        <button type="button" onClick={() => setMore(true)} className="tap text-sm" style={{ color: C.muted }}>
+          + Naam of totale tijd
+        </button>
+      )}
     </div>
   );
 }
@@ -255,6 +274,8 @@ export function SessionSheet({ initial, initialRoute, profile, onSave, onDelete,
   const [s, setS] = useState(() => (initial ? { ...initial, blocks: blocksOf(initial) } : null));
   const [route, setRoute] = useState(initialRoute || null);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [showDate, setShowDate] = useState(() => !!(initial && initial.date && initial.date !== localISO()));
+  const [showNotes, setShowNotes] = useState(() => !!(initial && initial.notes));
   const set = (patch) => setS((x) => ({ ...x, ...patch }));
   const editing = !!(initial && initial.createdAt && onDelete);
   const load = s ? sessionLoad(s, profile, EX_INDEX) : null;
@@ -287,6 +308,14 @@ export function SessionSheet({ initial, initialRoute, profile, onSave, onDelete,
             {s.durationSec ? ` in ${fmtDuration(s.durationSec)}` : ""}. Controleer de sport en vul de inspanning in.
           </p>
         )}
+        {!showDate ? (
+          <div className="flex items-baseline justify-between text-sm">
+            <span style={{ color: C.ink, fontWeight: 600 }}>{s.date === localISO() ? "Vandaag" : dateLabel(s.date, { weekday: "long", day: "numeric", month: "long" })}</span>
+            <button type="button" onClick={() => setShowDate(true)} className="tap text-sm" style={{ color: C.accent }}>
+              Andere dag
+            </button>
+          </div>
+        ) : (
         <Field label="Datum">
           <input
             type="date"
@@ -297,24 +326,21 @@ export function SessionSheet({ initial, initialRoute, profile, onSave, onDelete,
             aria-label="Datum"
           />
         </Field>
+        )}
         {s.kind === "duur" && <EnduranceForm s={s} set={set} />}
         {s.kind === "duur" && <OptionalBlocks s={s} set={set} label={s.sport === "multisport" ? "Onderdelen toevoegen (bijv. fietsen en lopen)" : "Opbouw toevoegen (bijv. 6 × 500 m)"} types={["interval", "doorlopend", "tabata", "test", "vrij"]} tpl={tpl} />}
         {(s.kind === "kracht" || s.kind === "wod") && <BlocksForm s={s} set={set} tpl={tpl} />}
         {s.kind === "hyrox" && <HyroxForm s={s} set={set} tpl={tpl} />}
         {s.kind === "mobiliteit" && <MobilityForm s={s} set={set} tpl={tpl} />}
         <RpeInput value={s.rpe} onChange={(v) => set({ rpe: v })} estimate={load && load.rpeEst && load.minutes ? Math.round(load.rpe * 10) / 10 : null} />
-        <Field label="Notitie (optioneel)">
-          <TextInput multiline rows={2} value={s.notes} onChange={(v) => set({ notes: v })} ariaLabel="Notitie" />
-        </Field>
-        {load && load.minutes > 0 && (
-          <div className="flex items-baseline justify-between px-3 py-2.5" style={{ background: C.surface2, borderRadius: R.field }}>
-            <span className="text-xs" style={{ color: C.muted }}>
-              Belasting{load.rpeEst ? " (geschat)" : ""}
-            </span>
-            <span className="text-sm tnum" style={{ color: C.ink, fontWeight: 600 }}>
-              {load.srpe} · {String(Math.round(load.rpe * 10) / 10).replace(".", ",")} × {Math.round(load.minutes)} min
-            </span>
-          </div>
+        {showNotes ? (
+          <Field label="Notitie (optioneel)">
+            <TextInput multiline rows={2} value={s.notes} onChange={(v) => set({ notes: v })} ariaLabel="Notitie" />
+          </Field>
+        ) : (
+          <button type="button" onClick={() => setShowNotes(true)} className="tap text-sm" style={{ color: C.muted }}>
+            + Notitie
+          </button>
         )}
         <div className="flex gap-2">
           <TBtn

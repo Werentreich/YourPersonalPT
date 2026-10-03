@@ -423,8 +423,8 @@ function BlockSettings({ b, set }) {
 }
 
 /* Rol, partner, vest, schaling en doel: voor alle blokken behalve vrij. */
-function BlockOptions({ b, set }) {
-  const [open, setOpen] = useState(!!(num(b.partners, 1) > 1 || b.vestKg || b.scaling));
+function BlockOptions({ b, set, always }) {
+  const [open, setOpen] = useState(!!(always || num(b.partners, 1) > 1 || b.vestKg || b.scaling));
   if (!open)
     return (
       <button type="button" onClick={() => setOpen(true)} className="tap text-xs" style={{ color: C.muted }}>
@@ -617,6 +617,8 @@ function BlockSummary({ b }) {
 function BlockCard({ b, set, remove, move, duplicate, saveTemplate, onTimer, index, count }) {
   const [open, setOpen] = useState(true);
   const [saved, setSaved] = useState(false);
+  // eenvoudig standaard: naam, superset, rol/partner/vest en dupliceren zitten achter "Meer opties"
+  const [extra, setExtra] = useState(!!((b.type === "sets" && (b.name || b.superset)) || b.role || num(b.partners, 1) > 1 || b.vestKg || b.scaling));
   const t = BLOCK_TYPES[b.type];
   const items = b.items || [];
   const setItem = (i, patch) => set({ items: items.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
@@ -628,10 +630,13 @@ function BlockCard({ b, set, remove, move, duplicate, saveTemplate, onTimer, ind
     <div className="p-3" style={{ border: `1px solid ${C.line}`, borderRadius: R.field, background: C.panel }}>
       <div className="flex items-start justify-between gap-2">
         <button type="button" onClick={() => setOpen(!open)} className="tap text-left min-w-0" aria-expanded={open}>
-          <span className="block eyebrow">
-            Blok {index + 1} · {t.label}
-            {b.role ? ` · ${ROLES[b.role].label}` : ""}
-          </span>
+          {(count > 1 || b.type !== "sets" || b.role) && (
+            <span className="block eyebrow">
+              {count > 1 ? `Blok ${index + 1} · ` : ""}
+              {t.label}
+              {b.role ? ` · ${ROLES[b.role].label}` : ""}
+            </span>
+          )}
           <span className="block text-sm" style={{ color: C.ink, fontWeight: 600 }}>
             {blockHeader(b)}
             {result ? <span style={{ color: C.muted, fontWeight: 500 }}> · {result}</span> : null}
@@ -655,15 +660,10 @@ function BlockCard({ b, set, remove, move, duplicate, saveTemplate, onTimer, ind
       </div>
       {open && (
         <div className="mt-3 space-y-3">
-          {b.type !== "vrij" && (
-            <Field label="Naam (optioneel)" hint={b.type === "sets" ? null : "Geef een vaste workout een naam, dan ziet u uw beste resultaat terug."}>
-              <TextInput value={b.name} onChange={(v) => set({ name: v || undefined })} placeholder={isSets ? "bijv. Hoofdlift" : "bijv. Fran of Vrijdag-engine"} ariaLabel="Naam van het blok" />
+          {b.type !== "vrij" && !isSets && (
+            <Field label="Naam (optioneel)" hint="Geef een vaste workout een naam, dan ziet u uw beste resultaat terug.">
+              <TextInput value={b.name} onChange={(v) => set({ name: v || undefined })} placeholder="bijv. Fran of Vrijdag-engine" ariaLabel="Naam van het blok" />
             </Field>
-          )}
-          {isSets && (
-            <Toggle on={b.superset} onChange={(v) => set({ superset: v || undefined })}>
-              superset: oefeningen afwisselen
-            </Toggle>
           )}
           <BlockSettings b={b} set={set} />
           {b.type === "vrij" ? (
@@ -706,7 +706,7 @@ function BlockCard({ b, set, remove, move, duplicate, saveTemplate, onTimer, ind
               )}
             </div>
           )}
-          {b.type !== "vrij" && <BlockOptions b={b} set={set} />}
+
           {!isSets && b.type !== "vrij" && b.type !== "complex" && items.length > 0 && (
             <div className="pt-1">
               <div className="eyebrow mb-1.5">Resultaat</div>
@@ -719,24 +719,43 @@ function BlockCard({ b, set, remove, move, duplicate, saveTemplate, onTimer, ind
               Timer starten
             </button>
           )}
-          <div className="flex gap-4 pt-1">
-            <button type="button" onClick={duplicate} className="tap text-xs" style={{ color: C.muted }}>
-              Blok dupliceren
+          {!extra ? (
+            <button type="button" onClick={() => setExtra(true)} className="tap text-xs" style={{ color: C.muted }}>
+              + Meer opties
             </button>
-            {saveTemplate && b.type !== "vrij" && items.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  saveTemplate(b);
-                  setSaved(true);
-                }}
-                className="tap text-xs"
-                style={{ color: saved ? C.accent : C.muted }}
-              >
-                {saved ? "Bewaard als eigen template" : "Bewaren als eigen template"}
-              </button>
-            )}
-          </div>
+          ) : (
+            <div className="space-y-3 pt-1">
+              {isSets && (
+                <Field label="Naam van het blok (optioneel)">
+                  <TextInput value={b.name} onChange={(v) => set({ name: v || undefined })} placeholder="bijv. Hoofdlift" ariaLabel="Naam van het blok" />
+                </Field>
+              )}
+              {isSets && (
+                <Toggle on={b.superset} onChange={(v) => set({ superset: v || undefined })}>
+                  superset: oefeningen afwisselen
+                </Toggle>
+              )}
+              {b.type !== "vrij" && <BlockOptions b={b} set={set} always />}
+              <div className="flex gap-4">
+                <button type="button" onClick={duplicate} className="tap text-xs" style={{ color: C.muted }}>
+                  Blok dupliceren
+                </button>
+                {saveTemplate && b.type !== "vrij" && items.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      saveTemplate(b);
+                      setSaved(true);
+                    }}
+                    className="tap text-xs"
+                    style={{ color: saved ? C.accent : C.muted }}
+                  >
+                    {saved ? "Bewaard als eigen template" : "Bewaren als eigen template"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

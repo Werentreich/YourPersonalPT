@@ -16,7 +16,8 @@ import { newSession } from "./engine/model.js";
 import { isNative, SITE } from "./native/platform.js";
 import { Card, Contours, HIcon } from "./ui/kit.jsx";
 import { SessionSheet } from "./ui/session.jsx";
-import { TodayView, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
+import { TodayView, QuickStart, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
+import { newBlock } from "./engine/blocks.js";
 import { WeekView, TodayPlan, CheckinCard, useAutoAdjust } from "./ui/plan.jsx";
 import { useNutritionBase, NutritionToday, NutritionSection } from "./ui/fuel.jsx";
 import { StravaSection, useStravaInbox, NeedsRpeCard } from "./ui/integrations.jsx";
@@ -361,6 +362,10 @@ function HybridApp() {
     window.nexaSync.checkout(plan, { from: "hybrid" }).catch(() => {});
   };
   const add = () => setSheet({});
+  const quick = (id) => {
+    const s = id === "kracht" ? newSession("kracht", { blocks: [newBlock("sets")] }) : id === "wod" ? newSession("wod") : newSession("duur", { sport: id });
+    setSheet({ session: s, fresh: true });
+  };
   const open = (s) => setSheet({ session: s });
   const logDraft = (draft) => setSheet({ session: draft, fresh: true });
   const openSession = (id) => {
@@ -384,11 +389,17 @@ function HybridApp() {
       data={data}
       onAdd={add}
       onOpen={open}
+      focus={
+        data.plan ? (
+          <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
+        ) : (
+          <QuickStart onQuick={quick} onLive={() => setLive(true)} onAdd={add} onPlan={() => setTab("week")} />
+        )
+      }
       top={
         <>
           <NeedsRpeCard sessions={data.sessions} onOpen={open} />
           <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
-          <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
           {nbase ? (
             <NutritionToday data={data} base={nbase} />
           ) : (

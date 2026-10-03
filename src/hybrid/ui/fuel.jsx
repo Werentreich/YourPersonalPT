@@ -1,7 +1,7 @@
 /* Voeding in Nexa Hybrid: doelen per dag, rond de training en voor de
    wedstrijd. Het voedingsprofiel komt uit Nexa (zelfde berekening) of uit
    eigen instellingen. */
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { C, R, Section, Row, calcBMR, recommendedProtein, activityFactorOf, stepsOf, ACTIVITY } from "../../App.jsx";
 import { localISO, mondayOf, dayNum, isoOfNum, num } from "../engine/model.js";
 import { nutritionBase, dayTargets, weekNutrition, sessionsOfDay, fuelingFor, raceNutrition, raceMinutes, hoursToNext, DAY_CLASSES } from "../engine/fuel.js";
@@ -91,6 +91,7 @@ export function NutritionToday({ data, base }) {
   const todays = sessionsOfDay(today, data.sessions, items);
   const t = dayTargets(base, todays, sessionsOfDay(tomorrow, data.sessions, items));
   const main = todays.filter((s) => s.kind !== "mobiliteit");
+  const [tips, setTips] = useState(false);
   return (
     <Card className="px-4 py-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -111,17 +112,23 @@ export function NutritionToday({ data, base }) {
         <Macro label="Eiwit" value={t.protein} unit="g" color="var(--pro-fill)" />
         <Macro label="Vet" value={t.fat} unit="g" color="var(--fat-fill)" />
       </div>
-      {t.exercise > 0 && (
-        <p className="text-xs mt-2 tnum" style={{ color: C.muted }}>
-          Waarvan ± {t.exercise} kcal voor de training.
-        </p>
-      )}
+
       {t.notes.map((n, i) => (
         <p key={i} className="text-xs mt-2 px-2.5 py-1.5 leading-relaxed" style={{ background: "var(--warn-bg)", color: C.warn, borderRadius: 8 }}>
           {n}
         </p>
       ))}
-      {main.slice(0, 2).map((s) => (
+      {!tips && (
+        <button type="button" onClick={() => setTips(true)} className="tap text-xs mt-3" style={{ color: C.accent, fontWeight: 600 }}>
+          {main.length ? "Wat eet ik rond de training?" : "Meer over vandaag"}
+        </button>
+      )}
+      {tips && t.exercise > 0 && (
+        <p className="text-xs mt-2 tnum" style={{ color: C.muted }}>
+          Waarvan ± {t.exercise} kcal voor de training.
+        </p>
+      )}
+      {tips && main.slice(0, 2).map((s) => (
         <div key={s.id} className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
           <div className="text-xs mb-1.5" style={{ color: C.ink, fontWeight: 600 }}>
             Rond {s.title ? s.title.toLowerCase() : "de training"}
@@ -129,9 +136,11 @@ export function NutritionToday({ data, base }) {
           <FuelTips f={fuelingFor(s, base.weight, { nextWithinHours: hoursToNext(s, data.sessions, items) === 6 ? 6 : null })} />
         </div>
       ))}
-      <a href="/app/" className="tap inline-block text-xs mt-3" style={{ color: C.accent, fontWeight: 600 }}>
-        Maaltijden plannen in Nexa →
-      </a>
+      {tips && (
+        <a href="/app/" className="tap inline-block text-xs mt-3" style={{ color: C.accent, fontWeight: 600 }}>
+          Maaltijden plannen in Nexa →
+        </a>
+      )}
     </Card>
   );
 }

@@ -52,7 +52,7 @@ export function sessionFacts(s) {
   return bits.join(" · ");
 }
 
-function SessionRow({ s, profile, onOpen }) {
+function SessionRow({ s, profile, onOpen, hideLoad }) {
   const L = sessionLoad(s, profile, EX_INDEX);
   const pillar = pillarOf(s);
   return (
@@ -66,6 +66,7 @@ function SessionRow({ s, profile, onOpen }) {
           {dateLabel(s.date)} · {sessionFacts(s) || K[pillar].label}
         </span>
       </span>
+      {!hideLoad && (
       <span className="text-right shrink-0">
         <span className="block text-sm tnum" style={{ color: C.ink, fontWeight: 600 }}>
           {L.srpe || "–"}
@@ -74,19 +75,107 @@ function SessionRow({ s, profile, onOpen }) {
           belasting{L.rpeEst && L.srpe ? "*" : ""}
         </span>
       </span>
+      )}
     </button>
   );
 }
 
 /* ---------------- Vandaag ---------------- */
-export function TodayView({ data, onAdd, onOpen, top }) {
+/* Zonder schema: direct kiezen wat u gaat doen. */
+const QUICK = [
+  { id: "kracht", label: "Kracht", pillar: "kracht" },
+  { id: "hardlopen", label: "Hardlopen", pillar: "duur" },
+  { id: "fietsen", label: "Fietsen", pillar: "duur" },
+  { id: "wod", label: "WOD", pillar: "conditie" },
+];
+export function QuickStart({ onQuick, onLive, onAdd, onPlan }) {
+  return (
+    <Card className="px-4 py-4">
+      <h2 className="disp text-[22px] leading-tight" style={{ color: C.ink, fontWeight: 600 }}>
+        Wat gaat u vandaag doen?
+      </h2>
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        {QUICK.map((q) => (
+          <button
+            key={q.id}
+            onClick={() => onQuick(q.id)}
+            className="tap flex items-center gap-2.5 px-3 py-3.5 text-left text-sm"
+            style={{ border: `1px solid ${C.line}`, borderRadius: R.field, background: C.panel, color: C.ink, fontWeight: 600 }}
+          >
+            <PillarDot pillar={q.pillar} size={10} />
+            {q.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm">
+        <button onClick={onLive} className="tap flex items-center gap-1.5" style={{ color: C.accent, fontWeight: 600 }}>
+          <HIcon name="gps" size={16} /> Live opnemen met GPS
+        </button>
+        <button onClick={onAdd} className="tap" style={{ color: C.muted }}>
+          Iets anders
+        </button>
+      </div>
+      {onPlan && (
+        <p className="text-xs mt-3 pt-3 leading-relaxed" style={{ color: C.muted, borderTop: `1px solid ${C.lineSoft}` }}>
+          Liever een schema dat dit voor u bepaalt?{" "}
+          <button onClick={onPlan} className="tap" style={{ color: C.accent, fontWeight: 600 }}>
+            Schema maken
+          </button>
+        </p>
+      )}
+    </Card>
+  );
+}
+
+/* Week en vorm in één regel; details op verzoek. */
+function WeekCompact({ week, point, status }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className="px-4 py-3.5">
+      <button onClick={() => setOpen(!open)} className="tap w-full flex items-center justify-between gap-3 text-left" aria-expanded={open}>
+        <span className="min-w-0">
+          <span className="block eyebrow">Deze week</span>
+          <span className="block text-sm mt-0.5" style={{ color: C.ink }}>
+            <strong style={{ fontWeight: 600 }}>
+              {week.count} {week.count === 1 ? "training" : "trainingen"}
+            </strong>
+            {week.minutes > 0 ? ` · ${fmtDuration(week.minutes * 60, { long: true })}` : ""}
+            {status.key !== "start" ? ` · ${status.label.toLowerCase()}` : ""}
+          </span>
+        </span>
+        <span className="text-xs shrink-0" style={{ color: C.accent, fontWeight: 600 }}>
+          {open ? "Minder" : "Details"}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <PillarMini week={week} />
+          {Object.keys(week.sports).length > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs tnum" style={{ color: C.muted }}>
+              {Object.entries(week.sports).map(([k, v]) => (
+                <span key={k}>
+                  {SPORTS[k].label} <strong style={{ color: C.ink, fontWeight: 600 }}>{v.distanceM ? fmtKm(v.distanceM) : `${Math.round(v.minutes)} min`}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+            <strong style={{ color: C.ink, fontWeight: 600 }}>{status.label}.</strong> {status.text}
+            {point && point.ctl >= 1 && status.key !== "start" ? ` (fitheid ${Math.round(point.ctl)}, vermoeidheid ${Math.round(point.atl)})` : ""}
+          </p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function TodayView({ data, onAdd, onOpen, focus, top }) {
   const { sessions, profile } = data;
   const today = localISO();
   const series = useMemo(() => fitnessSeries(sessions, profile, today, today, EX_INDEX), [sessions, profile, today]);
   const point = series[series.length - 1];
   const status = formStatus(point);
   const week = useMemo(() => weekSummary(sessions, profile, mondayOf(today), EX_INDEX), [sessions, profile, today]);
-  const recent = [...sessions].sort((a, b) => (b.date + b.createdAt > a.date + a.createdAt ? 1 : -1)).slice(0, 3);
   const todays = sessions.filter((s) => s.date === today);
   return (
     <div className="space-y-4">
@@ -106,27 +195,7 @@ export function TodayView({ data, onAdd, onOpen, top }) {
         </div>
       </Reveal>
 
-      {top}
-
-      <Card className="px-4 pt-5 pb-4">
-        <Contours />
-        <div className="relative">
-          <Eyebrow>Uw vorm</Eyebrow>
-          <h2 className="disp text-[26px] leading-tight mt-1" style={{ color: C.ink, fontWeight: 600 }}>
-            {status.label}
-          </h2>
-          <p className="text-sm leading-relaxed mt-1.5" style={{ color: C.muted, maxWidth: "52ch" }}>
-            {status.text}
-          </p>
-          {point && point.ctl >= 1 && (
-            <div className="grid grid-cols-3 gap-3 mt-4">
-              <Stat label="Fitheid" value={Math.round(point.ctl)} />
-              <Stat label="Vermoeidheid" value={Math.round(point.atl)} />
-              <Stat label="Vorm" value={String(Math.round(point.tsb)).replace("-", "−")} />
-            </div>
-          )}
-        </div>
-      </Card>
+      {focus}
 
       {todays.length > 0 && (
         <Card>
@@ -134,52 +203,14 @@ export function TodayView({ data, onAdd, onOpen, top }) {
             <Eyebrow>Vandaag gedaan</Eyebrow>
           </div>
           {todays.map((s) => (
-            <SessionRow key={s.id} s={s} profile={profile} onOpen={onOpen} />
+            <SessionRow key={s.id} s={s} profile={profile} onOpen={onOpen} hideLoad />
           ))}
         </Card>
       )}
 
-      <Card className="px-4 py-4">
-        <div className="flex items-baseline justify-between mb-3">
-          <Eyebrow>Deze week</Eyebrow>
-          <span className="text-xs tnum" style={{ color: C.muted }}>
-            {week.count} {week.count === 1 ? "sessie" : "sessies"} · {fmtDuration(week.minutes * 60, { long: true })}
-          </span>
-        </div>
-        <PillarMini week={week} />
-        {Object.keys(week.sports).length > 0 && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs tnum" style={{ color: C.muted }}>
-            {Object.entries(week.sports).map(([k, v]) => (
-              <span key={k}>
-                {SPORTS[k].label} <strong style={{ color: C.ink, fontWeight: 600 }}>{v.distanceM ? fmtKm(v.distanceM) : `${Math.round(v.minutes)} min`}</strong>
-                {v.inBlocks > 0 && v.inBlocks < v.distanceM ? ` (${fmtKm(v.inBlocks)} in WOD's)` : v.inBlocks > 0 ? " in WOD's" : ""}
-              </span>
-            ))}
-          </div>
-        )}
-      </Card>
+      {top}
 
-      {sessions.length === 0 ? (
-        <Card className="px-4 py-6 text-center">
-          <p className="text-sm leading-relaxed mx-auto" style={{ color: C.ink, maxWidth: "40ch" }}>
-            Leg uw eerste training vast. Kracht, een loop, een WOD: alles telt mee in één belastingsmaat.
-          </p>
-          <div className="mt-3 flex justify-center">
-            <TBtn onClick={onAdd}>Eerste training vastleggen</TBtn>
-          </div>
-        </Card>
-      ) : (
-        todays.length === 0 && (
-          <Card>
-            <div className="px-4 pt-3.5 pb-2">
-              <Eyebrow>Laatst</Eyebrow>
-            </div>
-            {recent.map((s) => (
-              <SessionRow key={s.id} s={s} profile={profile} onOpen={onOpen} />
-            ))}
-          </Card>
-        )
-      )}
+      {sessions.length > 0 && <WeekCompact week={week} point={point} status={status} />}
     </div>
   );
 }

@@ -668,7 +668,7 @@ export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
       )}
       <Card>
         <div className="px-4 pt-3.5 pb-1 flex items-baseline justify-between">
-          <Eyebrow>Gepland voor vandaag</Eyebrow>
+          <Eyebrow>Uw training vandaag</Eyebrow>
         </div>
         {todays.length === 0 ? (
           <p className="px-4 pb-3.5 text-sm" style={{ color: C.muted }}>
@@ -679,12 +679,10 @@ export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
             <div key={x.id}>
               <PlanItemRow item={x} border={k > 0} onOpen={(it) => setOpen(it.id)} />
               {x.status === "gepland" && (
-                <div className="px-4 pb-3 flex gap-2">
-                  <TBtn small onClick={() => onLog(draftFromItem(x))}>
-                    Vastleggen
-                  </TBtn>
-                  <TBtn small kind="ghost" onClick={() => setOpen(x.id)}>
-                    Bekijken
+                <div className="px-4 pb-3.5 flex gap-2">
+                  <TBtn onClick={() => onLog(draftFromItem(x))}>Vastleggen</TBtn>
+                  <TBtn kind="ghost" onClick={() => setOpen(x.id)}>
+                    Wat moet ik doen?
                   </TBtn>
                 </div>
               )}
