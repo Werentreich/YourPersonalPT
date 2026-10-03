@@ -78,7 +78,7 @@ export const PROFILE_DEFAULT = {
   row2k: null, // seconden
 };
 
-export const STORE_DEFAULT = { v: 1, profile: PROFILE_DEFAULT, sessions: [], templates: [] };
+export const STORE_DEFAULT = { v: 1, profile: PROFILE_DEFAULT, sessions: [], templates: [], checkins: [], plan: null };
 
 let seq = 0;
 export const newId = () => `s${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -172,5 +172,7 @@ export function normalizeStore(raw) {
   const d = raw && typeof raw === "object" ? raw : {};
   const sessions = Array.isArray(d.sessions) ? d.sessions.filter((s) => s && s.id && s.date && KINDS[s.kind]) : [];
   const templates = Array.isArray(d.templates) ? d.templates.filter((t) => t && t.id && t.block && t.block.type) : [];
-  return { ...STORE_DEFAULT, ...d, profile: { ...PROFILE_DEFAULT, ...(d.profile || {}) }, sessions, templates };
+  const checkins = Array.isArray(d.checkins) ? d.checkins.filter((c) => c && c.date) : [];
+  const plan = d.plan && typeof d.plan === "object" && d.plan.settings ? { weeks: {}, applied: {}, ...d.plan, items: Array.isArray(d.plan.items) ? d.plan.items.filter((x) => x && x.id && x.date) : [] } : null;
+  return { ...STORE_DEFAULT, ...d, profile: { ...PROFILE_DEFAULT, ...(d.profile || {}) }, sessions, templates, checkins, plan };
 }

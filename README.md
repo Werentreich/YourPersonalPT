@@ -56,8 +56,9 @@ Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
 - Rekenkern in `src/hybrid/engine/` (model, zones, belasting, bewegingen en
   blokken: sets, rondes, AMRAP, EMOM, For Time, intervallen, doorlopend), import in
   `src/hybrid/import/files.js` (FIT/GPX/TCX), schermen in `src/hybrid/ui/`.
-  Tests: `tests/hybrid-test.mjs`, `tests/hybrid-engine-test.mjs` en
-  `tests/hybrid-blocks-test.mjs`.
+  Planner en herstel in `src/hybrid/engine/planner.js` en `readiness.js`,
+  live timer in `src/hybrid/ui/timer.jsx`.
+  Tests: `tests/hybrid-*.mjs` (toegang, motor, blokken, planner, timer).
 - Routes (GPS) staan alleen op het apparaat onder `nexa:hybrid-route:<id>`.
 - Abonnement: plannen `hybrid_maand` en `hybrid_jaar` (Stripe-lookup keys
   `nexa_hybrid_maand` / `nexa_hybrid_jaar`). Coach naar Hybrid wordt direct

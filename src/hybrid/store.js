@@ -5,7 +5,8 @@
      is extra gevoelig (plan §9). Het voorvoegsel "nexa:" valt buiten de sync
      en wordt gewist bij uitloggen met wissen. */
 import { useEffect, useRef, useState } from "react";
-import { STORE_DEFAULT, normalizeStore, newId } from "./engine/model.js";
+import { STORE_DEFAULT, normalizeStore, newId, localISO, mondayOf, dayNum, isoOfNum } from "./engine/model.js";
+import { generateWeek, applySuggestion } from "./engine/planner.js";
 import { blockHeader, freshBlock, itemLine } from "./engine/blocks.js";
 
 export const HYBRID_KEY = "macroverdeling:hybrid:v1";
@@ -81,11 +82,17 @@ export function useHybridStore() {
       setData((d) => {
         const exists = d.sessions.some((x) => x.id === s.id);
         const sessions = exists ? d.sessions.map((x) => (x.id === s.id ? s : x)) : [...d.sessions, s];
-        return { ...d, sessions };
+        // vastgelegd vanuit het plan: die geplande sessie is gedaan
+        const plan = s.planItemId && d.plan ? { ...d.plan, items: d.plan.items.map((x) => (x.id === s.planItemId ? { ...x, status: "gedaan", doneId: s.id } : x)) } : d.plan;
+        return { ...d, sessions, plan };
       });
     },
     deleteSession(id) {
-      setData((d) => ({ ...d, sessions: d.sessions.filter((x) => x.id !== id) }));
+      setData((d) => ({
+        ...d,
+        sessions: d.sessions.filter((x) => x.id !== id),
+        plan: d.plan ? { ...d.plan, items: d.plan.items.map((x) => (x.doneId === id ? { ...x, status: "gepland", doneId: undefined } : x)) } : d.plan,
+      }));
       try {
         window.storage && window.storage.delete(ROUTE_PREFIX + id);
       } catch (e) {
@@ -103,6 +110,70 @@ export function useHybridStore() {
     },
     deleteTemplate(id) {
       setData((d) => ({ ...d, templates: (d.templates || []).filter((t) => t.id !== id) }));
+    },
+    /* ---- herstel ---- */
+    saveCheckin(c) {
+      setData((d) => ({ ...d, checkins: [...(d.checkins || []).filter((x) => x.date !== c.date), c].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-400) }));
+    },
+
+    /* ---- plan ----
+       Instellen of wijzigen: de lopende week wordt opnieuw gemaakt vanaf
+       vandaag; wat al gedaan of overgeslagen is blijft staan. */
+    setPlan(settings) {
+      setData((d) => {
+        const today = localISO();
+        const monday = mondayOf(today);
+        const prev = d.plan;
+        const s = { ...settings, startDate: (prev && prev.settings.startDate) || monday };
+        const keep = prev ? prev.items.filter((x) => x.date < today || x.status !== "gepland") : [];
+        const ctx = { sessions: d.sessions, profile: d.profile, checkins: d.checkins, planItems: keep };
+        const wk = generateWeek(s, ctx, monday);
+        const busy = new Set(keep.filter((x) => x.date >= monday && x.status === "gedaan").map((x) => x.date));
+        const fresh = wk.items.filter((x) => x.date >= today && !busy.has(x.date));
+        const items = [...keep.filter((x) => !(x.date >= today && x.status === "gepland")), ...fresh];
+        const weeks = { ...((prev && prev.weeks) || {}), [monday]: { phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } };
+        return { ...d, plan: { settings: s, items, weeks, applied: (prev && prev.applied) || {}, createdOn: (prev && prev.createdOn) || today } };
+      });
+    },
+    stopPlan() {
+      setData((d) => ({ ...d, plan: null }));
+    },
+    /* De week maken als die er nog niet is (eens per week, bij openen). */
+    ensureWeek(monday) {
+      setData((d) => {
+        if (!d.plan || (d.plan.weeks || {})[monday]) return d;
+        if (monday < mondayOf(d.plan.settings.startDate || monday)) return d;
+        const ctx = { sessions: d.sessions, profile: d.profile, checkins: d.checkins, planItems: d.plan.items };
+        const wk = generateWeek(d.plan.settings, ctx, monday);
+        const others = d.plan.items.filter((x) => !(x.date >= monday && x.date <= isoOfNum(dayNum(monday) + 6) && x.status === "gepland"));
+        return {
+          ...d,
+          plan: {
+            ...d.plan,
+            items: [...others, ...wk.items],
+            weeks: { ...d.plan.weeks, [monday]: { phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } },
+          },
+        };
+      });
+    },
+    updatePlanItem(id, patch) {
+      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === id ? { ...x, ...patch } : x)) } } : d));
+    },
+    replacePlanItem(item) {
+      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === item.id ? item : x)) } } : d));
+    },
+    applySuggestions(sugs, ctx, auto = false) {
+      setData((d) => {
+        if (!d.plan) return d;
+        let items = d.plan.items;
+        for (const sg of sugs) items = applySuggestion(items, sg, ctx, d.plan.settings);
+        const applied = { ...(d.plan.applied || {}) };
+        for (const sg of sugs) applied[sg.id] = auto ? "auto" : "ja";
+        return { ...d, plan: { ...d.plan, items, applied } };
+      });
+    },
+    dismissSuggestion(id) {
+      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, applied: { ...(d.plan.applied || {}), [id]: "nee" } } } : d));
     },
     saveRoute(id, route) {
       if (!route || !window.storage) return;

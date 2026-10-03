@@ -255,7 +255,7 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose, onRe
   const hasBlocks = (s.blocks || []).some((b) => (b.items || []).length || b.text);
   const canSave = s.kind === "kracht" || s.kind === "wod" || s.kind === "mobiliteit" ? hasBlocks || !!s.durationSec : s.kind === "hyrox" ? !!hyroxTotal(s) || hasBlocks : !!s.durationSec;
   return (
-    <Sheet title={editing ? titleOf(s) : `${s.kind === "duur" ? (SPORTS[s.sport] || SPORTS.hardlopen).label : (KINDS[s.kind] || {}).label || "Training"} vastleggen`} onClose={onClose}>
+    <Sheet title={editing ? titleOf(s) : s.planItemId && s.title ? s.title : `${s.kind === "duur" ? (SPORTS[s.sport] || SPORTS.hardlopen).label : (KINDS[s.kind] || {}).label || "Training"} vastleggen`} onClose={onClose}>
       <div className="space-y-5 pb-2">
         {s.source && s.source !== "handmatig" && (
           <p className="text-xs leading-relaxed px-3 py-2" style={{ background: "var(--accent-soft)", color: C.ink, borderRadius: R.field }}>

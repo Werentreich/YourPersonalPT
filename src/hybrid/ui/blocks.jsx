@@ -25,6 +25,7 @@ import {
 import { METRICS, movementById, searchMovements } from "../engine/movements.js";
 import { fmtDuration, fmtKm, num } from "../engine/model.js";
 import { Field, TextInput, NumInput, DurationInput, Choice, HIcon } from "./kit.jsx";
+import { TimerSheet, canTime } from "./timer.jsx";
 
 const small = { fontSize: 12, color: C.muted };
 const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : "transparent", color: C.ink, fontWeight: on ? 600 : 500 });
@@ -423,7 +424,7 @@ function BlockSettings({ b, set }) {
 
 /* Rol, partner, vest, schaling en doel: voor alle blokken behalve vrij. */
 function BlockOptions({ b, set }) {
-  const [open, setOpen] = useState(!!(b.role || num(b.partners, 1) > 1 || b.vestKg || b.scaling || b.intensity));
+  const [open, setOpen] = useState(!!(num(b.partners, 1) > 1 || b.vestKg || b.scaling));
   if (!open)
     return (
       <button type="button" onClick={() => setOpen(true)} className="tap text-xs" style={{ color: C.muted }}>
@@ -613,7 +614,7 @@ function BlockSummary({ b }) {
 }
 
 /* ---------------- één blok ---------------- */
-function BlockCard({ b, set, remove, move, duplicate, saveTemplate, index, count }) {
+function BlockCard({ b, set, remove, move, duplicate, saveTemplate, onTimer, index, count }) {
   const [open, setOpen] = useState(true);
   const [saved, setSaved] = useState(false);
   const t = BLOCK_TYPES[b.type];
@@ -713,6 +714,11 @@ function BlockCard({ b, set, remove, move, duplicate, saveTemplate, index, count
             </div>
           )}
           <BlockSummary b={b} />
+          {onTimer && canTime(b) && (
+            <button type="button" onClick={onTimer} className="tap w-full py-2.5 text-sm" style={{ border: `1px solid ${C.accent}`, borderRadius: R.field, color: C.accent, fontWeight: 600, background: "transparent" }}>
+              Timer starten
+            </button>
+          )}
           <div className="flex gap-4 pt-1">
             <button type="button" onClick={duplicate} className="tap text-xs" style={{ color: C.muted }}>
               Blok dupliceren
@@ -787,6 +793,7 @@ function TemplatePicker({ onPick, custom = [], onDeleteCustom, kind }) {
 export function BlocksEditor({ blocks, onChange, kind, types, startAdding = false, customTemplates, onSaveTemplate, onDeleteTemplate }) {
   const [adding, setAdding] = useState(!blocks.length && (kind === "wod" || startAdding));
   const [mode, setMode] = useState("type");
+  const [timerFor, setTimerFor] = useState(null);
   const allowed = types || Object.keys(BLOCK_TYPES);
   const setBlock = (i, patch) => onChange(blocks.map((b, k) => (k === i ? { ...b, ...patch } : b)));
   const move = (i, d) => {
@@ -812,8 +819,19 @@ export function BlocksEditor({ blocks, onChange, kind, types, startAdding = fals
           move={(d) => move(i, d)}
           duplicate={() => onChange([...blocks.slice(0, i + 1), freshBlock(b), ...blocks.slice(i + 1)])}
           saveTemplate={onSaveTemplate}
+          onTimer={() => setTimerFor(i)}
         />
       ))}
+      {timerFor != null && blocks[timerFor] && (
+        <TimerSheet
+          block={blocks[timerFor]}
+          onClose={() => setTimerFor(null)}
+          onResult={(result) => {
+            setBlock(timerFor, { result });
+            setTimerFor(null);
+          }}
+        />
+      )}
       {adding ? (
         <div className="p-3 space-y-3" style={{ border: `1.5px dashed ${C.line}`, borderRadius: R.field }}>
           <div className="flex gap-1">

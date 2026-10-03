@@ -13,6 +13,7 @@ import { useHybridStore, HYBRID_KEY } from "./store.js";
 import { Card, Contours, HIcon } from "./ui/kit.jsx";
 import { SessionSheet } from "./ui/session.jsx";
 import { TodayView, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
+import { WeekView, TodayPlan, CheckinCard, useAutoAdjust } from "./ui/plan.jsx";
 
 export { HYBRID_KEY };
 
@@ -52,7 +53,7 @@ const TABS = [
 const ROADMAP = [
   { fase: 0, title: "Fundering", body: "Eigen app, merk, account en abonnement.", done: true },
   { fase: 1, title: "Loggen en belasting", body: "Kracht, duur, WOD's en Hyrox loggen. Eén belastingsmaat, zones en uw vorm over de weken.", done: true },
-  { fase: 2, title: "Adaptieve planner", body: "Een weekschema dat meebeweegt met uw herstel, gemiste sessies en voortgang.", pillar: "kracht" },
+  { fase: 2, title: "Adaptieve planner", body: "Een weekschema dat meebeweegt met uw herstel, gemiste sessies en voortgang. Met live timer.", done: true },
   { fase: 3, title: "Hybride voeding", body: "Koolhydraten die meebewegen met de belasting van de dag, en fueling tijdens lange sessies.", pillar: "conditie" },
   { fase: 4, title: "Strava en bestanden", body: "Activiteiten automatisch binnen, of als FIT/GPX-bestand.", pillar: "duur" },
   { fase: 5, title: "Coach en eigen app", body: "AI-coach, iOS- en Android-app met GPS, Apple Health en Health Connect.", pillar: "mobiliteit" },
@@ -186,27 +187,6 @@ function Paywall({ acc, onStart, busy }) {
 }
 
 
-/* ---------------- tabs zonder inhoud ---------------- */
-function Empty({ title, body, fase, pillar = "duur" }) {
-  return (
-    <div className="space-y-4">
-      <h1 className="disp text-[34px] leading-none" style={{ color: C.ink, fontWeight: 600 }}>
-        {title}
-      </h1>
-      <Card className="px-4 py-8 text-center">
-        <Contours seed={fase} />
-        <div className="relative">
-          <div className="mx-auto mb-3" style={{ width: 44, height: 4, borderRadius: 2, background: K[pillar].fill }} />
-          <p className="text-sm leading-relaxed mx-auto" style={{ color: C.ink, maxWidth: "40ch" }}>
-            {body}
-          </p>
-          <p className="eyebrow mt-3">Komt in fase {fase}</p>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 function Profile({ nx, acc, onConsent, data, api }) {
   const manage = () => window.nexaSync && window.nexaSync.portal({ from: "hybrid" }).catch(() => {});
   return (
@@ -304,6 +284,12 @@ function HybridApp() {
   };
   const add = () => setSheet({});
   const open = (s) => setSheet({ session: s });
+  const logDraft = (draft) => setSheet({ session: draft, fresh: true });
+  const openSession = (id) => {
+    const s = data.sessions.find((x) => x.id === id);
+    if (s) setSheet({ session: s });
+  };
+  useAutoAdjust(data, api, loaded);
 
   const locked = acc.locked && tab !== "profiel";
   const page = locked ? (
@@ -314,9 +300,19 @@ function HybridApp() {
       <Paywall acc={acc} onStart={start} busy={acc.busy} />
     </div>
   ) : !loaded ? null : tab === "vandaag" ? (
-    <TodayView data={data} onAdd={add} onOpen={open} />
+    <TodayView
+      data={data}
+      onAdd={add}
+      onOpen={open}
+      top={
+        <>
+          <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
+          <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} />
+        </>
+      }
+    />
   ) : tab === "week" ? (
-    <Empty title="Week" fase={2} pillar="kracht" body="Uw weekschema met kracht, duur en conditie, slim verdeeld zodat zware sessies elkaar niet in de weg zitten." />
+    <WeekView data={data} api={api} onLog={logDraft} onOpenSession={openSession} />
   ) : tab === "log" ? (
     <LogView data={data} onAdd={add} onOpen={open} />
   ) : tab === "voortgang" ? (

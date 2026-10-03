@@ -307,7 +307,7 @@ Strava-voorwaarden.
 |---|---|---|
 | **0. Fundering** ✓ | Buildtarget, merk, thema, opslag, exports uit `App.jsx`, lege schil met tabs, abonnementsniveau | `node build.mjs hybrid` levert een werkende, installeerbare lege app; Nexa-tests blijven groen |
 | **1. Loggen en belasting** ✓ | Alle sessietypen loggen (kracht, duur, WOD, Hyrox), zones, sRPE/TRIMP, CTL/ATL/TSB, FIT/GPX-import | Een week trainen loggen en een correcte belastingsgrafiek zien |
-| **2. Adaptieve planner** | Intake, weekgenerator, interferentieregels, periodisering, tests, herstel en dagelijks bijsturen | De planner maakt voor 5 testprofielen een verantwoord schema (unit-tests) en stuurt bij op gemiste sessies en slecht herstel |
+| **2. Adaptieve planner** ✓ | Intake, weekgenerator, interferentieregels, periodisering, tests, herstel en dagelijks bijsturen | De planner maakt voor 5 testprofielen een verantwoord schema (unit-tests) en stuurt bij op gemiste sessies en slecht herstel |
 | **3. Hybride voeding** | Koolhydraten naar belasting, fueling, wedstrijdvoeding | De macro's per dag bewegen mee met het weekplan |
 | **4. Strava** | OAuth, webhook, import en ontdubbelen | Een Strava-activiteit verschijnt binnen een minuut in de app |
 | **5. Coach en native** | AI-coach voor hybride, Capacitor-app, GPS, HealthKit/Health Connect, Garmin | Apart te plannen na fase 4 |
@@ -400,3 +400,32 @@ review van u voordat de volgende fase start.
   - 49 bekende workouts en testen in categorieën met zoeken; eigen
     templates bewaren; een training met één tik opnieuw doen.
   - Records: testen, Rx en geschaald apart; warming-up telt niet mee.
+- **Fase 2** (2026-10-03): klaar.
+  - Intake: doel (hybride, Hyrox, 5/10 km, halve, marathon, kracht eerst,
+    conditie), doeldatum, trainingsdagen, lange dag, tijd per training,
+    ervaring per pijler, materiaal (gym, basis, thuis), duursporten,
+    mobiliteit op een rustdag, bijsturen als voorstel of automatisch.
+  - Weekschema: sessietypen per doel, verdeeld over de dagen met
+    strafpunten voor interferentie (zware benen vóór een sleutelsessie duur,
+    zwaar na zwaar, lange duur op de lange dag). Bij hybride met weinig
+    dagen een korte conditie-afsluiter na kracht bovenlichaam.
+  - Periodisering: zonder datum blokken van 3 weken opbouw + herstelweek;
+    met datum basis, opbouw, piek, taper (1–2 weken) en wedstrijdweek met de
+    wedstrijd op de doeldag.
+  - Voorschriften in blokken: duur met warming-up, kern en cooling-down en
+    doeltempo uit het profiel (tempo, vermogen, 500 m-split of hartslag);
+    kracht per materiaal met sets, herhalingen, RIR en gewicht uit de
+    geschatte 1RM; wisselende metcons; Hyrox-specifiek per fase.
+  - Duurvolume uit de eigen historie, met hoogstens ~10% erbij per week.
+  - Wekelijks bijsturen: trainingen gedaan, inspanning tegenover doel,
+    herstel en vorm; laag herstel geeft een herstelweek.
+  - Herstel: dagelijkse check-in (Hooper-index, slaap), HRV ten opzichte van
+    de eigen basislijn en rusthartslag; ziek = rust.
+  - Dagelijks bijsturen: gemiste sessies verplaatsen of laten vallen, bij
+    laag herstel lichter maken of rust; met één tik of automatisch.
+  - Week-tabblad met verplaatsen (met conflictwaarschuwing), lichter maken,
+    origineel terugzetten en overslaan; vastleggen vanuit het plan markeert
+    de sessie als gedaan.
+  - Live timer voor EMOM/every X min, Tabata, intervallen (met splits),
+    Death by, AMRAP en For Time; piepjes, trillen, scherm aan; het resultaat
+    gaat terug naar het blok.

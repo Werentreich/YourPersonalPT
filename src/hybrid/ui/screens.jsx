@@ -79,7 +79,7 @@ function SessionRow({ s, profile, onOpen }) {
 }
 
 /* ---------------- Vandaag ---------------- */
-export function TodayView({ data, onAdd, onOpen }) {
+export function TodayView({ data, onAdd, onOpen, top }) {
   const { sessions, profile } = data;
   const today = localISO();
   const series = useMemo(() => fitnessSeries(sessions, profile, today, today, EX_INDEX), [sessions, profile, today]);
@@ -105,6 +105,8 @@ export function TodayView({ data, onAdd, onOpen }) {
           </TBtn>
         </div>
       </Reveal>
+
+      {top}
 
       <Card className="px-4 pt-5 pb-4">
         <Contours />
