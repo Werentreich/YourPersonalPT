@@ -16,7 +16,7 @@
 
 import { SPORTS, ENDURANCE_TYPES, DAY_MS, dayNum, isoOfNum, mondayOf, pillarOf, hyroxTotal, num } from "./model.js";
 import { hrAnchors, hrZoneOf, seilerOf } from "./zones.js";
-import { blocksOf, blockDuration, blocksSystems, pillarShares, sessionVolume, blockScore, blockResult, blockHeader } from "./blocks.js";
+import { blocksOf, blockDuration, blocksSystems, pillarShares, sessionVolume, blockScore, blockResult, blockHeader, benchmarkKey, intervalValues, SCALING } from "./blocks.js";
 import { movementById } from "./movements.js";
 
 /* Duur van een sessie in seconden. Ingevuld gaat voor; anders de som van
@@ -230,7 +230,13 @@ export function weekSummary(sessions, profile, mondayISO) {
     for (const [k, v] of Object.entries(L.pillars)) pillars[k] = (pillars[k] || 0) + v;
     total += L.srpe;
     minutes += L.minutes;
-    if (s.kind === "duur") {
+    if (s.kind === "duur" && s.sport === "multisport" && blocksOf(s).length) {
+      for (const [k, d] of Object.entries(sessionVolume(blocksOf(s)).sport)) {
+        sports[k] = sports[k] || { count: 0, distanceM: 0, minutes: 0, inBlocks: 0 };
+        sports[k].count++;
+        sports[k].distanceM += d;
+      }
+    } else if (s.kind === "duur") {
       const k = s.sport || "hardlopen";
       sports[k] = sports[k] || { count: 0, distanceM: 0, minutes: 0, inBlocks: 0 };
       sports[k].count++;
@@ -255,7 +261,7 @@ export function weeklySeries(sessions, profile, weeks, todayISO) {
 
 /* Intensiteitsverdeling van duursessies (Seiler, drie zones), in minuten.
    Per sessie de zone van de gemiddelde hartslag, anders het soort sessie. */
-const TYPE_ZONE = { rustig: 1, lang: 1, tempo: 2, drempel: 3, interval: 3, heuvel: 3, wedstrijd: 3 };
+const TYPE_ZONE = { rustig: 1, lang: 1, herstel: 1, techniek: 1, tempo: 2, fartlek: 2, drempel: 3, interval: 3, heuvel: 3, wedstrijd: 3 };
 
 /* Minuten per hartslagzone (vijf zones) uit het histogram van een
    geïmporteerd bestand (seconden per bak van 5 slagen). */
@@ -283,7 +289,7 @@ export function intensityDistribution(sessions, profile, fromISO, toISO) {
     }
     // intervallen in de sessie: het werk telt als zwaar, de rest als rustig
     const iv = blocksOf(s).filter((b) => b.type === "interval");
-    if (iv.length && (s.type === "rustig" || s.type === "lang" || !s.type)) {
+    if (iv.length && (["rustig", "lang", "herstel", "techniek"].includes(s.type) || !s.type)) {
       const total = (durationOf(s) || 0) / 60;
       const work = Math.min(total, iv.reduce((a, b) => {
         const sp = ((b.result && b.result.splits) || []).filter((x) => x > 0);
@@ -295,7 +301,8 @@ export function intensityDistribution(sessions, profile, fromISO, toISO) {
       continue;
     }
     const min = (durationOf(s) || 0) / 60;
-    const z = (s.type && s.type !== "rustig" && s.type !== "lang" ? TYPE_ZONE[s.type] : null) || seilerOf(hrZoneOf(profile, num(s.avgHr))) || TYPE_ZONE[s.type] || 1;
+    const easyType = ["rustig", "lang", "herstel", "techniek"].includes(s.type);
+    const z = (s.type && !easyType ? TYPE_ZONE[s.type] : null) || seilerOf(hrZoneOf(profile, num(s.avgHr))) || TYPE_ZONE[s.type] || 1;
     out[z] += min;
   }
   const tot = out[1] + out[2] + out[3];
@@ -316,6 +323,17 @@ export function strengthRecords(sessions) {
           if (v && (!best[key] || v > best[key].e1rm)) best[key] = { name: e.name, e1rm: v, kg: num(x.kg), reps: num(x.reps), date: s.date };
         }
       }
+    }
+    // krachttesten (1RM, 3RM, …) tellen ook
+    for (const b of blocksOf(s)) {
+      if (b.type !== "test" || b.testMetric !== "kg") continue;
+      const it = (b.items || [])[0];
+      const kg = num(b.result && b.result.value);
+      if (!it || !kg) continue;
+      const reps = num(it.reps, 1) || 1;
+      const v = e1rm(kg, reps);
+      const key = it.moveId || it.name;
+      if (!best[key] || v > best[key].e1rm) best[key] = { name: it.name, e1rm: v, kg, reps, date: s.date, test: true };
     }
   }
   return Object.values(best).sort((a, b) => b.e1rm - a.e1rm);
@@ -338,8 +356,12 @@ export function pieceRecords(sessions) {
       const mv = movementById(it.moveId);
       const dist = num(it.distanceM);
       if (!mv || !dist) continue;
-      if (b.type === "interval") for (const sp of (b.result && b.result.splits) || []) if (sp > 0) put(mv, dist, sp, s.date);
+      if (b.type === "interval" && !(Array.isArray(b.repScheme) && b.repScheme.length)) {
+        const iv = intervalValues(b);
+        if (iv.metric === "time") for (const sp of iv.values) put(mv, dist, sp, s.date);
+      }
       if (b.type === "doorlopend") put(mv, dist, num(b.result && b.result.timeSec), s.date);
+      if (b.type === "test" && b.testMetric === "time") put(mv, dist, num(b.result && b.result.value), s.date);
     }
     // losse duursessies op een standaardafstand (roeien en SkiErg)
     if (s.kind === "duur" && (s.sport === "roeien" || s.sport === "skierg") && [500, 1000, 2000, 5000].includes(Math.round(num(s.distanceM, 0)))) {
@@ -349,16 +371,36 @@ export function pieceRecords(sessions) {
   return Object.values(best).sort((a, b) => a.name.localeCompare(b.name) || a.distanceM - b.distanceM);
 }
 
+/* Testen zonder naam: max herhalingen, meters of calorieën per beweging
+   (en binnen dezelfde tijd). Snelste tijden staan bij pieceRecords. */
+export function testRecords(sessions) {
+  const best = {};
+  for (const s of sessions) {
+    for (const b of blocksOf(s)) {
+      if (b.type !== "test" || b.name) continue;
+      const m = b.testMetric;
+      if (m !== "reps" && m !== "cal" && m !== "distance") continue;
+      const it = (b.items || [])[0];
+      const v = num(b.result && b.result.value);
+      if (!it || !v) continue;
+      const key = `${it.moveId || it.name}:${m}:${num(b.capSec, 0)}`;
+      if (!best[key] || v > best[key].value) best[key] = { label: blockHeader(b), value: v, metric: m, date: s.date };
+    }
+  }
+  return Object.values(best).sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /* Benchmarks: blokken met een naam (bijv. "Fran") en hun beste resultaat. */
 export function benchmarkRecords(sessions) {
   const best = {};
   for (const s of sessions) {
     for (const b of blocksOf(s)) {
-      if (!b.name) continue;
+      if (!b.name || b.role === "warmup" || b.role === "cooldown") continue;
       const sc = blockScore(b);
       if (sc == null) continue;
-      const key = b.name.toLowerCase();
-      const entry = { name: b.name, score: sc, result: blockResult(b), header: blockHeader(b), date: s.date, count: ((best[key] && best[key].count) || 0) + 1 };
+      const key = benchmarkKey(b);
+      const label = `${b.name}${b.scaling && b.scaling !== "rx" ? ` (${SCALING[b.scaling].label.toLowerCase()})` : ""}${num(b.vestKg) ? " met vest" : ""}`;
+      const entry = { name: label, score: sc, result: blockResult({ ...b, scaling: undefined }), header: blockHeader(b, { withName: false }), date: s.date, count: ((best[key] && best[key].count) || 0) + 1 };
       if (!best[key] || sc > best[key].score) best[key] = entry;
       else best[key].count = entry.count;
     }

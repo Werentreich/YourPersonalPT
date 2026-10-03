@@ -373,8 +373,13 @@ function HybridApp() {
 
       {sheet && (
         <SessionSheet
+          key={(sheet.session && sheet.session.id) || "nieuw"}
           initial={sheet.session || null}
           profile={data.profile}
+          templates={data.templates}
+          onSaveTemplate={api.saveTemplate}
+          onDeleteTemplate={api.deleteTemplate}
+          onRepeat={(copy) => setSheet({ session: copy, fresh: true })}
           onClose={() => setSheet(null)}
           onSave={(s, route) => {
             api.saveSession(s);
@@ -382,7 +387,7 @@ function HybridApp() {
             setSheet(null);
           }}
           onDelete={
-            sheet.session
+            sheet.session && !sheet.fresh
               ? (id) => {
                   api.deleteSession(id);
                   setSheet(null);

@@ -21,6 +21,8 @@ export const SPORTS = {
   skierg: { label: "SkiErg", pace: "500", legs: 0.2, upper: 0.55 },
   zwemmen: { label: "Zwemmen", pace: "100", legs: 0.15, upper: 0.55 },
   wandelen: { label: "Wandelen / rucken", pace: "km", legs: 0.6, upper: 0.1 },
+  stepper: { label: "Stepper / traplopen", pace: "km", legs: 0.8, upper: 0.05 },
+  multisport: { label: "Multisport / brick", pace: "km", legs: 0.6, upper: 0.15 },
 };
 
 /* Soort duursessie. rpe: standaard-inspanning als de gebruiker niets invult. */
@@ -31,6 +33,9 @@ export const ENDURANCE_TYPES = {
   drempel: { label: "Drempel", rpe: 7 },
   interval: { label: "Intervallen", rpe: 8 },
   heuvel: { label: "Heuvels", rpe: 7 },
+  fartlek: { label: "Fartlek", rpe: 6 },
+  herstel: { label: "Herstel", rpe: 2 },
+  techniek: { label: "Techniek", rpe: 4 },
   wedstrijd: { label: "Wedstrijd of test", rpe: 9 },
 };
 
@@ -73,7 +78,7 @@ export const PROFILE_DEFAULT = {
   row2k: null, // seconden
 };
 
-export const STORE_DEFAULT = { v: 1, profile: PROFILE_DEFAULT, sessions: [] };
+export const STORE_DEFAULT = { v: 1, profile: PROFILE_DEFAULT, sessions: [], templates: [] };
 
 let seq = 0;
 export const newId = () => `s${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -135,7 +140,7 @@ export const fmtKm = (m) => (m == null ? "–" : m >= 1000 ? `${(m / 1000).toFix
 export function newSession(kind, extra = {}) {
   const base = { id: newId(), date: localISO(), kind, rpe: null, durationSec: null, notes: "", source: "handmatig", createdAt: Date.now() };
   if (kind === "duur") return { ...base, sport: "hardlopen", type: "rustig", distanceM: null, avgHr: null, maxHr: null, avgPower: null, elevGain: null, ...extra };
-  if (kind === "kracht" || kind === "wod") return { ...base, blocks: [], ...extra };
+  if (kind === "kracht" || kind === "wod" || kind === "mobiliteit") return { ...base, blocks: [], ...extra };
   if (kind === "hyrox") return { ...base, mode: "simulatie", splits: { runs: Array(8).fill(null), stations: Array(8).fill(null) }, blocks: [], ...extra };
   return { ...base, ...extra };
 }
@@ -166,5 +171,6 @@ export function hyroxTotal(s) {
 export function normalizeStore(raw) {
   const d = raw && typeof raw === "object" ? raw : {};
   const sessions = Array.isArray(d.sessions) ? d.sessions.filter((s) => s && s.id && s.date && KINDS[s.kind]) : [];
-  return { ...STORE_DEFAULT, ...d, profile: { ...PROFILE_DEFAULT, ...(d.profile || {}) }, sessions };
+  const templates = Array.isArray(d.templates) ? d.templates.filter((t) => t && t.id && t.block && t.block.type) : [];
+  return { ...STORE_DEFAULT, ...d, profile: { ...PROFILE_DEFAULT, ...(d.profile || {}) }, sessions, templates };
 }

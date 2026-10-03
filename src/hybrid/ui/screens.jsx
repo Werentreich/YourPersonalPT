@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import { C, R, Section, Row, Reveal, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
 import { SPORTS, fmtDuration, fmtKm, fmtPace, localISO, mondayOf, dayNum, isoOfNum, pillarOf, hyroxTotal } from "../engine/model.js";
-import { sessionLoad, fitnessSeries, formStatus, weekSummary, weeklySeries, intensityDistribution, strengthRecords, runRecords, pieceRecords, benchmarkRecords, durationOf } from "../engine/load.js";
+import { sessionLoad, fitnessSeries, formStatus, weekSummary, weeklySeries, intensityDistribution, strengthRecords, runRecords, pieceRecords, benchmarkRecords, testRecords, durationOf } from "../engine/load.js";
 import { blocksOf, blockHeader, blockResult, sessionVolume, titleOf } from "../engine/blocks.js";
 import { hrZones, hrAnchors, runPaceZones, powerZones, swimZones, rowZones, runThresholdPace, ZONE_NAMES } from "../engine/zones.js";
 import { Card, Contours, Eyebrow, HIcon, PillarDot, Field, NumInput, DurationInput, Choice, Stat, dateLabel } from "./kit.jsx";
@@ -262,6 +262,7 @@ export function ProgressView({ data }) {
   const runs = useMemo(() => runRecords(sessions), [sessions]);
   const pieces = useMemo(() => pieceRecords(sessions), [sessions]);
   const benches = useMemo(() => benchmarkRecords(sessions), [sessions]);
+  const tests = useMemo(() => testRecords(sessions), [sessions]);
   if (!sessions.length)
     return (
       <div className="space-y-4">
@@ -335,7 +336,7 @@ export function ProgressView({ data }) {
         </Card>
       )}
 
-      {(runs.length > 0 || lifts.length > 0 || pieces.length > 0) && (
+      {(runs.length > 0 || lifts.length > 0 || pieces.length > 0 || tests.length > 0) && (
         <Card>
           <div className="px-4 pt-3.5 pb-1">
             <Eyebrow>Records</Eyebrow>
@@ -357,6 +358,16 @@ export function ProgressView({ data }) {
               </span>
               <span className="text-sm tnum" style={{ color: C.ink, fontWeight: 600 }}>
                 {fmtDuration(p.sec)} <span className="text-xs" style={{ color: C.muted, fontWeight: 400 }}>· {dateLabel(p.date, { day: "numeric", month: "short" })}</span>
+              </span>
+            </div>
+          ))}
+          {tests.map((t) => (
+            <div key={t.label} className="flex items-baseline justify-between gap-3 px-4 py-2.5" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+              <span className="flex items-center gap-2 text-sm min-w-0" style={{ color: C.ink }}>
+                <PillarDot pillar="conditie" /> <span className="truncate">{t.label}</span>
+              </span>
+              <span className="text-sm tnum shrink-0" style={{ color: C.ink, fontWeight: 600 }}>
+                {Math.round(t.value)} {t.metric === "cal" ? "cal" : t.metric === "distance" ? "m" : "herh."} <span className="text-xs" style={{ color: C.muted, fontWeight: 400 }}>· {dateLabel(t.date, { day: "numeric", month: "short" })}</span>
               </span>
             </div>
           ))}

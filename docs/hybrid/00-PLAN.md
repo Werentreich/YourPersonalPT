@@ -381,3 +381,22 @@ review van u voordat de volgende fase start.
     6 × 500 m roeien, Hyrox-stations en een EMOM.
   - Oude sessies uit fase 1 worden automatisch omgezet.
   Dit is ook de structuur waarin de planner in fase 2 trainingen voorschrijft.
+- **Volledige dekking van hybride vormen** (2026-10-03):
+  - Extra bloktypes: Tabata en werk/rust (8 × 20/10, 40/20, 30/30; per
+    beweging of om de beurt), Death by, test/max (snelste tijd, 1RM/xRM,
+    max herhalingen, max meters of calorieën in een tijd) en haltercomplexen.
+  - EMOM ook als "every X min" (1:30 tot 5 min of eigen interval) met
+    rondes; rust tussen rondes; intervallen met een reeks per herhaling
+    (piramides in meters of tijd) en resultaat in tijd, meters, cal, watt of
+    herhalingen.
+  - Opties per blok: rol (warming-up, techniek, kracht, metcon, afsluiter,
+    cooling-down), partner/team (werk verdeeld), gewichtsvest, Rx/geschaald,
+    doel (zone, tempo, % HRmax, RPE); For Time met "cap niet gehaald".
+  - Per beweging: per kant; bij sets ook tempo, rust, % 1RM, superset en
+    soort set (warming-up, werkset, AMRAP-set, dropset).
+  - 167 bewegingen (strongman, gymnastiek, plyometrie, core, mobiliteit,
+    zwemslagen) plus de Nexa-oefeningen; sporten stepper en multisport/brick;
+    soorten duur fartlek, herstel en techniek; mobiliteit in blokken.
+  - 49 bekende workouts en testen in categorieën met zoeken; eigen
+    templates bewaren; een training met één tik opnieuw doen.
+  - Records: testen, Rx en geschaald apart; warming-up telt niet mee.

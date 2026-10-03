@@ -5,7 +5,8 @@
      is extra gevoelig (plan §9). Het voorvoegsel "nexa:" valt buiten de sync
      en wordt gewist bij uitloggen met wissen. */
 import { useEffect, useRef, useState } from "react";
-import { STORE_DEFAULT, normalizeStore } from "./engine/model.js";
+import { STORE_DEFAULT, normalizeStore, newId } from "./engine/model.js";
+import { blockHeader, freshBlock, itemLine } from "./engine/blocks.js";
 
 export const HYBRID_KEY = "macroverdeling:hybrid:v1";
 export const NEXA_KEY = "macroverdeling:v1";
@@ -93,6 +94,15 @@ export function useHybridStore() {
     },
     setProfile(patch) {
       setData((d) => ({ ...d, profile: { ...d.profile, ...patch } }));
+    },
+    /* Eigen template: een blok zonder resultaat, om later te hergebruiken. */
+    saveTemplate(b) {
+      const block = freshBlock(b);
+      const t = { id: newId(), label: b.name || blockHeader(b), sub: b.name ? blockHeader(b, { withName: false }) : (b.items || []).map((it) => itemLine(it, b)).join(", "), block };
+      setData((d) => ({ ...d, templates: [t, ...(d.templates || [])].slice(0, 100) }));
+    },
+    deleteTemplate(id) {
+      setData((d) => ({ ...d, templates: (d.templates || []).filter((t) => t.id !== id) }));
     },
     saveRoute(id, route) {
       if (!route || !window.storage) return;

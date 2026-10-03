@@ -16,7 +16,7 @@ import {
   hyroxTotal,
   } from "../engine/model.js";
 import { sessionLoad } from "../engine/load.js";
-import { blocksOf, newBlock, titleOf } from "../engine/blocks.js";
+import { blocksOf, newBlock, titleOf, freshBlock } from "../engine/blocks.js";
 import { registerNexaExercises } from "../engine/movements.js";
 import { BlocksEditor } from "./blocks.jsx";
 import { importActivity } from "../import/files.js";
@@ -144,13 +144,13 @@ function EnduranceForm({ s, set }) {
 }
 
 /* Kracht en conditie: alles in blokken. */
-function BlocksForm({ s, set }) {
+function BlocksForm({ s, set, tpl }) {
   return (
     <div className="space-y-4">
       <Field label="Naam (optioneel)">
         <TextInput value={s.title} onChange={(v) => set({ title: v })} placeholder={s.kind === "kracht" ? "bijv. Onderlichaam zwaar" : "bijv. Zaterdag-engine"} ariaLabel="Naam van de training" />
       </Field>
-      <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} />
+      <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} {...tpl} />
       <Field label="Totale tijd van de sessie (optioneel)" hint="Inclusief warming-up. Leeg laten: de app rekent het uit de blokken.">
         <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Totale tijd" />
       </Field>
@@ -159,7 +159,7 @@ function BlocksForm({ s, set }) {
 }
 
 /* Optionele opbouw bij duur en Hyrox (intervallen, stations). */
-function OptionalBlocks({ s, set, label, types }) {
+function OptionalBlocks({ s, set, label, types, tpl }) {
   const [open, setOpen] = useState((s.blocks || []).length > 0);
   if (!open)
     return (
@@ -170,13 +170,13 @@ function OptionalBlocks({ s, set, label, types }) {
   return (
     <div>
       <div className="eyebrow mb-2">{label}</div>
-      <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} types={types} startAdding />
+      <BlocksEditor blocks={s.blocks || []} onChange={(blocks) => set({ blocks })} kind={s.kind} types={types} startAdding {...tpl} />
     </div>
   );
 }
 
 const hyroxModeOpts = Object.entries(HYROX_MODES).map(([value, m]) => ({ value, label: m.label }));
-function HyroxForm({ s, set }) {
+function HyroxForm({ s, set, tpl }) {
   const [splitsOpen, setSplitsOpen] = useState(() => [...(s.splits?.runs || []), ...(s.splits?.stations || [])].some((x) => x));
   const sp = s.splits || { runs: Array(8).fill(null), stations: Array(8).fill(null) };
   const setSplit = (k, i, v) => set({ splits: { ...sp, [k]: sp[k].map((x, j) => (j === i ? v : x)) } });
@@ -209,14 +209,15 @@ function HyroxForm({ s, set }) {
           ))}
         </div>
       )}
-      <OptionalBlocks s={s} set={set} label="Stationstraining in blokken" />
+      <OptionalBlocks s={s} set={set} label="Stationstraining in blokken" tpl={tpl} />
     </div>
   );
 }
 
-function MobilityForm({ s, set }) {
+function MobilityForm({ s, set, tpl }) {
   return (
     <div className="space-y-4">
+      <OptionalBlocks s={s} set={set} label="Oefeningen in blokken (flow, stretches, foamrollen)" tpl={tpl} />
       <Field label="Tijd">
         <DurationInput value={s.durationSec} onChange={(v) => set({ durationSec: v })} ariaLabel="Tijd" />
       </Field>
@@ -228,7 +229,8 @@ function MobilityForm({ s, set }) {
 }
 
 /* ---------------- sheet ---------------- */
-export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
+export function SessionSheet({ initial, profile, onSave, onDelete, onClose, onRepeat, templates, onSaveTemplate, onDeleteTemplate }) {
+  const tpl = { customTemplates: templates || [], onSaveTemplate, onDeleteTemplate };
   const [s, setS] = useState(() => (initial ? { ...initial, blocks: blocksOf(initial) } : null));
   const [route, setRoute] = useState(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -251,7 +253,7 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
   }
 
   const hasBlocks = (s.blocks || []).some((b) => (b.items || []).length || b.text);
-  const canSave = s.kind === "kracht" || s.kind === "wod" ? hasBlocks || !!s.durationSec : s.kind === "hyrox" ? !!hyroxTotal(s) || hasBlocks : !!s.durationSec;
+  const canSave = s.kind === "kracht" || s.kind === "wod" || s.kind === "mobiliteit" ? hasBlocks || !!s.durationSec : s.kind === "hyrox" ? !!hyroxTotal(s) || hasBlocks : !!s.durationSec;
   return (
     <Sheet title={editing ? titleOf(s) : `${s.kind === "duur" ? (SPORTS[s.sport] || SPORTS.hardlopen).label : (KINDS[s.kind] || {}).label || "Training"} vastleggen`} onClose={onClose}>
       <div className="space-y-5 pb-2">
@@ -274,10 +276,10 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
           />
         </Field>
         {s.kind === "duur" && <EnduranceForm s={s} set={set} />}
-        {s.kind === "duur" && <OptionalBlocks s={s} set={set} label="Opbouw toevoegen (bijv. 6 × 500 m)" types={["interval", "doorlopend", "vrij"]} />}
-        {(s.kind === "kracht" || s.kind === "wod") && <BlocksForm s={s} set={set} />}
-        {s.kind === "hyrox" && <HyroxForm s={s} set={set} />}
-        {s.kind === "mobiliteit" && <MobilityForm s={s} set={set} />}
+        {s.kind === "duur" && <OptionalBlocks s={s} set={set} label={s.sport === "multisport" ? "Onderdelen toevoegen (bijv. fietsen en lopen)" : "Opbouw toevoegen (bijv. 6 × 500 m)"} types={["interval", "doorlopend", "tabata", "test", "vrij"]} tpl={tpl} />}
+        {(s.kind === "kracht" || s.kind === "wod") && <BlocksForm s={s} set={set} tpl={tpl} />}
+        {s.kind === "hyrox" && <HyroxForm s={s} set={set} tpl={tpl} />}
+        {s.kind === "mobiliteit" && <MobilityForm s={s} set={set} tpl={tpl} />}
         <RpeInput value={s.rpe} onChange={(v) => set({ rpe: v })} estimate={load && load.rpeEst && load.minutes ? Math.round(load.rpe * 10) / 10 : null} />
         <Field label="Notitie (optioneel)">
           <TextInput multiline rows={2} value={s.notes} onChange={(v) => set({ notes: v })} ariaLabel="Notitie" />
@@ -305,6 +307,20 @@ export function SessionSheet({ initial, profile, onSave, onDelete, onClose }) {
             {editing ? "Opslaan" : "Vastleggen"}
           </TBtn>
         </div>
+        {editing && onRepeat && (
+          <button
+            type="button"
+            onClick={() => {
+              const { id, createdAt, date, rpe, notes, source, hrHist, startTime, avgHr, maxHr, ...rest } = s;
+              const copy = newSession(s.kind, { ...rest, blocks: (s.blocks || []).map(freshBlock), splits: s.kind === "hyrox" ? { runs: Array(8).fill(null), stations: Array(8).fill(null) } : rest.splits, durationSec: s.kind === "duur" ? s.durationSec : null, source: "handmatig" });
+              onRepeat(copy);
+            }}
+            className="tap text-sm"
+            style={{ color: C.accent, fontWeight: 600 }}
+          >
+            Opnieuw doen (kopie voor vandaag, zonder resultaten)
+          </button>
+        )}
         {editing &&
           (confirmDel ? (
             <div className="flex items-center justify-between gap-2">
