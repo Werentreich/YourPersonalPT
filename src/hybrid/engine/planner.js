@@ -45,6 +45,9 @@ export const SLOTS = {
   K_LOWER: { kind: "kracht", label: "Kracht onderlichaam", hard: true, legs: true },
   K_UPPER: { kind: "kracht", label: "Kracht bovenlichaam", hard: false, legs: false },
   K_FULL: { kind: "kracht", label: "Kracht volledig lichaam", hard: true, legs: true },
+  K_FULL_A: { kind: "kracht", label: "Kracht volledig lichaam A", hard: true, legs: true },
+  K_FULL_B: { kind: "kracht", label: "Kracht volledig lichaam B", hard: true, legs: true },
+  K_FULL_C: { kind: "kracht", label: "Kracht volledig lichaam C", hard: true, legs: true },
   D_EASY: { kind: "duur", label: "Rustige duur", hard: false },
   D_LONG: { kind: "duur", label: "Lange duur", hard: false, key: true },
   D_INT: { kind: "duur", label: "Intervallen", hard: true, key: true },
@@ -382,16 +385,25 @@ const STRENGTH = {
     K_LOWER: ["back_squat", "rdl", "bulgarian", "copenhagen"],
     K_UPPER: ["bench_press", "strict_pull_ups", "strict_press", "bb_row"],
     K_FULL: ["trap_bar_dl", "push_press", "strict_pull_ups", "front_rack_lunge"],
+    K_FULL_A: ["back_squat", "bench_press", "bb_row", "nordic"],
+    K_FULL_B: ["trap_bar_dl", "strict_press", "strict_pull_ups", "bulgarian"],
+    K_FULL_C: ["hip_thrust", "landmine_press", "bb_row", "front_rack_lunge"],
   },
   basis: {
     K_LOWER: ["kb_goblet", "bulgarian", "db_step_ups", "kb_swings"],
     K_UPPER: ["push_ups", "pull_ups", "kb_press", "renegade_row"],
     K_FULL: ["kb_swings", "db_thrusters", "pull_ups", "walking_lunges"],
+    K_FULL_A: ["kb_goblet", "push_ups", "renegade_row", "db_step_ups"],
+    K_FULL_B: ["kb_swings", "kb_press", "pull_ups", "bulgarian"],
+    K_FULL_C: ["walking_lunges", "push_ups", "pull_ups", "kb_swings"],
   },
   thuis: {
     K_LOWER: ["bulgarian", "pistols", "nordic", "side_plank"],
     K_UPPER: ["push_ups", "pike_push_ups", "inverted_rows", "hollow_hold"],
     K_FULL: ["burpees", "jump_squats", "push_ups", "inverted_rows"],
+    K_FULL_A: ["bulgarian", "push_ups", "inverted_rows", "side_plank"],
+    K_FULL_B: ["walking_lunges", "pike_push_ups", "inverted_rows", "nordic"],
+    K_FULL_C: ["bulgarian", "push_ups", "inverted_rows", "hollow_hold"],
   },
 };
 
@@ -421,9 +433,11 @@ function strengthSession(slot, ph, settings, ctx) {
   const list = STRENGTH[eq][slot] || STRENGTH[eq].K_FULL;
   const d = strengthDose(ph, (settings.exp || {}).kracht);
   const recs = Object.fromEntries(strengthRecords(ctx.sessions || []).map((r) => [r.name, r]));
+  // volledig lichaam: een onder- en een bovenlichaamoefening als hoofdoefening
+  const mains = slot.startsWith("K_FULL_") ? 2 : 1;
   const items = list
     .map((id, i) => {
-      const dose = i === 0 ? d.main : d.acc;
+      const dose = i < mains ? d.main : d.acc;
       if (!dose) return null;
       const mv = movementById(id);
       if (!mv) return null;
@@ -434,7 +448,7 @@ function strengthSession(slot, ph, settings, ctx) {
       return {
         ...newItem(mv),
         perSide: !!mv.uni && !timed,
-        restSec: i === 0 ? 150 : 90,
+        restSec: i < mains ? 150 : 90,
         sets: Array.from({ length: sets }, () => ({ kg, reps: timed ? null : reps, rir: null, target: { reps: timed ? null : reps, rir, sec: timed ? 30 : null } })),
       };
     })
@@ -576,6 +590,19 @@ export function weekAdjust(settings, ctx, mondayISO) {
 }
 
 /* ---------------- een week maken ---------------- */
+/* Krachtindeling naar het aantal krachttrainingen per week. Spiergroei
+   hangt vooral af van het aantal sets per spiergroep per week; met twee of
+   drie krachtdagen haalt u dat het best door elke spiergroep 2× per week te
+   trainen (volledig lichaam, afwisselend A/B/C). Upper/lower pas vanaf vier
+   krachtdagen, dan ook 2× per spiergroep (Schoenfeld e.a. 2016, Sports Med
+   46(11); Schoenfeld e.a. 2019, J Sports Sci 37(11)). */
+export function strengthSplit(slots) {
+  const n = slots.filter((x) => SLOTS[x].kind === "kracht").length;
+  const plan = n >= 4 ? ["K_LOWER", "K_UPPER", "K_LOWER", "K_UPPER", "K_FULL_A", "K_FULL_B"] : n === 3 ? ["K_FULL_A", "K_FULL_B", "K_FULL_C"] : ["K_FULL_A", "K_FULL_B"];
+  let k = 0;
+  return slots.map((x) => (SLOTS[x].kind === "kracht" ? plan[k++] : x));
+}
+
 export function generateWeek(settingsIn, ctx, mondayISO) {
   const settings = { ...SETTINGS_DEFAULT, ...settingsIn, startDate: settingsIn.startDate || mondayISO };
   const goal = GOALS[settings.goal] || GOALS.hybride;
@@ -584,7 +611,7 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   if (adj.forceDeload && !ph.deload && ph.phase !== "taper" && ph.phase !== "wedstrijd") ph = { ...ph, deload: true, phase: "herstel", forced: true };
   const factor = volumeFactor(ph, settings.goal) * adj.factor;
   const days = [...new Set((settings.days || []).filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
-  let slots = goal.slots.slice(0, days.length);
+  let slots = strengthSplit(goal.slots.slice(0, days.length));
   // wedstrijdweek: alleen kort en scherp, de wedstrijd zelf op de doeldag
   const raceDay = settings.goalDate && ph.phase === "wedstrijd" ? dayNum(settings.goalDate) - dayNum(mondayISO) : null;
   let arr = arrangeWeek(slots, days, settings);
@@ -639,7 +666,7 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   // conditie hoort bij hybride training: past er geen aparte sessie in, dan
   // een korte afsluiter na de krachtsessie die de benen het minst belast
   if (goal.slots.includes("C_METCON") && !items.some((x) => x.kind === "wod" || x.kind === "hyrox") && !ph.deload && ph.phase !== "taper" && ph.phase !== "wedstrijd") {
-    const host = items.find((x) => x.slot === "K_UPPER") || items.find((x) => x.kind === "kracht");
+    const host = items.find((x) => x.slot === "K_UPPER") || items.find((x) => x.slot === "K_FULL_B") || items.find((x) => x.kind === "kracht");
     if (host) {
       const I = newItem;
       const fin = settings.equipment === "thuis"

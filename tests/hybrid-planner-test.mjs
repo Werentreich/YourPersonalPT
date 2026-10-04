@@ -62,14 +62,14 @@ const longS = main.find((x) => x.slot === "D_LONG");
 ok("lange duur: ± 50 min bij 150 min vertrekpunt, rustig", longS.targetMin >= 45 && longS.type === "lang" && /zone 2/.test(longS.blocks[0].intensity));
 const easyMin = main.filter((x) => x.slot === "D_EASY").map((x) => x.targetMin)[0];
 ok("duurvolume ongeveer gelijk aan het doel", (() => { const tot = main.filter((x) => x.kind === "duur").reduce((a, x) => a + x.targetMin, 0); return Math.abs(tot - wk.enduranceMin) <= 25; })(), `${main.filter((x) => x.kind === "duur").reduce((a, x) => a + x.targetMin, 0)} vs ${wk.enduranceMin}, easy ${easyMin}`);
-const kS = main.find((x) => x.slot === "K_LOWER");
-ok("kracht onderlichaam in de gym: back squat 3 × 8 in de basis", kS.blocks[1].items[0].moveId === "back_squat" && kS.blocks[1].items[0].sets.length === 3 && kS.blocks[1].items[0].sets[0].reps === 8);
+const kS = main.find((x) => x.slot === "K_FULL_A");
+ok("kracht volledig lichaam A in de gym: back squat 3 × 8 in de basis", kS.blocks[1].items[0].moveId === "back_squat" && kS.blocks[1].items[0].sets.length === 3 && kS.blocks[1].items[0].sets[0].reps === 8);
 ok("kracht thuis: geen halteroefeningen", (() => { const w = P.generateWeek({ ...S, equipment: "thuis" }, ctx0, MON); return w.items.filter((x) => x.kind === "kracht").every((x) => x.blocks[1].items.every((it) => !["back_squat", "bench_press", "trap_bar_dl"].includes(it.moveId))); })());
 
 // gewichten uit records
 const lift = { ...M.newSession("kracht"), date: "2026-09-20", blocks: [{ type: "sets", items: [{ moveId: "back_squat", name: "Back squat", sets: [{ kg: 100, reps: 5 }] }] }] };
 const wk2 = P.generateWeek(S, { ...ctx0, sessions: [lift] }, MON);
-const sq = wk2.items.find((x) => x.slot === "K_LOWER").blocks[1].items[0].sets[0];
+const sq = wk2.items.find((x) => x.slot === "K_FULL_A").blocks[1].items[0].sets[0];
 ok("gewicht uit geschatte 1RM: 116,7 / (1 + 10/30) ≈ 87,5 kg", sq.kg === 87.5, sq.kg);
 ok("suggestKg zonder record: leeg", P.suggestKg(null, 5, 2) === null);
 
@@ -79,7 +79,7 @@ ok("piek 10 km: 5 × 1 km op wedstrijdtempo", peakW.phase === "piek" && peakW.it
 const raceW = P.generateWeek({ ...race }, ctx0, iso(70));
 ok("wedstrijdweek: wedstrijd op de doeldag, hooguit twee korte sessies, geen kracht", raceW.items.some((x) => x.slot === "RACE" && x.date === race.goalDate) && raceW.items.filter((x) => x.slot !== "RACE" && x.slot !== "M_MOB").length <= 2 && !raceW.items.some((x) => x.kind === "kracht"));
 const dl = P.generateWeek(S, ctx0, iso(21));
-ok("herstelweek: minder sets en kortere duur", dl.phase === "herstel" && dl.items.find((x) => x.slot === "K_LOWER").blocks[1].items[0].sets.length === 2 && dl.enduranceMin < wk.enduranceMin);
+ok("herstelweek: minder sets en kortere duur", dl.phase === "herstel" && dl.items.find((x) => x.slot === "K_FULL_A").blocks[1].items[0].sets.length === 2 && dl.enduranceMin < wk.enduranceMin);
 const hy = P.generateWeek({ ...S, goal: "hyrox", days: [0, 1, 2, 4, 5, 6] }, ctx0, MON);
 ok("Hyrox: hyrox-specifieke sessie met stations", hy.items.some((x) => x.slot === "C_HYROX" && x.blocks.some((b) => b.items.some((it) => it.moveId === "sled_push"))));
 
@@ -156,6 +156,20 @@ ok("herstelweek heet ook zo", Array.from({ length: 9 }, (_, i) => P.phaseFor(fre
   const durSum = (x) => Math.round(x.blocks.reduce((a, b) => a + (B.blockDuration(b) || 0), 0) / 60);
   ok("geplande minuten = inhoud van de sessie (opwarmen, kern, rust, uitlopen)", g2.items.filter((x) => x.kind === "duur" && x.type !== "rustig" && x.type !== "lang").every((x) => x.targetMin === durSum(x)), g2.items.filter((x) => x.kind === "duur").map((x) => x.targetMin + "/" + durSum(x)).join(" "));
   ok("gevorderd: intervalsessie niet meer standaard 55 min", g2.items.filter((x) => x.slot === "D_INT").every((x) => x.targetMin < 55));
+}
+
+// ---------- krachtindeling ----------
+{
+  const split = (days) => P.generateWeek({ ...S, goal: "kracht", days }, ctx0, MON).items.filter((x) => x.kind === "kracht").map((x) => x.slot);
+  const two = P.generateWeek(S, ctx0, MON).items.filter((x) => x.kind === "kracht");
+  ok("2 krachtdagen: 2× volledig lichaam (A en B), elke spiergroep 2× per week", two.map((x) => x.slot).sort().join() === "K_FULL_A,K_FULL_B", two.map((x) => x.slot).join());
+  const groups = (x) => new Set(x.blocks[1].items.map((it) => it.moveId));
+  ok("A en B: beide met een onder- en bovenlichaam-hoofdoefening", two.every((x) => x.blocks[1].items[0].sets.length === x.blocks[1].items[1].sets.length && x.blocks[1].items[1].restSec === 150));
+  ok("A en B: verschillende oefeningen", [...groups(two[0])].some((m) => !groups(two[1]).has(m)));
+  ok("3 krachtdagen: A, B en C", split([0, 1, 3, 4]).sort().join() === "K_FULL_A,K_FULL_B,K_FULL_C", split([0, 1, 3, 4]).join());
+  ok("4 krachtdagen: upper/lower, elk 2×", split([0, 1, 2, 3, 4]).sort().join() === "K_LOWER,K_LOWER,K_UPPER,K_UPPER", split([0, 1, 2, 3, 4]).join());
+  ok("1 krachtdag: volledig lichaam", P.strengthSplit(["K_LOWER", "D_EASY"]).join() === "K_FULL_A,D_EASY");
+  ok("thuis en basis: volledig lichaam zonder halter", ["thuis", "basis"].every((eq) => P.generateWeek({ ...S, equipment: eq }, ctx0, MON).items.filter((x) => x.kind === "kracht").every((x) => x.slot.startsWith("K_FULL_") && x.blocks[1].items.length >= 4 && x.blocks[1].items.every((it) => !["back_squat", "bench_press", "trap_bar_dl", "bb_row"].includes(it.moveId)))));
 }
 
 console.log(fails ? `${fails} FOUT(EN)` : "Alle tests geslaagd");

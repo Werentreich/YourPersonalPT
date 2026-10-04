@@ -16,7 +16,7 @@ export const ROUTE_PREFIX = "nexa:hybrid-route:";
 const SAVE_DELAY = 600;
 /* Versie van de planner: hoger = weken die met een oudere versie gemaakt zijn
    worden bij openen voor de komende dagen opnieuw berekend. */
-export const PLAN_V = 3;
+export const PLAN_V = 4;
 
 export function useHybridStore() {
   const [data, setData] = useState(STORE_DEFAULT);
