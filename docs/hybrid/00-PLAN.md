@@ -536,3 +536,10 @@ review van u voordat de volgende fase start.
   training "In Google Agenda" / .ics. Geen migratie nodig. Optioneel
   `CALENDAR_SECRET` in Netlify (anders afgeleid van de service-role-sleutel;
   bij wijzigen werken bestaande links niet meer).
+- **Vooruitkijken** (2026-10-04): volgende week staat altijd vast en is aan
+  te passen (`engine/weeks.js`). Berekend alsof deze week volgens plan gaat;
+  bij de start afgestemd op de werkelijkheid. Zelf aangepaste sessies
+  (`edited`) blijven staan, verder dan volgende week is een vooruitblik.
+  Wijzigingen ziet de sporter op het Week-scherm ("Aangepast op vorige week").
+- **Krachtindeling** (2026-10-04): 1–3 krachtdagen volledig lichaam (A/B/C),
+  vanaf 4 upper/lower; elke spiergroep 2× per week.

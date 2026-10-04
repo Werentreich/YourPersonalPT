@@ -3,7 +3,7 @@
    niet gemaakt zijn. Dat voorbeeld wordt bij aanvang van de week opnieuw
    berekend met wat u dan gedaan hebt; de agenda volgt vanzelf. */
 import { normalizeStore, dayNum, isoOfNum, mondayOf } from "./model.js";
-import { generateWeek } from "./planner.js";
+import { previewWeek } from "./weeks.js";
 
 export function calendarItems(raw, todayISO, weeksAhead = 3) {
   const d = normalizeStore(raw);
@@ -16,9 +16,8 @@ export function calendarItems(raw, todayISO, weeksAhead = 3) {
   for (let w = 0; w <= weeksAhead; w++) {
     const monday = isoOfNum(dayNum(m0) + w * 7);
     if (known.has(monday) || stored.some((x) => x.date >= monday && x.date <= isoOfNum(dayNum(monday) + 6))) continue;
-    const ctx = { sessions: d.sessions, profile: d.profile, checkins: d.checkins, planItems: d.plan.items };
     // stabiele id's voor voorbeeldweken, zodat de agenda geen dubbele afspraken maakt
-    const wk = generateWeek(d.plan.settings, ctx, monday);
+    const wk = previewWeek(d, todayISO, monday);
     wk.items.forEach((x, i) => out.push({ ...x, id: `p${monday.replace(/-/g, "")}${i}` }));
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : 1));

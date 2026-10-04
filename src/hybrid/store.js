@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { STORE_DEFAULT, normalizeStore, newId, localISO, mondayOf, dayNum, isoOfNum } from "./engine/model.js";
 import { generateWeek, applySuggestion } from "./engine/planner.js";
 import { mergeInbox } from "./engine/inbox.js";
+import { ensurePlanWeeks, dropFuture } from "./engine/weeks.js";
 import { blockHeader, freshBlock, itemLine } from "./engine/blocks.js";
 
 export const HYBRID_KEY = "macroverdeling:hybrid:v1";
@@ -16,7 +17,7 @@ export const ROUTE_PREFIX = "nexa:hybrid-route:";
 const SAVE_DELAY = 600;
 /* Versie van de planner: hoger = weken die met een oudere versie gemaakt zijn
    worden bij openen voor de komende dagen opnieuw berekend. */
-export const PLAN_V = 4;
+export const PLAN_V = 5;
 
 export function useHybridStore() {
   const [data, setData] = useState(STORE_DEFAULT);
@@ -170,43 +171,35 @@ export function useHybridStore() {
         const fresh = wk.items.filter((x) => x.date >= today && !busy.has(x.date));
         const items = [...keep.filter((x) => !(x.date >= today && x.status === "gepland")), ...fresh];
         const weeks = { ...((prev && prev.weeks) || {}), [monday]: { v: PLAN_V, phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } };
-        return { ...d, plan: { settings: s, items, weeks, applied: (prev && prev.applied) || {}, createdOn: (prev && prev.createdOn) || today } };
+        const plan = dropFuture({ settings: s, items, weeks, applied: (prev && prev.applied) || {}, createdOn: (prev && prev.createdOn) || today }, today);
+        return { ...d, plan: ensurePlanWeeks({ ...d, plan }, today, PLAN_V) };
       });
     },
     stopPlan() {
       setData((d) => ({ ...d, plan: null }));
     },
-    /* De week maken als die er nog niet is (eens per week, bij openen). */
-    ensureWeek(monday) {
+    /* Deze en volgende week klaarzetten (bij openen); zie engine/weeks.js. */
+    ensureWeek() {
       setData((d) => {
-        if (!d.plan) return d;
-        const known = (d.plan.weeks || {})[monday];
-        // bestaat de week al en is hij met de huidige planner gemaakt: niets doen
-        if (known && (known.v || 1) >= PLAN_V) return d;
-        if (monday < mondayOf(d.plan.settings.startDate || monday)) return d;
-        const ctx = { sessions: d.sessions, profile: d.profile, checkins: d.checkins, planItems: d.plan.items };
-        const wk = generateWeek(d.plan.settings, ctx, monday);
-        const end = isoOfNum(dayNum(monday) + 6);
-        // een oudere week: alleen de nog komende, niet gedane sessies vervangen
-        const from = known ? localISO() : monday;
-        const busy = new Set(d.plan.items.filter((x) => x.date >= monday && x.date <= end && x.status !== "gepland").map((x) => x.date));
-        const others = d.plan.items.filter((x) => !(x.date >= from && x.date <= end && x.status === "gepland"));
-        const fresh = wk.items.filter((x) => x.date >= from && !busy.has(x.date));
-        return {
-          ...d,
-          plan: {
-            ...d.plan,
-            items: [...others, ...fresh],
-            weeks: { ...d.plan.weeks, [monday]: { v: PLAN_V, phase: wk.phase, phaseInfo: wk.phaseInfo, reasons: wk.reasons, factor: wk.factor, enduranceMin: wk.enduranceMin } },
-          },
-        };
+        const plan = ensurePlanWeeks(d, localISO(), PLAN_V);
+        return plan === d.plan ? d : { ...d, plan };
       });
     },
+    dismissChanges(monday) {
+      setData((d) => {
+        if (!d.plan || !(d.plan.weeks || {})[monday]) return d;
+        const { changes, ...rest } = d.plan.weeks[monday];
+        return { ...d, plan: { ...d.plan, weeks: { ...d.plan.weeks, [monday]: rest } } };
+      });
+    },
+    /* Zelf aangepast (verplaatst, lichter, overgeslagen): blijft staan als
+       de app de week later opnieuw berekent. */
     updatePlanItem(id, patch) {
-      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === id ? { ...x, ...patch } : x)) } } : d));
+      const own = Object.keys(patch).some((k) => k !== "doneId" && !(k === "status" && patch.status === "gedaan"));
+      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === id ? { ...x, ...patch, ...(own ? { edited: true } : {}) } : x)) } } : d));
     },
     replacePlanItem(item) {
-      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === item.id ? item : x)) } } : d));
+      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === item.id ? { ...item, edited: true } : x)) } } : d));
     },
     applySuggestions(sugs, ctx, auto = false) {
       setData((d) => {

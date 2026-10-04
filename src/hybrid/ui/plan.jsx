@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { healthAvailable, readRecovery } from "../native/health.js";
 import { programFromBlocks } from "../engine/guide.js";
+import { previewWeek } from "../engine/weeks.js";
 import { AddToCalendar } from "./calendar.jsx";
 import { LIVE_SPORTS } from "../engine/gps.js";
 import { platform } from "../native/platform.js";
@@ -325,11 +326,11 @@ export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
   const ctx = { sessions: data.sessions, profile: data.profile, checkins: data.checkins, planItems: plan ? plan.items : [] };
 
   useEffect(() => {
-    if (plan && offset === 0) api.ensureWeek(monday);
-  }, [plan && plan.settings, offset, monday]);
+    if (plan) api.ensureWeek();
+  }, [plan && plan.settings, today]);
 
-  // toekomstige weken: voorbeeld, niet opgeslagen (wordt bij aanvang opnieuw gemaakt met de dan bekende gegevens)
-  const preview = useMemo(() => (plan && offset > 0 ? generateWeek(plan.settings, ctx, monday) : null), [plan, offset, monday]);
+  // deze en volgende week staan vast (aan te passen); verder weg: voorbeeld
+  const preview = useMemo(() => (plan && offset > 1 ? previewWeek(data, today, monday) : null), [plan, offset, monday, data.sessions]);
   if (!plan)
     return (
       <div className="space-y-4">
@@ -380,7 +381,7 @@ export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
           ← vorige
         </button>
         <span className="text-sm tnum" style={{ color: C.ink, fontWeight: 600 }}>
-          {offset === 0 ? "Deze week" : `Week van ${dateLabel(monday, { day: "numeric", month: "long" })}`}
+          {offset === 0 ? "Deze week" : offset === 1 ? "Volgende week" : `Week van ${dateLabel(monday, { day: "numeric", month: "long" })}`}
         </span>
         <button onClick={() => setOffset(offset + 1)} disabled={offset >= 4} className="tap px-2 py-1 text-sm" style={{ color: C.accent }} aria-label="Volgende week">
           volgende →
@@ -415,8 +416,32 @@ export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
                 {r}
               </p>
             ))}
-            {preview && <p className="text-xs mt-2" style={{ color: C.muted }}>Voorbeeld: deze week wordt definitief gemaakt zodra hij begint, met wat u tot dan heeft gedaan.</p>}
+            {offset === 1 && (
+              <p className="text-xs mt-2 leading-relaxed" style={{ color: C.muted }}>
+                Volgende week staat klaar: tik op een training om hem te bekijken, te verplaatsen of aan te passen. Gaat deze week anders dan gepland, dan stemt de app hem bij de start daarop af en ziet u wat er veranderde. Uw eigen aanpassingen blijven staan.
+              </p>
+            )}
+            {preview && <p className="text-xs mt-2" style={{ color: C.muted }}>Vooruitblik: deze week wordt vastgezet zodra hij volgende week is.</p>}
           </div>
+        </Card>
+      )}
+
+      {offset === 0 && info && info.changes && info.changes.length > 0 && (
+        <Card className="px-4 py-3.5" style={{ borderColor: C.accent }}>
+          <Eyebrow>Aangepast op vorige week</Eyebrow>
+          <p className="text-xs mt-1" style={{ color: C.muted }}>
+            Deze week is afgestemd op wat u vorige week werkelijk deed:
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {info.changes.map((c, i) => (
+              <li key={i} className="text-sm" style={{ color: C.ink }}>
+                · {c}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => api.dismissChanges(monday)} className="tap text-xs mt-2" style={{ color: C.accent, fontWeight: 600 }}>
+            Begrepen
+          </button>
         </Card>
       )}
 
@@ -653,7 +678,7 @@ export function TodayPlan({ data, api, onLog, onGuide, onOpenSession, nbase }) {
   const [open, setOpen] = useState(null);
   const monday = mondayOf(today);
   useEffect(() => {
-    if (plan) api.ensureWeek(monday);
+    if (plan) api.ensureWeek();
   }, [plan && plan.settings, monday]);
   if (!plan) return null;
   const ctx = { sessions: data.sessions, profile: data.profile, checkins: data.checkins, planItems: plan.items };
