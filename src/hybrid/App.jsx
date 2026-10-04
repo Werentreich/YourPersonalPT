@@ -10,6 +10,7 @@ import { STYLE, C, R, Section, Row, Sheet, TBtn, Reveal, ConsentSheet, AccountFo
 import { HYBRID_STYLE, K } from "./theme.js";
 import { hybridAccess, upgradeDelta } from "./entitlement.js";
 import { CoachCard } from "./ui/coach.jsx";
+import { CalendarCard } from "./ui/calendar.jsx";
 import { LiveRecorder, savedLive } from "./ui/live.jsx";
 import { useHybridStore, HYBRID_KEY } from "./store.js";
 import { newSession } from "./engine/model.js";
@@ -18,6 +19,8 @@ import { Card, Contours, HIcon } from "./ui/kit.jsx";
 import { SessionSheet } from "./ui/session.jsx";
 import { TodayView, QuickStart, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
 import { newBlock } from "./engine/blocks.js";
+import { programFromBlocks } from "./engine/guide.js";
+import { draftFromItem } from "./engine/planner.js";
 import { WeekView, TodayPlan, CheckinCard, useAutoAdjust } from "./ui/plan.jsx";
 import { useNutritionBase, NutritionToday, NutritionSection } from "./ui/fuel.jsx";
 import { StravaSection, useStravaInbox, NeedsRpeCard } from "./ui/integrations.jsx";
@@ -391,7 +394,7 @@ function HybridApp() {
       onOpen={open}
       focus={
         data.plan ? (
-          <TodayPlan data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
+          <TodayPlan data={data} api={api} onLog={logDraft} onGuide={(item) => setLive({ item })} onOpenSession={openSession} nbase={nbase} />
         ) : (
           <QuickStart onQuick={quick} onLive={() => setLive(true)} onAdd={add} onPlan={() => setTab("week")} />
         )
@@ -414,7 +417,8 @@ function HybridApp() {
     />
   ) : tab === "week" ? (
     <div className="space-y-4">
-      <WeekView data={data} api={api} onLog={logDraft} onOpenSession={openSession} nbase={nbase} />
+      <WeekView data={data} api={api} onLog={logDraft} onGuide={(item) => setLive({ item })} onOpenSession={openSession} nbase={nbase} />
+      {data.plan && <CalendarCard data={data} api={api} nx={nx} />}
       <CoachCard data={data} api={api} nx={nx} acc={acc} />
     </div>
   ) : tab === "log" ? (
@@ -515,14 +519,19 @@ function HybridApp() {
       )}
       {live && (
         <LiveRecorder
+          guide={live.item ? { itemId: live.item.id, title: live.item.title, sport: live.item.sport || "hardlopen", program: programFromBlocks(live.item.blocks) } : null}
           onClose={() => {
             setLive(false);
             setLiveWaiting(false);
           }}
-          onFinish={({ draft, route }) => {
+          onFinish={({ draft, route, guide }) => {
             setLive(false);
             setLiveWaiting(false);
-            setSheet({ session: newSession("duur", draft), route, fresh: true });
+            const item = guide && data.plan ? data.plan.items.find((x) => x.id === guide.itemId) : null;
+            // begeleide training: de geplande sessie (met opbouw) plus de GPS-meting
+            const base = item ? draftFromItem(item) : newSession("duur");
+            const { kmSplits, ...gps } = draft;
+            setSheet({ session: { ...base, ...gps, ...(kmSplits ? { kmSplits } : {}), type: item ? item.type || base.type : draft.type }, route, fresh: true });
           }}
         />
       )}

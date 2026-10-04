@@ -518,3 +518,21 @@ review van u voordat de volgende fase start.
    op aanvraag mogelijk voor extra zekerheid.
 4. Eigen app: zie `03-NATIVE.md` (Mac met Xcode, Apple Developer Program
    € 99/jaar, Google Play Console eenmalig $ 25).
+
+- **Starters en begeleiding** (2026-10-04)
+  - Ervaring duur "Net (weer) begonnen": loop-wandelprogramma in tien
+    niveaus (8 × 1 min hardlopen tot 30 min aan één stuk), drie keer per week,
+    nooit op opeenvolgende dagen; de andere duursessies worden wandelen of
+    fietsen. Een niveau omhoog na een week met minstens twee looptrainingen
+    die niet te zwaar waren (inspanning < 8). Daarna verder als beginner.
+    Zelfde opbouwidee als NHS Couch to 5K.
+  - Beginners: geen drempel/VO2max in de basisfase; geplande minuten volgen
+    de inhoud van de sessie (eerder vast 55 min).
+  - Begeleide training (`engine/guide.js`, `ui/cues.js`): "Start met
+    begeleiding" bij geplande duursessies; segmenten op tijd of afstand,
+    gesproken aanwijzingen (Nederlands), piepjes en trillen, aftellen.
+- **Agenda** (2026-10-04): abonnement (webcal) dat het schema volgt via
+  `netlify/functions/hybrid-calendar.mjs`, eenmalige download (.ics) en per
+  training "In Google Agenda" / .ics. Geen migratie nodig. Optioneel
+  `CALENDAR_SECRET` in Netlify (anders afgeleid van de service-role-sleutel;
+  bij wijzigen werken bestaande links niet meer).

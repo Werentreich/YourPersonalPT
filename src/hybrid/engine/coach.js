@@ -12,7 +12,7 @@
 import { KINDS, SPORTS, dayNum, isoOfNum, mondayOf, num, sessionTitle } from "./model.js";
 import { fitnessSeries, formStatus, weekSummary, intensityDistribution, strengthRecords, rpeOf, durationOf } from "./load.js";
 import { readinessFor, readinessAverage, READINESS_TEXT } from "./readiness.js";
-import { GOALS, PHASES, EXPERIENCE, phaseFor } from "./planner.js";
+import { GOALS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, phaseFor } from "./planner.js";
 import { titleOf } from "./blocks.js";
 
 export const COACH_WEEKS = 4;
@@ -48,7 +48,7 @@ export function buildCoachContext(data, todayISO) {
       wekenTotDoel: ph.weeksLeft,
       fase: (PHASES[ph.phase] || {}).label || ph.phase,
       trainingsdagenPerWeek: (s.days || []).length,
-      ervaring: { kracht: EXPERIENCE[(s.exp || {}).kracht] || null, duur: EXPERIENCE[(s.exp || {}).duur] || null },
+      ervaring: { kracht: EXPERIENCE[(s.exp || {}).kracht] || null, duur: EXPERIENCE_DUUR[(s.exp || {}).duur] || null },
     };
   } else ctx.doel = null;
 

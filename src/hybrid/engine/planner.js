@@ -55,6 +55,10 @@ export const SLOTS = {
 };
 
 export const EXPERIENCE = { beginner: "Beginner", gevorderd: "Gevorderd", ervaren: "Ervaren" };
+/* Bij duur ook "starter": (weer) beginnen met hardlopen, met loop-wandelen. */
+export const EXPERIENCE_DUUR = { starter: "Net (weer) begonnen", ...EXPERIENCE };
+/* Hoeveel kan de starter nu al achter elkaar hardlopen? Bepaalt het startniveau. */
+export const RUN_NOW = { 1: "± 1 minuut", 3: "± 3 minuten", 8: "5–10 minuten", 20: "20 minuten of meer" };
 export const EQUIPMENT = { gym: "Volledige gym", basis: "Dumbbells, kettlebells en optrekstang", thuis: "Alleen lichaamsgewicht" };
 export const DAY_NAMES = ["ma", "di", "wo", "do", "vr", "za", "zo"];
 
@@ -161,7 +165,67 @@ export function arrangeWeek(slots, days, settings) {
 }
 
 /* ---------------- volume ---------------- */
-const EXP_MIN = { beginner: 80, gevorderd: 150, ervaren: 220 }; // minuten duur per week als vertrekpunt
+const EXP_MIN = { starter: 60, beginner: 80, gevorderd: 150, ervaren: 220 };
+
+/* ---------------- starters: loop-wandelen ----------------
+   Opbouw in kleine stappen: elke week iets langer hardlopen en korter
+   wandelen, tot 30 minuten aan één stuk (zelfde idee als het NHS-programma
+   Couch to 5K: drie keer per week, ongeveer negen weken). Een niveau omhoog
+   alleen als u de week ervoor minstens twee keer hebt gelopen en het niet
+   te zwaar was (inspanning onder 8). [hardlopen s, wandelen s, herhalingen] */
+export const STARTER_LEVELS = [
+  [60, 90, 8],
+  [90, 120, 6],
+  [120, 90, 6],
+  [180, 90, 5],
+  [300, 120, 4],
+  [480, 120, 3],
+  [600, 90, 3],
+  [900, 120, 2],
+  [1500, 0, 1],
+  [1800, 0, 1],
+];
+const RUN_NOW_LEVEL = { 1: 0, 3: 3, 8: 5, 20: 8 };
+
+const isRun = (s) => s.kind === "duur" && (s.sport || "hardlopen") === "hardlopen";
+
+/* Niveau (0-gebaseerd) voor de week van mondayISO. */
+export function starterLevel(settings, sessions, mondayISO) {
+  let lvl = RUN_NOW_LEVEL[settings.runNow] ?? 0;
+  const start = dayNum(mondayOf(settings.startDate || mondayISO));
+  const now = dayNum(mondayISO);
+  for (let w = start; w < now; w += 7) {
+    const runs = (sessions || []).filter((s) => isRun(s) && dayNum(s.date) >= w && dayNum(s.date) < w + 7);
+    const tooHard = runs.some((s) => num(s.rpe, 0) >= 8);
+    if (runs.length >= 2 && !tooHard) lvl++;
+  }
+  return Math.min(lvl, STARTER_LEVELS.length);
+}
+
+const walk = (min, role, text) => newBlock("doorlopend", { role, intensity: text, items: [newItem("walk", { timeSec: min * 60 })] });
+
+/* Een loop-wandeltraining op niveau lvl (0-gebaseerd). */
+export function starterSession(lvl) {
+  const [run, rest, reps] = STARTER_LEVELS[Math.max(0, Math.min(lvl, STARTER_LEVELS.length - 1))];
+  const main = rest
+    ? newBlock("interval", { name: "Loop-wandel", rounds: reps, restSec: rest, restLabel: "Wandelen", intensity: "rustig hardlopen, praattempo", items: [newItem("run", { timeSec: run })] })
+    : newBlock("doorlopend", { intensity: "rustig hardlopen, praattempo", items: [newItem("run", { timeSec: run })] });
+  const blocks = [walk(5, "warmup", "stevig wandelen"), main, walk(5, "cooldown", "rustig uitwandelen")];
+  const fmt = (x) => (x % 60 ? fmtDuration(x) : `${x / 60} min`);
+  const title = rest ? `Loop-wandel: ${reps} × ${fmt(run)} hardlopen` : `${run / 60} minuten hardlopen aan één stuk`;
+  return {
+    sport: "hardlopen",
+    type: "rustig",
+    title,
+    targetMin: Math.round(blocks.reduce((a, b) => a + (blockDuration(b) || 0), 0) / 60),
+    rpeTarget: 4,
+    starterLevel: lvl + 1,
+    blocks,
+    note: rest
+      ? `Afwisselend ${fmt(run)} rustig hardlopen en ${fmt(rest)} wandelen. Zo rustig dat u kunt praten. Te zwaar? Geef een hoge inspanning op, dan herhaalt de app dit niveau.`
+      : "Rustig en gelijkmatig. Wandelen mag altijd even; liever langzaam dan stoppen.",
+  };
+} // minuten duur per week als vertrekpunt
 
 /* Duurminuten per week in de laatste vier volledige weken. */
 export function enduranceHistory(sessions, profile, mondayISO) {
@@ -188,7 +252,7 @@ export function enduranceTarget(settings, ctx, mondayISO, factor) {
 }
 
 /* ---------------- voorschriften ---------------- */
-const SPORT_MOVE = { hardlopen: "run", fietsen: "cycle", roeien: "row", skierg: "ski", zwemmen: "swim_free", wandelen: "ruck", stepper: "stair" };
+const SPORT_MOVE = { hardlopen: "run", fietsen: "cycle", roeien: "row", skierg: "ski", zwemmen: "swim_free", wandelen: "walk", stepper: "stair" };
 
 /* Doeltempo of -zone in gewone tekst, uit het profiel. */
 export function intensityText(profile, sport, zone) {
@@ -526,6 +590,10 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   let arr = arrangeWeek(slots, days, settings);
   if (raceDay != null) arr = arr.filter((x) => x.day < raceDay - 1 && SLOTS[x.slot].kind !== "kracht").slice(0, 2);
 
+  // starter klaar met het programma: verder als beginner
+  const lvl = (settings.exp || {}).duur === "starter" ? starterLevel(settings, ctx.sessions, mondayISO) : null;
+  const starter = lvl != null && lvl < STARTER_LEVELS.length;
+  if (lvl != null && !starter) settings.exp = { ...settings.exp, duur: "beginner" };
   const endurMin = enduranceTarget(settings, ctx, mondayISO, factor);
   const dSlots = arr.filter((x) => SLOTS[x.slot].kind === "duur");
   // schatting voor de verdeling van de weekminuten; de echte duur volgt uit de inhoud
@@ -537,12 +605,31 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   const easyMin = easyN ? Math.round(Math.max(25, Math.min(settings.minutes, (endurMin - fixed) / easyN))) : 0;
   const scale = ph.deload ? 0.75 : 1;
 
+  // starter: hoogstens drie loop-wandeltrainingen, niet op opeenvolgende dagen;
+  // de andere duursessies worden rustig wandelen of fietsen
+  const starterRun = new Set();
+  if (starter) {
+    let last = -9;
+    for (const x of arr.filter((y) => SLOTS[y.slot].kind === "duur")) {
+      if (starterRun.size < 3 && x.day - last >= 2) {
+        starterRun.add(x);
+        last = x.day;
+      }
+    }
+  }
+  const crossSport = (settings.cardio || []).find((c) => c !== "hardlopen" && SPORT_MOVE[c]) || "wandelen";
   const counters = {};
   const items = arr.map((x) => {
     const n = (counters[x.slot] = (counters[x.slot] || 0) + 1) - 1 + ph.week; // wisselen per week
     const date = isoOfNum(dayNum(mondayISO) + x.day);
     const S = SLOTS[x.slot];
     let p;
+    if (S.kind === "duur" && starter) {
+      p = starterRun.has(x)
+        ? starterSession(ph.deload ? Math.max(0, lvl - 1) : lvl)
+        : { sport: crossSport, type: "rustig", targetMin: 30, rpeTarget: 3, blocks: [newBlock("doorlopend", { intensity: "rustig, u kunt praten", items: [newItem(SPORT_MOVE[crossSport], { timeSec: 30 * 60 })] })], note: "Rustig bewegen zonder de impact van hardlopen. Goed voor uw conditie en herstel." };
+      return { id: newId(), planned: true, status: "gepland", date, slot: x.slot, kind: S.kind, hard: false, key: false, ...p, title: p.title || (crossSport === "wandelen" ? "Stevig wandelen" : `Rustig ${SPORTS[crossSport].label.toLowerCase()}`) };
+    }
     if (S.kind === "duur") p = enduranceSession(x.slot, ph, settings, ctx, Math.round((x.slot === "D_LONG" ? longMin : x.slot === "D_EASY" ? easyMin : hardMin) * scale), n);
     else if (S.kind === "kracht") p = strengthSession(x.slot, ph, settings, ctx);
     else if (S.kind === "hyrox") p = hyroxSession(ph);

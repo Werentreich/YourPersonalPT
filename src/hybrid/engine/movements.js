@@ -126,6 +126,7 @@ export const MOVEMENTS = [
   M("sprint", "Sprint", "cardio", ["distance", "time"], { sport: "hardlopen", legs: 0.85, upper: 0.05, work: { distance: 0.18, time: 1 } }),
   M("hill_sprint", "Heuvelsprint", "cardio", ["distance", "time"], { sport: "hardlopen", legs: 0.85, upper: 0.05, work: { distance: 0.25, time: 1 } }),
   M("ruck", "Rucken (wandelen met gewicht)", "cardio", ["distance", "time", "kg"], { sport: "wandelen", legs: 0.7, upper: 0.15, work: { distance: 0.6, time: 1 } }),
+  M("walk", "Wandelen", "cardio", ["distance", "time"], { sport: "wandelen", legs: 0.5, upper: 0.05, work: { distance: 0.5, time: 1 } }),
   M("cycle", "Fietsen (buiten of spinning)", "cardio", ["distance", "time", "cal"], { sport: "fietsen", legs: 0.65, upper: 0.05, work: { distance: 0.12, time: 1, cal: 3.5 } }),
   M("swim_free", "Zwemmen: borstcrawl", "cardio", ["distance", "time"], { sport: "zwemmen", legs: 0.15, upper: 0.6, work: { distance: 1, time: 1 } }),
   M("swim_breast", "Zwemmen: schoolslag", "cardio", ["distance", "time"], { sport: "zwemmen", legs: 0.45, upper: 0.35, work: { distance: 1.3, time: 1 } }),

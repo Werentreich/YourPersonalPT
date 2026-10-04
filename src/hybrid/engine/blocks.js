@@ -461,7 +461,7 @@ export function blockHeader(b, { withName = true } = {}) {
     case "deathby":
       return `${name}Death by ${(b.items || []).map((it) => shortName(it, movementById(it.moveId)).toLowerCase()).join(" + ") || "…"}${num(b.step, 1) > 1 ? ` (+${num(b.step)} per min)` : ""}`;
     case "interval": {
-      const rest = num(b.restSec) ? `, ${fmtDuration(num(b.restSec))} rust` : "";
+      const rest = num(b.restSec) ? `, ${fmtDuration(num(b.restSec))} ${b.restLabel ? b.restLabel.toLowerCase() : "rust"}` : "";
       if (hasScheme(b)) {
         const it = (b.items || [])[0];
         const nm = it ? shortName(it, movementById(it.moveId)).toLowerCase() : "";

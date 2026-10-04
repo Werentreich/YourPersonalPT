@@ -2,11 +2,14 @@
    herstel-check-in en voorstellen voor vandaag. */
 import React, { useEffect, useMemo, useState } from "react";
 import { healthAvailable, readRecovery } from "../native/health.js";
+import { programFromBlocks } from "../engine/guide.js";
+import { AddToCalendar } from "./calendar.jsx";
+import { LIVE_SPORTS } from "../engine/gps.js";
 import { platform } from "../native/platform.js";
 import { C, R, Sheet, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
 import { SPORTS, localISO, mondayOf, dayNum, isoOfNum, fmtDuration, num } from "../engine/model.js";
-import { GOALS, SLOTS, PHASES, EXPERIENCE, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
+import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
 import { blockHeader, itemLine, BLOCK_TYPES, ROLES } from "../engine/blocks.js";
 import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js";
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
@@ -16,6 +19,9 @@ const pillarOfKind = (k) => (k === "kracht" ? "kracht" : k === "duur" ? "duur" :
 const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : C.panel, color: C.ink, fontWeight: on ? 600 : 500 });
 
 /* ---------------- intake ---------------- */
+/* Kan deze geplande sessie live begeleid worden? (duur, met tijd of afstand per stuk) */
+export const guidable = (item) => item && item.kind === "duur" && item.status === "gepland" && LIVE_SPORTS[item.sport || "hardlopen"] && programFromBlocks(item.blocks).length > 0;
+
 export function PlanSheet({ initial, onSave, onStop, onClose }) {
   const [s, setS] = useState({ ...SETTINGS_DEFAULT, ...(initial || {}) });
   const set = (p) => setS((x) => ({ ...x, ...p }));
@@ -87,9 +93,14 @@ export function PlanSheet({ initial, onSave, onStop, onClose }) {
             <Choice options={Object.entries(EXPERIENCE).map(([value, label]) => ({ value, label }))} value={s.exp.kracht} onChange={(v) => set({ exp: { ...s.exp, kracht: v } })} ariaLabel="Ervaring kracht" />
           </Field>
           <Field label="Ervaring duur">
-            <Choice options={Object.entries(EXPERIENCE).map(([value, label]) => ({ value, label }))} value={s.exp.duur} onChange={(v) => set({ exp: { ...s.exp, duur: v } })} ariaLabel="Ervaring duur" />
+            <Choice options={Object.entries(EXPERIENCE_DUUR).map(([value, label]) => ({ value, label }))} value={s.exp.duur} onChange={(v) => set({ exp: { ...s.exp, duur: v } })} ariaLabel="Ervaring duur" />
           </Field>
         </div>
+        {s.exp.duur === "starter" && (
+          <Field label="Hoe lang kunt u nu rustig achter elkaar hardlopen?" hint="Hiermee begint het loop-wandelprogramma op het juiste niveau. Het wordt elke week iets langer, als het u lukt.">
+            <Choice options={Object.entries(RUN_NOW).map(([value, label]) => ({ value: Number(value), label }))} value={s.runNow || 1} onChange={(v) => set({ runNow: v })} ariaLabel="Hoe lang kunt u nu hardlopen" />
+          </Field>
+        )}
         <Field label="Materiaal">
           <Choice options={Object.entries(EQUIPMENT).map(([value, label]) => ({ value, label }))} value={s.equipment} onChange={(v) => set({ equipment: v })} ariaLabel="Materiaal" />
         </Field>
@@ -173,7 +184,7 @@ export function BlocksPreview({ blocks }) {
   );
 }
 
-export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onReplace, onUpdate, onOpenSession, fuel }) {
+export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGuide, onReplace, onUpdate, onOpenSession, fuel, extra }) {
   const [moving, setMoving] = useState(false);
   const monday = mondayOf(item.date);
   const preview = (date) => conflictsFor(weekItems.map((x) => (x.id === item.id ? { ...x, date } : x)), monday).filter((c) => c.a === item.id || c.b === item.id);
@@ -205,6 +216,7 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onRe
         ))}
         <BlocksPreview blocks={item.blocks} />
         {fuel}
+        {extra}
         {done ? (
           <TBtn full onClick={() => onOpenSession(item.doneId)}>
             Vastgelegde training bekijken
@@ -215,8 +227,13 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onRe
           </TBtn>
         ) : (
           <div className="space-y-2">
-            <TBtn full onClick={() => onLog(draftFromItem(item))}>
-              Training vastleggen
+            {onGuide && guidable(item) && (
+              <TBtn full onClick={() => onGuide(item)}>
+                Start met begeleiding
+              </TBtn>
+            )}
+            <TBtn full kind={onGuide && guidable(item) ? "ghost" : "primary"} onClick={() => onLog(draftFromItem(item))}>
+              {onGuide && guidable(item) ? "Al gedaan? Vastleggen" : "Training vastleggen"}
             </TBtn>
             {moving ? (
               <div className="p-3 space-y-2" style={{ border: `1px solid ${C.line}`, borderRadius: R.field }}>
@@ -298,7 +315,7 @@ export function PlanItemRow({ item, onOpen, border = true }) {
 }
 
 /* ---------------- weekoverzicht ---------------- */
-export function WeekView({ data, api, onLog, onOpenSession, nbase }) {
+export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
   const today = localISO();
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -468,6 +485,14 @@ export function WeekView({ data, api, onLog, onOpenSession, nbase }) {
             setOpen(null);
             onLog(draft);
           }}
+          onGuide={
+            onGuide
+              ? (it) => {
+                  setOpen(null);
+                  onGuide(it);
+                }
+              : null
+          }
           onUpdate={(p) => api.updatePlanItem(openItem.id, p)}
           onReplace={(it) => api.replacePlanItem(it)}
           onOpenSession={(id) => {
@@ -475,6 +500,7 @@ export function WeekView({ data, api, onLog, onOpenSession, nbase }) {
             onOpenSession(id);
           }}
           fuel={nbase ? <ItemFuel item={openItem} data={data} base={nbase} /> : null}
+          extra={openItem.status === "gepland" ? <AddToCalendar item={openItem} data={data} /> : null}
         />
       )}
     </div>
@@ -621,7 +647,7 @@ export function CheckinCard({ checkins, onSave }) {
 }
 
 /* ---------------- plan op Vandaag ---------------- */
-export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
+export function TodayPlan({ data, api, onLog, onGuide, onOpenSession, nbase }) {
   const plan = data.plan;
   const today = localISO();
   const [open, setOpen] = useState(null);
@@ -679,11 +705,18 @@ export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
             <div key={x.id}>
               <PlanItemRow item={x} border={k > 0} onOpen={(it) => setOpen(it.id)} />
               {x.status === "gepland" && (
-                <div className="px-4 pb-3.5 flex gap-2">
-                  <TBtn onClick={() => onLog(draftFromItem(x))}>Vastleggen</TBtn>
-                  <TBtn kind="ghost" onClick={() => setOpen(x.id)}>
-                    Wat moet ik doen?
-                  </TBtn>
+                <div className="px-4 pb-3.5 space-y-2">
+                  <div className="flex gap-2">
+                    {onGuide && guidable(x) ? <TBtn onClick={() => onGuide(x)}>Start met begeleiding</TBtn> : <TBtn onClick={() => onLog(draftFromItem(x))}>Vastleggen</TBtn>}
+                    <TBtn kind="ghost" onClick={() => setOpen(x.id)}>
+                      Wat moet ik doen?
+                    </TBtn>
+                  </div>
+                  {onGuide && guidable(x) && (
+                    <button type="button" onClick={() => onLog(draftFromItem(x))} className="tap text-xs" style={{ color: C.muted }}>
+                      Al gedaan zonder de app? Vastleggen
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -701,6 +734,14 @@ export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
             setOpen(null);
             onLog(draft);
           }}
+          onGuide={
+            onGuide
+              ? (it) => {
+                  setOpen(null);
+                  onGuide(it);
+                }
+              : null
+          }
           onUpdate={(p) => api.updatePlanItem(openItem.id, p)}
           onReplace={(it) => api.replacePlanItem(it)}
           onOpenSession={(id) => {
@@ -708,6 +749,7 @@ export function TodayPlan({ data, api, onLog, onOpenSession, nbase }) {
             onOpenSession(id);
           }}
           fuel={nbase ? <ItemFuel item={openItem} data={data} base={nbase} /> : null}
+          extra={openItem.status === "gepland" ? <AddToCalendar item={openItem} data={data} /> : null}
         />
       )}
     </>
