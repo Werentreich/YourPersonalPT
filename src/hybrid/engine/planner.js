@@ -48,6 +48,7 @@ export const SLOTS = {
   K_FULL_A: { kind: "kracht", label: "Kracht volledig lichaam A", hard: true, legs: true },
   K_FULL_B: { kind: "kracht", label: "Kracht volledig lichaam B", hard: true, legs: true },
   K_FULL_C: { kind: "kracht", label: "Kracht volledig lichaam C", hard: true, legs: true },
+  K_PUMP: { kind: "kracht", label: "Kracht bovenlichaam (spiervolume)", hard: false, legs: false },
   D_EASY: { kind: "duur", label: "Rustige duur", hard: false },
   D_LONG: { kind: "duur", label: "Lange duur", hard: false, key: true },
   D_INT: { kind: "duur", label: "Intervallen", hard: true, key: true },
@@ -78,7 +79,29 @@ export const SETTINGS_DEFAULT = {
   mobility: true,
   auto: false,
   startDate: null,
+  priority: "gelijk", // gelijk | kracht | duur (bij doel "Algemeen hybride")
+  doubles: false, // twee trainingen op één dag toestaan
+  strengthMin: 60, // minuten per krachttraining
 };
+
+export const PRIORITIES = { gelijk: "Gelijk", kracht: "Kracht en spier", duur: "Hardlopen / duur" };
+
+/* Weekopbouw voor "Algemeen hybride", naar aantal dagen en prioriteit.
+   Gelijk: twee krachtdagen tot vijf dagen, drie vanaf zes; duur met één
+   sleutelsessie (intervallen) en één lange rustige sessie; de rest rustig
+   (ongeveer 80/20, Seiler 2010). */
+const HYBRID_SLOTS = {
+  gelijk: { 1: ["K_FULL"], 2: ["K_FULL", "D_LONG"], 3: ["K_FULL", "D_LONG", "K_FULL"], 4: ["K_FULL", "D_INT", "K_FULL", "D_LONG"], 5: ["K_FULL", "D_EASY", "K_FULL", "D_INT", "D_LONG"], 6: ["K_FULL", "D_EASY", "K_FULL", "D_INT", "K_FULL", "D_LONG"], 7: ["K_FULL", "D_EASY", "K_FULL", "D_INT", "K_FULL", "D_LONG", "C_METCON"] },
+  kracht: { 1: ["K_FULL"], 2: ["K_FULL", "K_FULL"], 3: ["K_FULL", "D_EASY", "K_FULL"], 4: ["K_FULL", "D_EASY", "K_FULL", "K_FULL"], 5: ["K_FULL", "D_INT", "K_FULL", "K_FULL", "D_LONG"], 6: ["K_FULL", "D_EASY", "K_FULL", "K_FULL", "D_INT", "K_FULL"], 7: ["K_FULL", "D_EASY", "K_FULL", "K_FULL", "D_INT", "K_FULL", "D_LONG"] },
+  duur: { 1: ["D_LONG"], 2: ["K_FULL", "D_LONG"], 3: ["D_INT", "K_FULL", "D_LONG"], 4: ["K_FULL", "D_INT", "D_EASY", "D_LONG"], 5: ["K_FULL", "D_INT", "D_EASY", "K_FULL", "D_LONG"], 6: ["K_FULL", "D_INT", "D_EASY", "K_FULL", "D_TEMPO", "D_LONG"], 7: ["K_FULL", "D_INT", "D_EASY", "K_FULL", "D_TEMPO", "D_EASY", "D_LONG"] },
+};
+export function baseSlots(settings, n) {
+  if (settings.goal === "hybride" || !GOALS[settings.goal]) {
+    const t = HYBRID_SLOTS[settings.priority] || HYBRID_SLOTS.gelijk;
+    return [...(t[Math.max(1, Math.min(7, n))] || [])];
+  }
+  return GOALS[settings.goal].slots.slice(0, n);
+}
 
 /* ---------------- fasen ---------------- */
 export const PHASES = {
@@ -139,6 +162,11 @@ export function arrangementPenalty(arr, settings) {
   }
   const long = arr.find((x) => x.slot === "D_LONG");
   if (long && settings.longDay != null && long.day !== settings.longDay) p += 4;
+  // beginners: liever geen drie trainingsdagen achter elkaar
+  const exp = settings.exp || {};
+  if (["starter", "beginner"].includes(exp.duur) || exp.kracht === "beginner") {
+    for (const x of arr) if (byDay[x.day + 1] && byDay[x.day + 2] && x.day <= 4) p += 4;
+  }
   return p;
 }
 
@@ -379,47 +407,93 @@ function minutesOf(blocks) {
   return Math.round(blocks.reduce((a, b) => a + (blockDuration(b) || 0), 0) / 60);
 }
 
-/* Krachtoefeningen per materiaal. Eerste oefening = hoofdoefening. */
-const STRENGTH = {
+/* ---------------- kracht ----------------
+   Opbouw van een sessie, zoals een krachtcoach die maakt voor een hybride
+   sporter:
+   1. Algemene warming-up (5 min) en opbouwsets op de hoofdoefeningen.
+   2. Plyometrie eerst, als u fris bent (laag volume): verbetert de
+      loopeconomie (Llanos-Lagos e.a. 2024, Sports Med; Blagrove e.a. 2018).
+   3. Twee hoofdoefeningen, onder- en bovenlichaam, zwaar en met ruime rust.
+   4. Hulpoefeningen als superset (duwen/trekken, heup/knie): meer volume per
+      minuut. Doel ± 10 of meer sets per spiergroep per week (Schoenfeld e.a.
+      2017, J Sports Sci).
+   5. Core en kuiten/scheenbeen: blessurepreventie voor lopers.
+   Hoeveel er in past hangt af van de ingestelde tijd per krachttraining.
+   Progressie: dubbele progressie binnen een herhalingsbereik; haalt u bij
+   alle sets de bovenkant met reserve, dan 2,5–5 kg erbij (ACSM 2009). Elke
+   vier weken wisselen de hoofdoefeningen van variant. */
+
+/* rol: plyo | main | acc (pair = superset-nummer) | core | calf */
+const E = (id, role, pair, alt) => ({ id, role, pair, alt });
+const LIB = {
   gym: {
-    K_LOWER: ["back_squat", "rdl", "bulgarian", "copenhagen"],
-    K_UPPER: ["bench_press", "strict_pull_ups", "strict_press", "bb_row"],
-    K_FULL: ["trap_bar_dl", "push_press", "strict_pull_ups", "front_rack_lunge"],
-    K_FULL_A: ["back_squat", "bench_press", "bb_row", "nordic"],
-    K_FULL_B: ["trap_bar_dl", "strict_press", "strict_pull_ups", "bulgarian"],
-    K_FULL_C: ["hip_thrust", "landmine_press", "bb_row", "front_rack_lunge"],
+    K_FULL_A: [E("box_jumps", "plyo"), E("back_squat", "main", 0, "front_squat"), E("bench_press", "main", 0, "incline_db"), E("bb_row", "acc", 1), E("sl_rdl", "acc", 1), E("incline_db", "acc", 2, "db_bench"), E("lat_pulldown", "acc", 2), E("lateral_raise", "acc", 3), E("leg_curl", "acc", 3), E("dead_bug", "core"), E("calf_raise", "calf")],
+    K_FULL_B: [E("pogo", "plyo"), E("trap_bar_dl", "main", 0, "rdl"), E("strict_pull_ups", "main", 0, "weighted_pull_ups"), E("db_bench", "acc", 1), E("bulgarian", "acc", 1), E("strict_press", "acc", 2, "landmine_press"), E("db_row", "acc", 2), E("face_pull", "acc", 3), E("hip_thrust", "acc", 3), E("pallof", "core"), E("tib_raise", "calf")],
+    K_FULL_C: [E("broad_jumps", "plyo"), E("front_squat", "main", 0, "back_squat"), E("strict_press", "main", 0, "push_press"), E("lat_pulldown", "acc", 1), E("rdl", "acc", 1), E("db_bench", "acc", 2), E("db_row", "acc", 2), E("lateral_raise", "acc", 3), E("walking_lunges", "acc", 3), E("hanging_knee_raise", "core"), E("calf_raise", "calf")],
+    K_LOWER: [E("box_jumps", "plyo"), E("back_squat", "main", 0, "front_squat"), E("rdl", "main", 0, "trap_bar_dl"), E("bulgarian", "acc", 1), E("leg_curl", "acc", 1), E("hip_thrust", "acc", 2), E("copenhagen", "acc", 2), E("leg_press", "acc", 3), E("side_plank", "acc", 3), E("dead_bug", "core"), E("calf_raise", "calf")],
+    K_UPPER: [E("bench_press", "main", 0, "incline_db"), E("bb_row", "main", 0, "strict_pull_ups"), E("strict_press", "acc", 1), E("lat_pulldown", "acc", 1), E("incline_db", "acc", 2, "db_bench"), E("db_row", "acc", 2), E("lateral_raise", "acc", 3), E("face_pull", "acc", 3), E("pallof", "core"), E("tib_raise", "calf")],
+    K_PUMP: [E("incline_db", "main", 0), E("lat_pulldown", "main", 0), E("lateral_raise", "acc", 1), E("face_pull", "acc", 1), E("db_bench", "acc", 2), E("db_row", "acc", 2), E("dead_bug", "core")],
   },
   basis: {
-    K_LOWER: ["kb_goblet", "bulgarian", "db_step_ups", "kb_swings"],
-    K_UPPER: ["push_ups", "pull_ups", "kb_press", "renegade_row"],
-    K_FULL: ["kb_swings", "db_thrusters", "pull_ups", "walking_lunges"],
-    K_FULL_A: ["kb_goblet", "push_ups", "renegade_row", "db_step_ups"],
-    K_FULL_B: ["kb_swings", "kb_press", "pull_ups", "bulgarian"],
-    K_FULL_C: ["walking_lunges", "push_ups", "pull_ups", "kb_swings"],
+    K_FULL_A: [E("pogo", "plyo"), E("kb_goblet", "main", 0), E("db_bench", "main", 0, "push_ups"), E("db_row", "acc", 1), E("sl_rdl", "acc", 1), E("kb_press", "acc", 2), E("pull_ups", "acc", 2), E("lateral_raise", "acc", 3), E("db_step_ups", "acc", 3), E("dead_bug", "core"), E("calf_raise", "calf")],
+    K_FULL_B: [E("box_jumps", "plyo"), E("rdl", "main", 0, "kb_swings"), E("pull_ups", "main", 0), E("push_ups", "acc", 1), E("bulgarian", "acc", 1), E("kb_press", "acc", 2), E("renegade_row", "acc", 2), E("lateral_raise", "acc", 3), E("walking_lunges", "acc", 3), E("side_plank", "core"), E("tib_raise", "calf")],
+    K_FULL_C: [E("broad_jumps", "plyo"), E("db_step_ups", "main", 0, "kb_goblet"), E("kb_press", "main", 0), E("pull_ups", "acc", 1), E("sl_rdl", "acc", 1), E("db_bench", "acc", 2), E("db_row", "acc", 2), E("kb_swings", "acc", 3), E("push_ups", "acc", 3), E("hollow_hold", "core"), E("calf_raise", "calf")],
+    K_LOWER: [E("pogo", "plyo"), E("kb_goblet", "main", 0), E("rdl", "main", 0), E("bulgarian", "acc", 1), E("sl_rdl", "acc", 1), E("db_step_ups", "acc", 2), E("copenhagen", "acc", 2), E("kb_swings", "acc", 3), E("side_plank", "acc", 3), E("dead_bug", "core"), E("calf_raise", "calf")],
+    K_UPPER: [E("db_bench", "main", 0, "push_ups"), E("pull_ups", "main", 0), E("kb_press", "acc", 1), E("db_row", "acc", 1), E("push_ups", "acc", 2), E("renegade_row", "acc", 2), E("lateral_raise", "acc", 3), E("hollow_hold", "acc", 3), E("pallof", "core"), E("tib_raise", "calf")],
+    K_PUMP: [E("db_bench", "main", 0), E("db_row", "main", 0), E("lateral_raise", "acc", 1), E("push_ups", "acc", 1), E("dead_bug", "core")],
   },
   thuis: {
-    K_LOWER: ["bulgarian", "pistols", "nordic", "side_plank"],
-    K_UPPER: ["push_ups", "pike_push_ups", "inverted_rows", "hollow_hold"],
-    K_FULL: ["burpees", "jump_squats", "push_ups", "inverted_rows"],
-    K_FULL_A: ["bulgarian", "push_ups", "inverted_rows", "side_plank"],
-    K_FULL_B: ["walking_lunges", "pike_push_ups", "inverted_rows", "nordic"],
-    K_FULL_C: ["bulgarian", "push_ups", "inverted_rows", "hollow_hold"],
+    K_FULL_A: [E("pogo", "plyo"), E("bulgarian", "main", 0), E("push_ups", "main", 0), E("inverted_rows", "acc", 1), E("sl_rdl", "acc", 1), E("pike_push_ups", "acc", 2), E("nordic", "acc", 2), E("walking_lunges", "acc", 3), E("hr_push_ups", "acc", 3), E("dead_bug", "core"), E("calf_raise", "calf")],
+    K_FULL_B: [E("broad_jumps", "plyo"), E("pistols", "main", 0, "cossack"), E("inverted_rows", "main", 0), E("push_ups", "acc", 1), E("step_ups", "acc", 1), E("pike_push_ups", "acc", 2), E("nordic", "acc", 2), E("cossack", "acc", 3), E("hollow_hold", "acc", 3), E("side_plank", "core"), E("tib_raise", "calf")],
+    K_FULL_C: [E("jump_squats", "plyo"), E("step_ups", "main", 0), E("hr_push_ups", "main", 0), E("inverted_rows", "acc", 1), E("sl_rdl", "acc", 1), E("pike_push_ups", "acc", 2), E("walking_lunges", "acc", 2), E("push_ups", "acc", 3), E("copenhagen", "acc", 3), E("hollow_hold", "core"), E("calf_raise", "calf")],
+    K_LOWER: [E("pogo", "plyo"), E("bulgarian", "main", 0), E("nordic", "main", 0), E("step_ups", "acc", 1), E("sl_rdl", "acc", 1), E("cossack", "acc", 2), E("copenhagen", "acc", 2), E("walking_lunges", "acc", 3), E("side_plank", "acc", 3), E("dead_bug", "core"), E("calf_raise", "calf")],
+    K_UPPER: [E("push_ups", "main", 0), E("inverted_rows", "main", 0), E("pike_push_ups", "acc", 1), E("inverted_rows", "acc", 1), E("hr_push_ups", "acc", 2), E("hollow_hold", "acc", 2), E("pallof", "core"), E("tib_raise", "calf")],
+    K_PUMP: [E("push_ups", "main", 0), E("inverted_rows", "main", 0), E("pike_push_ups", "acc", 1), E("hollow_hold", "acc", 1)],
   },
 };
+LIB.gym.K_FULL = LIB.gym.K_FULL_A;
+LIB.basis.K_FULL = LIB.basis.K_FULL_A;
+LIB.thuis.K_FULL = LIB.thuis.K_FULL_A;
 
-/* Sets, herhalingen en RIR per fase: [hoofd, hulp]. */
-function strengthDose(ph, exp) {
+/* Spiergroepen per oefening (hoofdspieren), om het weekvolume te tellen. */
+export const MUSCLES_OF = {
+  back_squat: ["quadriceps", "bilspieren"], front_squat: ["quadriceps", "bilspieren"], kb_goblet: ["quadriceps", "bilspieren"], leg_press: ["quadriceps", "bilspieren"],
+  bulgarian: ["quadriceps", "bilspieren"], walking_lunges: ["quadriceps", "bilspieren"], step_ups: ["quadriceps", "bilspieren"], db_step_ups: ["quadriceps", "bilspieren"], pistols: ["quadriceps", "bilspieren"], cossack: ["quadriceps", "bilspieren"],
+  trap_bar_dl: ["quadriceps", "hamstrings", "bilspieren"], rdl: ["hamstrings", "bilspieren"], sl_rdl: ["hamstrings", "bilspieren"], leg_curl: ["hamstrings"], nordic: ["hamstrings"], hip_thrust: ["bilspieren"], kb_swings: ["hamstrings", "bilspieren"],
+  bench_press: ["borst", "triceps"], db_bench: ["borst", "triceps"], incline_db: ["borst", "schouders"], push_ups: ["borst", "triceps"], hr_push_ups: ["borst", "triceps"],
+  strict_press: ["schouders", "triceps"], push_press: ["schouders", "triceps"], landmine_press: ["schouders", "borst"], kb_press: ["schouders", "triceps"], pike_push_ups: ["schouders", "triceps"], lateral_raise: ["schouders"], face_pull: ["schouders", "rug"],
+  bb_row: ["rug", "biceps"], db_row: ["rug", "biceps"], lat_pulldown: ["rug", "biceps"], strict_pull_ups: ["rug", "biceps"], weighted_pull_ups: ["rug", "biceps"], pull_ups: ["rug", "biceps"], inverted_rows: ["rug", "biceps"], renegade_row: ["rug", "core"],
+  calf_raise: ["kuiten"], tib_raise: ["kuiten"], dead_bug: ["core"], pallof: ["core"], hanging_knee_raise: ["core"], side_plank: ["core"], hollow_hold: ["core"], copenhagen: ["core"],
+};
+
+/* Sets, herhalingsbereik en RIR per fase: [sets, laag, hoog, RIR]. */
+function strengthDose(ph, exp, priority) {
   let d;
-  if (ph.deload || ph.phase === "herstel" || ph.phase === "na") d = { main: [2, 5, 4], acc: [2, 8, 4] };
-  else if (ph.phase === "wedstrijd" || ph.phase === "taper") d = { main: [2, 3, 3], acc: null };
-  else if (ph.phase === "piek") d = { main: [3, 3, 2], acc: [2, 6, 2] };
-  else if (ph.phase === "opbouw") d = { main: [4, 5, Math.max(1, 2 - Math.min(1, ph.blockWeek))], acc: [3, 8, 2] };
-  else d = { main: [3, 8, 2], acc: [3, 10, 2] };
+  if (ph.deload || ph.phase === "herstel" || ph.phase === "na") d = { main: [2, 5, 6, 4], acc: [2, 10, 12, 4] };
+  else if (ph.phase === "wedstrijd" || ph.phase === "taper") d = { main: [2, 3, 4, 3], acc: null };
+  else if (ph.phase === "piek") d = { main: [3, 3, 5, 2], acc: [2, 6, 8, 2] };
+  else if (ph.phase === "opbouw") d = { main: [4, 5, 6, Math.max(1, 2 - Math.min(1, ph.blockWeek))], acc: [3, 8, 10, 2] };
+  else d = { main: [3, 6, 8, 2], acc: [3, 10, 12, 2] };
   if (exp === "beginner") {
-    d.main = [Math.min(3, d.main[0]), d.main[1], Math.max(2, d.main[2])];
-    if (d.acc) d.acc = [Math.min(2, d.acc[0]), d.acc[1], Math.max(2, d.acc[2])];
+    d.main = [Math.min(3, d.main[0]), Math.max(d.main[1], 8), Math.max(d.main[2], 10), Math.max(2, d.main[3])];
+    if (d.acc) d.acc = [d.acc[0], Math.max(d.acc[1], 10), Math.max(d.acc[2], 12), Math.max(2, d.acc[3])];
+  }
+  if (priority === "kracht" && d.acc) {
+    d.main = [d.main[0] + 1, d.main[1], d.main[2], d.main[3]];
+    d.acc = [d.acc[0] + 1, d.acc[1], d.acc[2], d.acc[3]];
+  }
+  if (priority === "duur") {
+    // zwaar en kort op de hoofdoefeningen (loopeconomie), minder hulpvolume
+    d.main = [d.main[0], Math.min(d.main[1], 4), Math.min(d.main[2], 6), d.main[3]];
+    if (d.acc) d.acc = [Math.max(2, d.acc[0] - 1), d.acc[1], d.acc[2], d.acc[3]];
   }
   return d;
+}
+
+/* Wat past er in de ingestelde tijd? */
+function fitsIn(minutes) {
+  const m = Number(minutes) || 60;
+  return { plyo: m >= 45, pairs: m >= 75 ? 3 : m >= 60 ? 2 : 1, core: m >= 45, calf: m >= 45, extraSet: m >= 75 };
 }
 
 /* Gewicht uit de geschatte 1RM: kg = 1RM / (1 + (herh + RIR) / 30), op 2,5 kg. */
@@ -429,37 +503,65 @@ export function suggestKg(e1rm, reps, rir) {
 }
 
 function strengthSession(slot, ph, settings, ctx) {
-  const eq = STRENGTH[settings.equipment] ? settings.equipment : "gym";
-  const list = STRENGTH[eq][slot] || STRENGTH[eq].K_FULL;
-  const d = strengthDose(ph, (settings.exp || {}).kracht);
+  const eq = LIB[settings.equipment] ? settings.equipment : "gym";
+  const list = LIB[eq][slot] || LIB[eq].K_FULL_A;
+  const exp = (settings.exp || {}).kracht;
+  const priority = settings.goal === "kracht" ? "kracht" : GOALS[settings.goal] && GOALS[settings.goal].run ? "duur" : settings.priority || "gelijk";
+  const d = strengthDose(ph, exp, priority);
+  const fit = fitsIn(settings.strengthMin);
+  if (fit.extraSet && d.acc) d.main = [d.main[0] + 1, d.main[1], d.main[2], d.main[3]];
+  const variant = Math.floor((ph.week || 0) / 4) % 2; // elke vier weken de andere variant
   const recs = Object.fromEntries(strengthRecords(ctx.sessions || []).map((r) => [r.name, r]));
-  // volledig lichaam: een onder- en een bovenlichaamoefening als hoofdoefening
-  const mains = slot.startsWith("K_FULL_") ? 2 : 1;
-  const items = list
-    .map((id, i) => {
-      const dose = i < mains ? d.main : d.acc;
-      if (!dose) return null;
-      const mv = movementById(id);
-      if (!mv) return null;
-      const [sets, reps, rir] = dose;
-      const timed = mv.metrics[0] === "time";
-      const rec = recs[mv.name];
-      const kg = !timed && mv.metrics.includes("kg") ? suggestKg(rec && rec.e1rm, reps, rir) : null;
-      return {
-        ...newItem(mv),
-        perSide: !!mv.uni && !timed,
-        restSec: i < mains ? 150 : 90,
-        sets: Array.from({ length: sets }, () => ({ kg, reps: timed ? null : reps, rir: null, target: { reps: timed ? null : reps, rir, sec: timed ? 30 : null } })),
-      };
-    })
-    .filter(Boolean);
-  const block = newBlock("sets", { items });
-  const minutes = Math.round((items.reduce((a, it) => a + it.sets.length, 0) * (40 + 100)) / 60) + 10;
+  const light = ph.deload || ph.phase === "herstel" || ph.phase === "taper" || ph.phase === "wedstrijd";
+
+  const item = (e, dose, rest) => {
+    const id = variant && e.alt ? e.alt : e.id;
+    const mv = movementById(id);
+    if (!mv) return null;
+    const [sets, lo, hi, rir] = dose;
+    const timed = mv.metrics[0] === "time";
+    const rec = recs[mv.name];
+    const kg = !timed && mv.metrics.includes("kg") ? suggestKg(rec && rec.e1rm, hi, rir) : null;
+    return {
+      ...newItem(mv),
+      perSide: !!mv.uni && !timed,
+      restSec: rest,
+      repRange: timed ? null : `${lo}–${hi}`,
+      sets: Array.from({ length: sets }, () => ({ kg, reps: timed ? null : lo, rir: null, target: { reps: timed ? null : lo, repsMax: timed ? null : hi, rir, sec: timed ? 30 : null } })),
+    };
+  };
+  const blocks = [newBlock("doorlopend", { role: "warmup", intensity: "rustig, daarna 2 min dynamische mobiliteit (heupen, enkels, schouders)", items: [newItem(settings.equipment === "thuis" ? "jump_rope" : "row", { timeSec: 300 })] })];
+
+  // plyometrie: alleen als u fris bent, niet in herstel- of taperweken
+  const plyo = list.find((e) => e.role === "plyo");
+  if (plyo && fit.plyo && !light && priority !== "kracht") {
+    const it = item(plyo, [3, 4, 5, 4], 60);
+    if (it) blocks.push(newBlock("sets", { name: "Explosief", text: "Maximaal explosief, volledig herstellen tussen de sets. Stop zodra de sprongen minder hoog of minder snel worden.", items: [{ ...it, repRange: "4–5", sets: it.sets.map((x) => ({ ...x, kg: null, target: { ...x.target, rir: null } })) }] }));
+  }
+  const mains = list.filter((e) => e.role === "main").map((e) => item(e, d.main, 150)).filter(Boolean);
+  if (mains.length)
+    blocks.push(
+      newBlock("sets", {
+        name: "Hoofdoefeningen",
+        text: `Eerst 2–3 opbouwsets (bijv. 50% × 8, 70% × 5, 85% × 2), dan de werksets. Herhalingen ${d.main[1]}–${d.main[2]} met ${d.main[3]} in reserve; haalt u bij alle sets ${d.main[2]}, dan volgende keer 2,5–5 kg erbij.`,
+        items: mains,
+      })
+    );
+  if (d.acc) {
+    for (let p = 1; p <= fit.pairs; p++) {
+      const pair = list.filter((e) => e.role === "acc" && e.pair === p).map((e) => item(e, d.acc, 75)).filter(Boolean);
+      if (pair.length) blocks.push(newBlock("sets", { name: `Superset ${String.fromCharCode(64 + p)}`, superset: pair.length > 1, text: `Afwisselen: één set van elk, dan ${pair.length > 1 ? "75 s" : "60 s"} rust. Herhalingen ${d.acc[1]}–${d.acc[2]}.`, items: pair }));
+    }
+  }
+  const finish = [fit.core && list.find((e) => e.role === "core"), fit.calf && list.find((e) => e.role === "calf")].filter(Boolean).map((e) => item(e, [light ? 2 : 3, 12, 15, 2], 45)).filter(Boolean);
+  if (finish.length) blocks.push(newBlock("sets", { name: "Core en kuiten", superset: finish.length > 1, text: "Rustig en gecontroleerd; kuiten en scheenbeen houden uw onderbeen sterk voor het lopen.", items: finish }));
+
+  const minutes = Math.round(blocks.reduce((a, b) => a + (blockDuration(b) || 0), 0) / 60) + 4; // + opbouwsets
   return {
     targetMin: minutes,
-    rpeTarget: ph.deload ? 5 : 7,
-    blocks: [newBlock("doorlopend", { role: "warmup", intensity: "rustig", items: [newItem(settings.equipment === "thuis" ? "jump_rope" : "row", { timeSec: 300 })] }), block],
-    note: `${d.main[0]} × ${d.main[1]} op de hoofdoefening met ${d.main[2]} herhalingen over (RIR ${d.main[2]}).`,
+    rpeTarget: light ? 5 : 7,
+    blocks,
+    note: `${d.main[0]} werksets van ${d.main[1]}–${d.main[2]} op de hoofdoefeningen, ${d.main[3]} herhalingen in reserve. ${variant ? "Variant B van de hoofdoefeningen (wisselt elke 4 weken)." : ""}`.trim(),
   };
 }
 
@@ -611,7 +713,7 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   if (adj.forceDeload && !ph.deload && ph.phase !== "taper" && ph.phase !== "wedstrijd") ph = { ...ph, deload: true, phase: "herstel", forced: true };
   const factor = volumeFactor(ph, settings.goal) * adj.factor;
   const days = [...new Set((settings.days || []).filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
-  let slots = strengthSplit(goal.slots.slice(0, days.length));
+  let slots = strengthSplit(baseSlots(settings, days.length));
   // wedstrijdweek: alleen kort en scherp, de wedstrijd zelf op de doeldag
   const raceDay = settings.goalDate && ph.phase === "wedstrijd" ? dayNum(settings.goalDate) - dayNum(mondayISO) : null;
   let arr = arrangeWeek(slots, days, settings);
@@ -681,6 +783,36 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   if (raceDay != null && raceDay >= 0 && raceDay <= 6) {
     items.push({ id: newId(), planned: true, status: "gepland", date: settings.goalDate, slot: "RACE", kind: goal.run ? "duur" : "hyrox", sport: goal.run ? "hardlopen" : undefined, type: "wedstrijd", title: `Wedstrijd: ${goal.label}`, hard: true, key: true, targetMin: null, rpeTarget: 9, blocks: [], note: "Succes! Begin rustig en bouw op." });
   }
+  // twee trainingen op één dag (instelbaar): extra volume zonder extra
+  // trainingsdag, minstens 6 uur ertussen (Robineau e.a. 2016, JSCR 30(3));
+  // de belangrijkste training eerst als u fris bent (Viada).
+  const light = ph.deload || ph.phase === "herstel" || ph.phase === "taper" || ph.phase === "wedstrijd" || ph.phase === "na";
+  if (settings.doubles && !light && raceDay == null) {
+    const prio = settings.goal === "kracht" ? "kracht" : goal.run ? "duur" : settings.priority || "gelijk";
+    const keyNext = (x) => items.some((y) => dayNum(y.date) === dayNum(x.date) + 1 && ["D_INT", "D_LONG", "D_TEMPO", "C_HYROX"].includes(y.slot));
+    const dateOf = (x) => x.date;
+    if (prio === "kracht") {
+      // spiervolume bovenlichaam bij voorkeur op een rustige dag, anders na de intervallen (zware dag zwaar houden)
+      const host = ["D_EASY", "D_INT", "D_TEMPO", "D_LONG"].map((sl) => items.find((x) => x.slot === sl && !x.part)).find(Boolean);
+      if (host) {
+        const p = strengthSession("K_PUMP", ph, { ...settings, strengthMin: Math.min(45, settings.strengthMin || 60) }, ctx);
+        host.part = "ochtend";
+        host.note = `${host.note || ""} Vandaag twee trainingen: dit 's ochtends, spiervolume bovenlichaam 's avonds (minstens 6 uur ertussen).`.trim();
+        items.push({ id: newId(), planned: true, status: "gepland", date: dateOf(host), slot: "K_PUMP", kind: "kracht", title: SLOTS.K_PUMP.label, hard: false, key: false, part: "avond", ...p });
+      }
+    } else {
+      const hosts = items.filter((x) => x.kind === "kracht" && !x.part);
+      const host = hosts.find((x) => !keyNext(x)) || hosts[0];
+      if (host) {
+        const crossSp = (settings.cardio || []).find((c) => c !== "hardlopen" && SPORT_MOVE[c]) || ((settings.exp || {}).duur === "starter" ? "wandelen" : "hardlopen");
+        const min = (settings.exp || {}).duur === "starter" ? 25 : 30;
+        const p = { sport: crossSp, type: "rustig", targetMin: min, rpeTarget: 3, blocks: [newBlock("doorlopend", { intensity: intensityText(ctx.profile || {}, crossSp, "rustig"), items: [newItem(SPORT_MOVE[crossSp] || "run", { timeSec: min * 60 })] })], note: "Rustig, extra aerobe basis. Bij voorkeur zonder de impact van hardlopen, omdat u later vandaag kracht traint." };
+        host.part = "avond";
+        host.note = `${host.note || ""} Vandaag twee trainingen: 's ochtends rustig duur, deze kracht 's avonds (minstens 6 uur ertussen).`.trim();
+        items.push({ id: newId(), planned: true, status: "gepland", date: dateOf(host), slot: "D_EASY", kind: "duur", title: `Rustig ${SPORTS[crossSp] ? SPORTS[crossSp].label.toLowerCase() : "duur"} (ochtend)`, hard: false, key: false, part: "ochtend", extra: true, ...p });
+      }
+    }
+  }
   // mobiliteit op een rustdag
   if (settings.mobility) {
     const used = new Set(items.map((x) => dayNum(x.date) - dayNum(mondayISO)));
@@ -690,7 +822,8 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
       items.push({ id: newId(), planned: true, status: "gepland", date: isoOfNum(dayNum(mondayISO) + d), slot: "M_MOB", kind: "mobiliteit", title: "Mobiliteit", hard: false, key: false, optional: true, ...mobilitySession() });
     }
   }
-  items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const partOrder = { ochtend: 0, undefined: 1, avond: 2 };
+  items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : partOrder[a.part] - partOrder[b.part]));
   return { monday: mondayISO, phase: ph.phase, phaseInfo: ph, factor: Math.round(factor * 100) / 100, enduranceMin: endurMin, reasons: adj.reasons, readiness: adj.readiness, items };
 }
 

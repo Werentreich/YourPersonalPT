@@ -85,7 +85,8 @@ const minutesOf = (item) => Math.max(15, Math.round(item.targetMin || 45));
 
 /* Eén VEVENT. opts: { time, url, alarm (min vooraf), now } */
 export function eventLines(item, opts = {}) {
-  const time = (opts.times && opts.times[item.date]) || opts.time || DEFAULT_TIME;
+  // twee trainingen op een dag: de ochtendtraining om 07:00, de andere op de vaste tijd
+  const time = item.part === "ochtend" ? "07:00" : (opts.times && opts.times[item.date]) || opts.time || DEFAULT_TIME;
   const lines = [
     "BEGIN:VEVENT",
     `UID:${item.id}@nexa-hybrid`,

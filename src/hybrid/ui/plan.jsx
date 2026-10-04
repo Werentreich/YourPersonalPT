@@ -10,7 +10,7 @@ import { platform } from "../native/platform.js";
 import { C, R, Sheet, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
 import { SPORTS, localISO, mondayOf, dayNum, isoOfNum, fmtDuration, num } from "../engine/model.js";
-import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
+import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, PRIORITIES, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
 import { blockHeader, itemLine, BLOCK_TYPES, ROLES } from "../engine/blocks.js";
 import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js";
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
@@ -82,7 +82,7 @@ export function PlanSheet({ initial, onSave, onStop, onClose }) {
           </Field>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Tijd per training">
+          <Field label="Tijd per duurtraining">
             <Choice options={[30, 45, 60, 75, 90].map((m) => ({ value: m, label: `${m} min` }))} value={s.minutes} onChange={(v) => set({ minutes: v })} ariaLabel="Tijd per training" />
           </Field>
           <Field label="Lange sessie hoogstens">
@@ -102,6 +102,17 @@ export function PlanSheet({ initial, onSave, onStop, onClose }) {
             <Choice options={Object.entries(RUN_NOW).map(([value, label]) => ({ value: Number(value), label }))} value={s.runNow || 1} onChange={(v) => set({ runNow: v })} ariaLabel="Hoe lang kunt u nu hardlopen" />
           </Field>
         )}
+        {s.goal === "hybride" && (
+          <Field label="Wat heeft voorrang?" hint="Bepaalt hoeveel kracht- en duurtrainingen er in uw week komen.">
+            <Choice options={Object.entries(PRIORITIES).map(([value, label]) => ({ value, label }))} value={s.priority || "gelijk"} onChange={(v) => set({ priority: v })} ariaLabel="Voorrang" />
+          </Field>
+        )}
+        <Field label="Tijd per krachttraining" hint="Meer tijd = meer oefeningen en sets. Voor spiergroei is 45–60 minuten ideaal.">
+          <Choice options={[30, 45, 60, 75].map((m) => ({ value: m, label: `${m} min` }))} value={s.strengthMin || 60} onChange={(v) => set({ strengthMin: v })} ariaLabel="Tijd per krachttraining" />
+        </Field>
+        <Field label="Twee trainingen op één dag" hint="Bijvoorbeeld 's ochtends rustig duur en 's avonds kracht, met minstens 6 uur ertussen. Zo past er meer in de week zonder extra trainingsdag.">
+          <Choice options={[{ value: false, label: "Nee" }, { value: true, label: "Ja, als het past" }]} value={!!s.doubles} onChange={(v) => set({ doubles: v })} ariaLabel="Twee trainingen op één dag" />
+        </Field>
         <Field label="Materiaal">
           <Choice options={Object.entries(EQUIPMENT).map(([value, label]) => ({ value, label }))} value={s.equipment} onChange={(v) => set({ equipment: v })} ariaLabel="Materiaal" />
         </Field>
@@ -140,7 +151,7 @@ function setLine(it) {
   const s0 = sets[0];
   const t = s0.target || {};
   const per = it.perSide ? " per kant" : "";
-  const amount = t.sec ? `${t.sec} s` : `${s0.reps || t.reps || "?"}${per}`;
+  const amount = t.sec ? `${t.sec} s` : `${it.repRange || s0.reps || t.reps || "?"}${per}`;
   return `${sets.length} × ${amount}${s0.kg ? ` · ${String(s0.kg).replace(".", ",")} kg` : ""}${t.rir != null ? ` · RIR ${t.rir}` : ""}`;
 }
 
@@ -150,17 +161,21 @@ export function BlocksPreview({ blocks }) {
       {(blocks || []).map((b, i) => (
         <div key={b.id || i} className="px-3 py-2.5" style={{ background: C.surface2, borderRadius: R.field }}>
           <div className="eyebrow">
-            {b.role ? ROLES[b.role].label : BLOCK_TYPES[b.type].label}
+            {b.role ? ROLES[b.role].label : b.type === "sets" && b.superset ? "Superset" : BLOCK_TYPES[b.type].label}
           </div>
           <div className="text-sm" style={{ color: C.ink, fontWeight: 600 }}>
-            {b.type === "sets" ? "Kracht" : blockHeader(b)}
+            {b.type === "sets" ? b.name || "Kracht" : blockHeader(b)}
           </div>
           {b.intensity && <div className="text-xs mt-0.5" style={{ color: C.accent }}>{b.intensity}</div>}
+          {b.type === "sets" && b.text && <div className="text-[11px] mt-1 leading-relaxed" style={{ color: C.muted }}>{b.text}</div>}
           {b.type === "sets" ? (
             <ul className="mt-1 space-y-0.5">
               {(b.items || []).map((it, k) => (
                 <li key={k} className="text-xs flex justify-between gap-2" style={{ color: C.ink }}>
-                  <span>{it.name}</span>
+                  <span>
+                    {b.superset ? <span style={{ color: C.muted }}>{String.fromCharCode(65 + (k % 26))}{" · "}</span> : null}
+                    {it.name}
+                  </span>
                   <span className="tnum" style={{ color: C.muted }}>
                     {setLine(it)}
                   </span>
@@ -305,7 +320,7 @@ export function PlanItemRow({ item, onOpen, border = true }) {
           {item.title}
         </span>
         <span className="block text-xs truncate" style={{ color: C.muted }}>
-          {[item.targetMin ? `± ${item.targetMin} min` : null, item.sport && SPORTS[item.sport] ? SPORTS[item.sport].label.toLowerCase() : null, item.optional ? "optioneel" : null, item.changed ? "aangepast" : null, item.moved ? "verplaatst" : null].filter(Boolean).join(" · ")}
+          {[item.part === "ochtend" ? "ochtend" : item.part === "avond" ? "avond" : null, item.targetMin ? `± ${item.targetMin} min` : null, item.sport && SPORTS[item.sport] ? SPORTS[item.sport].label.toLowerCase() : null, item.optional ? "optioneel" : null, item.changed ? "aangepast" : null, item.moved ? "verplaatst" : null].filter(Boolean).join(" · ")}
         </span>
       </span>
       <span className="text-xs shrink-0" style={{ color: st === "gedaan" ? C.accent : C.muted, fontWeight: st === "gedaan" ? 600 : 400 }}>

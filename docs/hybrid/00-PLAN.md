@@ -543,3 +543,17 @@ review van u voordat de volgende fase start.
   Wijzigingen ziet de sporter op het Week-scherm ("Aangepast op vorige week").
 - **Krachtindeling** (2026-10-04): 1–3 krachtdagen volledig lichaam (A/B/C),
   vanaf 4 upper/lower; elke spiergroep 2× per week.
+- **Professionele opbouw** (2026-10-04)
+  - Krachtsessie: warming-up + opbouwsets, explosief (plyometrie, als u fris
+    bent), twee hoofdoefeningen (onder/boven), supersets met hulpoefeningen,
+    core en kuiten/scheenbeen. Dubbele progressie binnen een
+    herhalingsbereik (ACSM 2009), varianten wisselen elke 4 weken.
+    Weekvolume ± 9–12 sets voor de grote spiergroepen bij 2 × 60 min
+    (Schoenfeld 2017).
+  - Instelbaar: voorrang (gelijk / kracht / duur), tijd per krachttraining
+    (30–75 min), twee trainingen op één dag (≥ 6 uur ertussen, Robineau 2016).
+  - Weekopbouw "Algemeen hybride" per aantal dagen en voorrang; beginners
+    liever geen drie trainingsdagen achter elkaar.
+  - Bronnen: Schumann e.a. 2022 (Sports Med, geen verlies aan spiergroei bij
+    combinatietraining), Llanos-Lagos e.a. 2024 (Sports Med, zware kracht en
+    plyometrie verbeteren loopeconomie), Viada (The Hybrid Athlete).

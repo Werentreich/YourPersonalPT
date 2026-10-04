@@ -6,7 +6,7 @@ const W = await import("../src/hybrid/engine/weeks.js");
 
 let fails = 0;
 const ok = (l, c, i = "") => { if (!c) fails++; console.log((c ? "OK  " : "FOUT") + " " + l + (i !== "" ? "  " + i : "")); };
-const V = 5;
+const V = 6;
 const MON = "2026-10-05";
 const NEXT = "2026-10-12";
 const iso = (d) => M.isoOfNum(M.dayNum(MON) + d);
