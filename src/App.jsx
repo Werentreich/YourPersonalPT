@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
 import { LiftDock } from "./perf/LiveLift.jsx";
-import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet } from "./perf/Team.jsx";
+import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet, MessagesSheet } from "./perf/Team.jsx";
 import { savedLift } from "./perf/lift.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
@@ -13128,7 +13128,7 @@ function MacroApp() {
           </div>
         </header>
 
-        <TeamNotice team={team} />
+        <TeamNotice team={team} onOpenClient={setClientOpen} />
 
         {tab === "vandaag" && (
           <>
@@ -16268,7 +16268,8 @@ function MacroApp() {
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
         {!bill.locked && tab !== "training" && !T.active && <LiftDock onOpen={() => setTab("training")} />}
         <AcceptInvite nx={nx} team={team} />
-        {clientOpen && <ClientSheet link={clientOpen} onClose={() => setClientOpen(null)} />}
+        {clientOpen && !team.msgOpen && <ClientSheet link={clientOpen} team={team} onClose={() => setClientOpen(null)} />}
+        {team.msgOpen && <MessagesSheet link={team.msgOpen} team={team} onClose={() => team.setMsgOpen(null)} />}
       </TrainingBoundary>
 
       {/* ---------------- tabbalk ---------------- */}

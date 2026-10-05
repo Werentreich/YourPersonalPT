@@ -149,3 +149,37 @@ export function linkView(l, me) {
     acceptedAt: l.accepted_at || null,
   };
 }
+
+/* ---------------- fase 2: activiteit en berichten ---------------- */
+
+export function cleanMessage(t) {
+  const s = String(t || "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, 1000);
+  return s || null;
+}
+
+/* Gedane trainingen van de afgelopen 7 dagen van de sporters die hun
+   voortgang delen. `rows`: nexa_data-rijen (user_id, value) met de
+   Hybrid-gegevens; `links`: actieve koppelingen van deze coach. */
+export function activityFeed(rows, links, now = Date.now()) {
+  const byUser = Object.fromEntries((rows || []).map((r) => [r.user_id, parse(r.value)]));
+  const since = new Date(now - 7 * DAY).toISOString().slice(0, 10);
+  const out = [];
+  for (const l of links || []) {
+    if (!cleanScopes(l.scopes).voortgang) continue;
+    const h = byUser[l.client_id] || {};
+    for (const s of Array.isArray(h.sessions) ? h.sessions : []) {
+      if (!s || typeof s.date !== "string" || s.date < since) continue;
+      out.push({
+        linkId: l.id,
+        name: l.client_name,
+        date: s.date,
+        at: typeof s.createdAt === "number" ? s.createdAt : Date.parse(s.date + "T12:00:00Z"),
+        title: s.title || (s.kind === "duur" ? s.sport || "duurtraining" : s.kind || "training"),
+        kind: s.kind || null,
+        rpe: typeof s.rpe === "number" ? s.rpe : null,
+        durationSec: typeof s.durationSec === "number" ? s.durationSec : null,
+      });
+    }
+  }
+  return out.sort((a, b) => b.at - a.at).slice(0, 30);
+}
