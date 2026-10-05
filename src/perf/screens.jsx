@@ -9,7 +9,7 @@ import { readinessFor, READINESS_TEXT } from "../hybrid/engine/readiness.js";
 import { previewWeek } from "../hybrid/engine/weeks.js";
 import { titleOf } from "../hybrid/engine/blocks.js";
 import { K } from "../hybrid/theme.js";
-import { ItemSheet, PlanSheet, guidable } from "../hybrid/ui/plan.jsx";
+import { ItemSheet, PlanSheet, guidable, startable } from "../hybrid/ui/plan.jsx";
 import { ItemFuel } from "../hybrid/ui/fuel.jsx";
 import { AddToCalendar } from "../hybrid/ui/calendar.jsx";
 import { sessionFacts } from "../hybrid/ui/screens.jsx";
@@ -17,7 +17,8 @@ import { sessionFacts } from "../hybrid/ui/screens.jsx";
 const fill = (kind) => (K[pillarOfKind(kind)] || K.duur).fill;
 const pillarOfKind = (kind) => (kind === "kracht" ? "kracht" : kind === "wod" || kind === "hyrox" ? "conditie" : kind === "mobiliteit" ? "mobiliteit" : "duur");
 const dayLabel = (iso, opts = { weekday: "long", day: "numeric", month: "short" }) => new Date(iso + "T12:00:00").toLocaleDateString("nl-NL", opts);
-const meta = (x) => [x.part, x.targetMin ? `± ${x.targetMin} min` : null, x.sport && SPORTS[x.sport] ? SPORTS[x.sport].label.toLowerCase() : null, x.optional ? "optioneel" : null].filter(Boolean).join(" · ");
+const meta = (x) =>
+  [x.part, x.targetMin ? `± ${x.targetMin} min` : null, x.sport && SPORTS[x.sport] ? SPORTS[x.sport].label.toLowerCase() : null, x.optional ? "optioneel" : null].filter(Boolean).join(" · ");
 
 /* Eén geplande sessie als rij: kleurstreep, titel, gegevens, knoppen. */
 function ItemRow({ x, onOpen, actions }) {
@@ -52,7 +53,7 @@ function ItemRow({ x, onOpen, actions }) {
 }
 
 /* ---------------- Vandaag ---------------- */
-export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSession, onAdd, onOpen, onQuick, onLive, onPlan, goTo, checkin, nutrition }) {
+export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSession, onAdd, onOpen, onQuick, onLive, onLift, onPlan, goTo, checkin, nutrition }) {
   const plan = data.plan;
   const today = localISO();
   const monday = mondayOf(today);
@@ -67,13 +68,16 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
   const sugs = plan ? dailySuggestions(week, today, readiness, plan.settings, ctx).filter((s) => !(plan.applied || {})[s.id]) : [];
   const info = plan ? (plan.weeks || {})[monday] : null;
   const ph = info ? PHASES[info.phase] : null;
-  const recent = [...data.sessions].filter((s) => s.date <= today).sort((a, b) => (a.date + (a.createdAt || 0) < b.date + (b.createdAt || 0) ? 1 : -1)).slice(0, 4);
+  const recent = [...data.sessions]
+    .filter((s) => s.date <= today)
+    .sort((a, b) => (a.date + (a.createdAt || 0) < b.date + (b.createdAt || 0) ? 1 : -1))
+    .slice(0, 4);
   const openItem = open && plan && plan.items.find((x) => x.id === open);
   const main = week.filter((x) => !x.optional && x.status !== "overgeslagen");
   const done = main.filter((x) => x.status === "gedaan").length;
 
   const actions = (x) =>
-    guidable(x) ? (
+    startable(x) ? (
       <TBtn small onClick={() => onGuide(x)}>
         Start
       </TBtn>
@@ -101,8 +105,19 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
               <button onClick={onAdd} className="tap" style={{ color: C.muted }}>
                 Iets anders gedaan? Vastleggen
               </button>
-              {todays.some((x) => guidable(x)) && (
-                <span style={{ color: C.muted }}>Start = begeleiding met stem en GPS</span>
+              {onLift && (
+                <button onClick={onLift} className="tap" style={{ color: C.muted }}>
+                  Losse krachttraining starten
+                </button>
+              )}
+              {todays.some((x) => startable(x)) && (
+                <span style={{ color: C.muted }}>
+                  {todays.some((x) => guidable(x)) && todays.some((x) => startable(x) && !guidable(x))
+                    ? "Start = begeleiding met stem, of sets afvinken met rusttimer"
+                    : todays.some((x) => guidable(x))
+                      ? "Start = begeleiding met stem en GPS"
+                      : "Start = sets afvinken, de rust loopt vanzelf"}
+                </span>
               )}
             </div>
           )}
@@ -115,10 +130,17 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
             ["fietsen", "Fietsen"],
             ["wod", "WOD"],
           ].map(([id, label]) => (
-            <Row key={id} label={label}>
-              <TBtn small kind="ghost" onClick={() => onQuick(id)}>
-                Vastleggen
-              </TBtn>
+            <Row key={id} label={label} hint={id === "kracht" && onLift ? "Start = sets afvinken, de rust loopt vanzelf" : undefined}>
+              <div className="flex gap-1.5">
+                {id === "kracht" && onLift && (
+                  <TBtn small onClick={onLift}>
+                    Start
+                  </TBtn>
+                )}
+                <TBtn small kind="ghost" onClick={() => onQuick(id)}>
+                  Vastleggen
+                </TBtn>
+              </div>
             </Row>
           ))}
           <Row label="Live opnemen met GPS" hint="Tijd, afstand en tempo, route alleen op dit apparaat.">
@@ -163,7 +185,12 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
             const its = week.filter((x) => x.date === iso && !x.optional);
             const isToday = iso === today;
             return (
-              <button key={d} onClick={() => goTo("week")} className="tap w-full text-left px-4 py-2 flex items-center gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}`, background: isToday ? "var(--accent-soft)" : "transparent" }}>
+              <button
+                key={d}
+                onClick={() => goTo("week")}
+                className="tap w-full text-left px-4 py-2 flex items-center gap-3"
+                style={{ borderBottom: `1px solid ${C.lineSoft}`, background: isToday ? "var(--accent-soft)" : "transparent" }}
+              >
                 <span className="text-xs w-8 shrink-0 uppercase" style={{ color: isToday ? C.accent : C.muted, fontWeight: 600 }}>
                   {n}
                 </span>
@@ -261,7 +288,12 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
           {WEEK_OPTS.map((o) => {
             const on = o.value === offset;
             return (
-              <button key={o.value} onClick={() => setOffset(o.value)} className="tap px-3 py-1 text-sm rounded-full" style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}>
+              <button
+                key={o.value}
+                onClick={() => setOffset(o.value)}
+                className="tap px-3 py-1 text-sm rounded-full"
+                style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+              >
                 {o.label}
               </button>
             );
@@ -289,7 +321,14 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
 
       <Section
         title={offset === 0 ? "Deze week" : offset === 1 ? "Volgende week" : `Week van ${dayLabel(monday, { day: "numeric", month: "long" })}`}
-        sub={[goal.label, ph ? ph.label : null, info && info.phaseInfo && plan.settings.goalDate && info.phaseInfo.weeksLeft > 0 ? `nog ${info.phaseInfo.weeksLeft} weken` : null, info && info.enduranceMin ? `duur ± ${info.enduranceMin} min` : null].filter(Boolean).join(" · ")}
+        sub={[
+          goal.label,
+          ph ? ph.label : null,
+          info && info.phaseInfo && plan.settings.goalDate && info.phaseInfo.weeksLeft > 0 ? `nog ${info.phaseInfo.weeksLeft} weken` : null,
+          info && info.enduranceMin ? `duur ± ${info.enduranceMin} min` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
       >
         {ph && (
           <p className="px-4 py-2.5 text-xs leading-relaxed" style={{ color: C.muted, borderBottom: `1px solid ${C.lineSoft}` }}>
@@ -315,7 +354,10 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
           const isToday = iso === today;
           return (
             <div key={d}>
-              <div className="px-4 pt-2.5 pb-1 text-xs uppercase tracking-wide" style={{ color: isToday ? C.accent : C.muted, fontWeight: 600, background: C.surface2, borderBottom: `1px solid ${C.lineSoft}` }}>
+              <div
+                className="px-4 pt-2.5 pb-1 text-xs uppercase tracking-wide"
+                style={{ color: isToday ? C.accent : C.muted, fontWeight: 600, background: C.surface2, borderBottom: `1px solid ${C.lineSoft}` }}
+              >
                 {dayLabel(iso)}
                 {isToday ? " · vandaag" : ""}
               </div>
@@ -325,7 +367,20 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
                 </div>
               )}
               {its.map((x) => (
-                <ItemRow key={x.id} x={x} onOpen={(it) => !preview && setOpen(it.id)} actions={!preview && x.date === today && x.status === "gepland" ? (guidable(x) ? <TBtn small onClick={() => onGuide(x)}>Start</TBtn> : null) : null} />
+                <ItemRow
+                  key={x.id}
+                  x={x}
+                  onOpen={(it) => !preview && setOpen(it.id)}
+                  actions={
+                    !preview && x.date === today && x.status === "gepland" ? (
+                      startable(x) ? (
+                        <TBtn small onClick={() => onGuide(x)}>
+                          Start
+                        </TBtn>
+                      ) : null
+                    ) : null
+                  }
+                />
               ))}
               {ex.map((s) => (
                 <button key={s.id} onClick={() => onOpenSession(s.id)} className="tap w-full text-left px-4 py-2 text-xs" style={{ color: C.muted, borderBottom: `1px solid ${C.lineSoft}` }}>
@@ -408,7 +463,12 @@ export function UnifiedLog({ data, bbLog = [], onAdd, onOpen, onOpenBodybuilding
           {KIND_FILTERS.map((o) => {
             const on = o.value === filter;
             return (
-              <button key={o.value} onClick={() => setFilter(o.value)} className="tap px-3 py-1 text-sm rounded-full" style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}>
+              <button
+                key={o.value}
+                onClick={() => setFilter(o.value)}
+                className="tap px-3 py-1 text-sm rounded-full"
+                style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+              >
                 {o.label}
               </button>
             );
@@ -425,7 +485,12 @@ export function UnifiedLog({ data, bbLog = [], onAdd, onOpen, onOpenBodybuilding
           </p>
         )}
         {rows.slice(0, limit).map((r) => (
-          <button key={r.key} onClick={() => (r.src === "perf" ? onOpen(r.s) : onOpenBodybuilding && onOpenBodybuilding())} className="tap w-full text-left px-4 py-2.5 flex items-center gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+          <button
+            key={r.key}
+            onClick={() => (r.src === "perf" ? onOpen(r.s) : onOpenBodybuilding && onOpenBodybuilding())}
+            className="tap w-full text-left px-4 py-2.5 flex items-center gap-3"
+            style={{ borderBottom: `1px solid ${C.lineSoft}` }}
+          >
             <span aria-hidden="true" className="self-stretch shrink-0" style={{ width: 4, borderRadius: 2, background: (K[r.pillar] || K.duur).fill }} />
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold truncate">
@@ -471,7 +536,10 @@ export function RecoveryLine({ data, onOpen, onRpe }) {
   const needs = data.sessions.filter((s) => s.needsRpe && s.rpe == null);
   return (
     <Section title="Herstel">
-      <Row label={r.score != null && r.checkedIn ? `${r.score} · ${READINESS_TEXT[r.level].label}` : "Nog niet ingevuld vandaag"} hint={r.score != null && r.checkedIn ? READINESS_TEXT[r.level].text : "Tien seconden in Gezondheid; uw schema past zich erop aan."}>
+      <Row
+        label={r.score != null && r.checkedIn ? `${r.score} · ${READINESS_TEXT[r.level].label}` : "Nog niet ingevuld vandaag"}
+        hint={r.score != null && r.checkedIn ? READINESS_TEXT[r.level].text : "Tien seconden in Gezondheid; uw schema past zich erop aan."}
+      >
         <TBtn small kind={r.checkedIn ? "ghost" : "primary"} onClick={onOpen}>
           {r.checkedIn ? "Bekijken" : "Invullen"}
         </TBtn>

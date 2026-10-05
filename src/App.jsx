@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
+import { LiftDock } from "./perf/LiveLift.jsx";
+import { savedLift } from "./perf/lift.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -14281,7 +14283,7 @@ function MacroApp() {
           </>
         )}
         {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
-        {tab === "training" && !bill.locked && !T.active && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
+        {tab === "training" && !bill.locked && !T.active && !(discipline !== "bodybuilding" && savedLift()) && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
         {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
           <TrainingBoundary>
             <PerformanceTraining
@@ -16254,6 +16256,7 @@ function MacroApp() {
 
       <TrainingBoundary quiet>
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
+        {!bill.locked && tab !== "training" && !T.active && <LiftDock onOpen={() => setTab("training")} />}
       </TrainingBoundary>
 
       {/* ---------------- tabbalk ---------------- */}
