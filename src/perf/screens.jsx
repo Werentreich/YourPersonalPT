@@ -463,3 +463,26 @@ export function perfLogRows(sessions) {
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .map((s) => ({ id: s.id, date: s.date, title: titleOf(s), facts: sessionFacts(s), pillar: pillarOf(s) }));
 }
+
+/* Op Vandaag in Training: herstel in één regel; invullen in Gezondheid. */
+export function RecoveryLine({ data, onOpen, onRpe }) {
+  const today = localISO();
+  const r = readinessFor(data.checkins || [], today);
+  const needs = data.sessions.filter((s) => s.needsRpe && s.rpe == null);
+  return (
+    <Section title="Herstel">
+      <Row label={r.score != null && r.checkedIn ? `${r.score} · ${READINESS_TEXT[r.level].label}` : "Nog niet ingevuld vandaag"} hint={r.score != null && r.checkedIn ? READINESS_TEXT[r.level].text : "Tien seconden in Gezondheid; uw schema past zich erop aan."}>
+        <TBtn small kind={r.checkedIn ? "ghost" : "primary"} onClick={onOpen}>
+          {r.checkedIn ? "Bekijken" : "Invullen"}
+        </TBtn>
+      </Row>
+      {needs.slice(0, 2).map((s) => (
+        <Row key={s.id} label={`Inspanning invullen: ${titleOf(s)}`} hint="Uit Strava binnengekomen.">
+          <TBtn small kind="ghost" onClick={() => onRpe(s)}>
+            Invullen
+          </TBtn>
+        </Row>
+      ))}
+    </Section>
+  );
+}

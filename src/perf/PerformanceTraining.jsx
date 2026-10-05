@@ -16,7 +16,7 @@ import { CoachCard } from "../hybrid/ui/coach.jsx";
 import { CalendarCard } from "../hybrid/ui/calendar.jsx";
 import { LiveRecorder, savedLive } from "../hybrid/ui/live.jsx";
 import { DISCIPLINES } from "./theme.js";
-import { PerfOverview, PerfSchema, UnifiedLog } from "./screens.jsx";
+import { PerfOverview, PerfSchema, UnifiedLog, RecoveryLine } from "./screens.jsx";
 
 const VIEWS = [
   { id: "vandaag", label: "Vandaag" },
@@ -92,7 +92,7 @@ function StartPlan({ discipline, onMake }) {
   );
 }
 
-export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodybuilding }) {
+export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodybuilding, onGoTab }) {
   ensureNexaExercises();
   const [data, api, loaded, nexa] = store;
   const acc = { locked: false, loggedIn: !!(nx && nx.user), on: false };
@@ -146,15 +146,8 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
         onLive={() => setLive(true)}
         onPlan={() => setPlanOpen(true)}
         goTo={go}
-        checkin={
-          <div className="mb-8">
-            <NeedsRpeCard sessions={data.sessions} onOpen={open} />
-            <div className="mt-3">
-              <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
-            </div>
-          </div>
-        }
-        nutrition={nbase ? <div className="mb-8"><NutritionToday data={data} base={nbase} /></div> : null}
+        checkin={<RecoveryLine data={data} onOpen={() => onGoTab && onGoTab("gezondheid")} onRpe={open} />}
+        nutrition={null}
       />
     );
   else if (view === "week")
