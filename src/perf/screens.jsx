@@ -53,7 +53,7 @@ function ItemRow({ x, onOpen, actions }) {
 }
 
 /* ---------------- Vandaag ---------------- */
-export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSession, onAdd, onOpen, onQuick, onLive, onLift, onPlan, goTo, checkin, nutrition }) {
+export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSession, onAdd, onOpen, onQuick, onLive, onLift, onPlan, goTo, checkin, nutrition, onEditStrength }) {
   const plan = data.plan;
   const today = localISO();
   const monday = mondayOf(today);
@@ -242,6 +242,7 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
           onUpdate={(p) => api.updatePlanItem(openItem.id, p)}
           onReplace={(it) => api.replacePlanItem(it)}
           onSwapAlways={(from, to) => api.setSwap(from, to)}
+          onEditStrength={onEditStrength ? () => { setOpen(null); onEditStrength(); } : null}
           onOpenSession={(id) => {
             setOpen(null);
             onOpenSession(id);
@@ -261,7 +262,7 @@ const WEEK_OPTS = [
   { value: 3, label: "+3" },
 ];
 
-export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSession, extraBelow }) {
+export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSession, onEditStrength, extraBelow }) {
   const plan = data.plan;
   const today = localISO();
   const [offset, setOffset] = useState(0);
@@ -428,6 +429,7 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
           onUpdate={(p) => api.updatePlanItem(openItem.id, p)}
           onReplace={(it) => api.replacePlanItem(it)}
           onSwapAlways={(from, to) => api.setSwap(from, to)}
+          onEditStrength={onEditStrength ? () => { setOpen(null); onEditStrength(); } : null}
           onOpenSession={(id) => {
             setOpen(null);
             onOpenSession(id);
@@ -454,7 +456,7 @@ export function UnifiedLog({ data, bbLog = [], onAdd, onOpen, onOpenBodybuilding
   const [filter, setFilter] = useState("alles");
   const [limit, setLimit] = useState(25);
   const rows = useMemo(() => {
-    const perf = data.sessions.map((s) => ({ key: s.id, date: s.date, title: titleOf(s), facts: sessionFacts(s), pillar: pillarOf(s), src: "perf", s, at: s.createdAt || 0 }));
+    const perf = data.sessions.filter((s) => s.source !== "nexa").map((s) => ({ key: s.id, date: s.date, title: titleOf(s), facts: sessionFacts(s), pillar: pillarOf(s), src: "perf", s, at: s.createdAt || 0 }));
     const bb = bbLog.map((b) => ({ key: `bb-${b.id}`, date: b.date, title: b.name, facts: b.facts, pillar: "kracht", src: "bb", at: 0 }));
     return [...perf, ...bb].filter((r) => filter === "alles" || r.pillar === filter).sort((a, b) => (a.date === b.date ? b.at - a.at : a.date < b.date ? 1 : -1));
   }, [data.sessions, bbLog, filter]);

@@ -3,6 +3,7 @@ import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/Performa
 import { LiftDock } from "./perf/LiveLift.jsx";
 import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet, MessagesSheet } from "./perf/Team.jsx";
 import { savedLift } from "./perf/lift.js";
+import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten } from "./perf/bridge.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -8287,7 +8288,7 @@ function AdviceSection({ program, D, updProg, check }) {
   );
 }
 
-function TrainSchema({ T, setT, D, week, setWeek }) {
+function TrainSchema({ T, setT, D, week, setWeek, perf = false }) {
   const [picker, setPicker] = useState(null);
   const [editEx, setEditEx] = useState(null);
   const [confirm, setConfirm] = useState(null);
@@ -8330,7 +8331,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
 
   return (
     <>
-      {newTpl || !program ? (
+      {!perf && (newTpl || !program) ? (
         <TemplateStarter T={T} setT={setT} D={D} week={week} setWeek={setWeek} onDone={() => setNewTpl(false)} />
       ) : null}
 
@@ -8383,6 +8384,8 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
               </span>
             </button>
           )}
+{!perf && (
+          <>
           <Section title="Schema" sub="Uw trainingen, de volgorde en welke dagen u traint.">
             {T.programs.length > 1 && (
               <Row label="Actief schema" stack>
@@ -8538,6 +8541,8 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
               )}
             </div>
           </Section>
+          </>
+          )}
 
           {program.days.map((day) => {
             const n = sum(day.slots.map((x) => num(x.sets, 2)));
@@ -8670,6 +8675,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
         </>
       )}
 
+      {!perf && (
       <Section title="Periodisering" accent={BLOCK_COLOR[D.pos.phase]} sub="Blokken van opbouw en intensivering, afgesloten met een deload. De RIR-doelen schuiven per week mee.">
         <Row label="Start van dit blok">
           <input
@@ -8715,6 +8721,7 @@ function TrainSchema({ T, setT, D, week, setWeek }) {
           )}
         </div>
       </Section>
+      )}
 
       <Section title="Instellingen training">
         <Row label="Inspanning loggen als" hint="RPE 10 = RIR 0, RPE 9 = RIR 1. De app rekent intern met RIR.">
@@ -11672,6 +11679,82 @@ function MacroApp() {
     setTab("training");
   };
 
+  /* ---------------- één krachtsysteem (src/perf/bridge.js) ----------------
+     Bij Hybride, Kracht en Conditie loopt de krachttraining via het
+     Nexa-programma. Het hybride schema bepaalt welke dagen kracht zijn. */
+  const perfProgram = T.programs.find((p) => p.perf) || null;
+  useEffect(() => {
+    if (!tLoaded || !perfStore[2] || T.active) return;
+    const plan = perfData.plan;
+    if (discipline === "bodybuilding") {
+      // terug naar bodybuilding: het eigen bodybuildingschema weer actief
+      if (perfProgram && T.activeProgramId === perfProgram.id && T.bbProgramId && T.programs.some((p) => p.id === T.bbProgramId)) setT((t) => ({ ...t, activeProgramId: t.bbProgramId }));
+      return;
+    }
+    if (!plan) return;
+    const known = new Set([...EXERCISES.map((e) => e.id), ...T.customEx.map((e) => e.id)]);
+    if (!perfProgram) {
+      const r = programFromPlan(plan.items, known, uid, trainToday);
+      if (!r) return;
+      setT((t) =>
+        t.programs.some((p) => p.perf)
+          ? t
+          : { ...t, customEx: [...t.customEx, ...r.customEx], programs: [...t.programs, r.program], bbProgramId: t.activeProgramId || t.bbProgramId || null, activeProgramId: r.program.id }
+      );
+      return;
+    }
+    const miss = missingSlots(perfProgram, plan.items);
+    if (miss.length) {
+      const add = [];
+      const custom = [];
+      for (const slot of miss) {
+        const it = plan.items.find((x) => x.slot === slot && x.kind === "kracht");
+        if (!it) continue;
+        const r = dayFromItem(it, known, uid);
+        add.push(r.day);
+        custom.push(...r.created);
+      }
+      if (add.length) setT((t) => ({ ...t, customEx: [...t.customEx, ...custom.filter((c) => !t.customEx.some((x) => x.id === c.id))], programs: t.programs.map((p) => (p.perf ? { ...p, days: [...p.days, ...add], rotation: [...(p.rotation || []), ...add.map((d) => d.id)] } : p)) }));
+      return;
+    }
+    if (T.activeProgramId !== perfProgram.id) setT((t) => ({ ...t, bbProgramId: t.activeProgramId !== perfProgram.id ? t.activeProgramId : t.bbProgramId, activeProgramId: perfProgram.id }));
+  }, [tLoaded, perfStore[2], discipline, perfData.plan, perfProgram && perfProgram.days.length, T.activeProgramId, !!T.active]);
+
+  /* Geplande krachtsessies tonen wat er in het programma staat. */
+  useEffect(() => {
+    if (!perfProgram || !perfData.plan || discipline === "bodybuilding") return;
+    const map = itemsToSync(perfData.plan.items, perfProgram, D.exIndex, trainToday);
+    if (Object.keys(map).length) perfStore[1].syncStrengthBlocks(map);
+  }, [perfProgram, perfData.plan && perfData.plan.items, D.exIndex, discipline]);
+
+  /* Afgeronde krachttraining uit het schema: ook als hybride sessie (schema
+     op gedaan, belasting, voeding, coach). */
+  useEffect(() => {
+    if (!tLoaded || !perfStore[2]) return;
+    const have = new Set(perfData.sessions.map((x) => x.nexaId).filter(Boolean));
+    T.sessions.filter((x) => x.perfItemId && x.end && !have.has(x.id)).forEach((x) => perfStore[1].saveSession(perfSessionFromNexa(x, D.exIndex)));
+  }, [tLoaded, perfStore[2], T.sessions.length]);
+
+  /* Start van een krachtsessie uit het hybride schema. */
+  const startPerfStrength = (item) => {
+    const day = dayForItem(perfProgram, item);
+    if (!day) return false;
+    primeAudio(T.settings);
+    setT((t) => {
+      if (t.active) return t;
+      let a = { ...buildSession({ program: perfProgram, day, D, T: t, bw: weight }), perfItemId: item.id };
+      if (isLight(item)) a = { ...a, exercises: lighten(a.exercises), volumeCut: true, phaseNote: "Lichtere sessie in uw hybride schema (herstel of taper): minder werksets, zelfde gewichten." };
+      return { ...t, activeProgramId: perfProgram.id, active: a };
+    });
+    setTab("training");
+    return true;
+  };
+  const startPerfFree = () => {
+    primeAudio(T.settings);
+    setT((t) => (t.active ? t : { ...t, active: buildSession({ program: perfProgram, day: null, D, T: t, bw: weight }) }));
+    setTab("training");
+  };
+
   /* Afgelopen herstelblok: nieuw blok bij de opbouw. */
   useEffect(() => {
     if (!tLoaded || !T.resens || T.resens.done || !D.resens.ended || T.active) return;
@@ -14307,6 +14390,14 @@ function MacroApp() {
                 })}
               onBodybuilding={() => perfStore[1].setDiscipline("bodybuilding")}
               onGoTab={setTab}
+              onStartStrength={startPerfStrength}
+              onStartFree={startPerfFree}
+              hasProgram={!!perfProgram}
+              renderProgram={() => (
+                <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
+                  <TrainSchema T={T} setT={setT} D={D} week={week} setWeek={setWeek} perf />
+                </ProfileCtx.Provider>
+              )}
             />
           </TrainingBoundary>
         )}
@@ -14323,10 +14414,13 @@ function MacroApp() {
               onStart={startTraining}
               summary={trainSummary}
               setSummary={setTrainSummary}
-              perfSessions={perfData.sessions}
+              perfSessions={perfData.sessions.filter((x) => x.source !== "nexa")}
             />
             </ProfileCtx.Provider>
           </TrainingBoundary>
+        )}
+        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && trainSummary && (
+          <SessionSummary s={trainSummary} D={D} T={T} setT={setT} onClose={() => setTrainSummary(null)} />
         )}
         {tab === "eten" && bill.locked && <CoachPaywall bill={bill} feature="eten" onStart={startCoach} />}
         {tab === "eten" && !bill.locked && (
