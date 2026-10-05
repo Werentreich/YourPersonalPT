@@ -101,7 +101,7 @@ function StartPlan({ discipline, onMake, onLift }) {
   );
 }
 
-export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodybuilding, onGoTab }) {
+export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodybuilding, onGoTab, onStartStrength, onStartFree, hasProgram = false, renderProgram }) {
   ensureNexaExercises();
   const [data, api, loaded, nexa] = store;
   const acc = { locked: false, loggedIn: !!(nx && nx.user), on: false };
@@ -138,12 +138,15 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
   };
   // Start: krachtsessies set voor set afvinken, duur met begeleiding (stem en GPS)
   const guide = (item) => {
+    // kracht: via het Nexa-programma (zelfde training als bodybuilding)
+    if (liftable(item) && onStartStrength && onStartStrength(item)) return;
     if (liftable(item)) {
       setLift(startLift(item, data.sessions));
       go("vandaag");
     } else setLive({ item });
   };
   const startFree = () => {
+    if (onStartFree && hasProgram) return onStartFree();
     setLift(emptyLift());
     go("vandaag");
   };
@@ -188,14 +191,50 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
         onQuick={quick}
         onLive={() => setLive(true)}
         onLift={startFree}
+        onEditStrength={hasProgram && renderProgram ? () => go("programma") : null}
         onPlan={() => setPlanOpen(true)}
         goTo={go}
         checkin={<RecoveryLine data={data} onOpen={() => onGoTab && onGoTab("gezondheid")} onRpe={open} />}
         nutrition={null}
       />
     );
+  else if (view === "programma" && renderProgram)
+    page = (
+      <>
+        <button onClick={() => go("week")} className="tap mb-3 text-sm" style={{ color: C.accent, fontWeight: 600 }}>
+          ← Terug naar het schema
+        </button>
+        <p className="text-xs mb-4 leading-relaxed" style={{ color: C.muted }}>
+          Uw krachtprogramma, zoals bij bodybuilding: per training de oefeningen, sets, herhalingen, rust, technieken en notities. Wat u hier instelt, blijft staan; uw hybride schema bepaalt op welke dagen u het doet.
+        </p>
+        {renderProgram()}
+      </>
+    );
   else if (view === "week")
-    page = <PerfSchema data={data} api={api} goals={d.goals} nbase={nbase} onLog={logDraft} onGuide={guide} onOpenSession={openSession} extraBelow={<CalendarCard data={data} api={api} nx={nx} />} />;
+    page = (
+      <PerfSchema
+        data={data}
+        api={api}
+        goals={d.goals}
+        nbase={nbase}
+        onLog={logDraft}
+        onGuide={guide}
+        onOpenSession={openSession}
+        onEditStrength={hasProgram && renderProgram ? () => go("programma") : null}
+        extraBelow={
+          <>
+            {hasProgram && renderProgram && (
+              <Section title="Krachtprogramma" sub="Oefeningen, sets, herhalingen, rust en technieken van uw krachttrainingen. Eén keer instellen; het blijft staan en de app stelt elke keer gewichten voor.">
+                <div className="px-4 py-3">
+                  <TBtn onClick={() => go("programma")}>Krachtprogramma bewerken</TBtn>
+                </div>
+              </Section>
+            )}
+            <CalendarCard data={data} api={api} nx={nx} />
+          </>
+        }
+      />
+    );
   else if (view === "log") page = <UnifiedLog data={data} bbLog={bbLog} onAdd={add} onOpen={open} onOpenBodybuilding={onBodybuilding} />;
   else if (view === "voortgang")
     page = (
@@ -218,7 +257,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
       {!lift && (
         <div className="flex gap-1 p-1 mb-5" style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 999 }} role="tablist">
           {VIEWS.map((v) => {
-            const on = view === v.id;
+            const on = view === v.id || (v.id === "week" && view === "programma");
             return (
               <button
                 key={v.id}

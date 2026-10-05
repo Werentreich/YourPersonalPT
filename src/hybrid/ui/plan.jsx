@@ -205,7 +205,7 @@ export function BlocksPreview({ blocks }) {
   );
 }
 
-export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGuide, onReplace, onUpdate, onOpenSession, onSwapAlways, fuel, extra }) {
+export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGuide, onReplace, onUpdate, onOpenSession, onSwapAlways, onEditStrength, fuel, extra }) {
   const [moving, setMoving] = useState(false);
   const [editing, setEditing] = useState(false);
   if (editing)
@@ -256,8 +256,8 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGu
         ))}
         <BlocksPreview blocks={item.blocks} />
         {!done && liftable(item) && (
-          <TBtn full kind="ghost" onClick={() => setEditing(true)}>
-            Training aanpassen (oefeningen, sets, rust, notities)
+          <TBtn full kind="ghost" onClick={() => (onEditStrength ? onEditStrength() : setEditing(true))}>
+            {onEditStrength ? "Oefeningen, sets en rust bewerken" : "Training aanpassen (oefeningen, sets, rust, notities)"}
           </TBtn>
         )}
         {fuel}

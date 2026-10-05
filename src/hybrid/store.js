@@ -222,6 +222,11 @@ export function useHybridStore() {
         return { ...d, plan: { ...d.plan, settings: { ...d.plan.settings, swaps }, items } };
       });
     },
+    /* Krachtsessies volgen het krachtprogramma (src/perf/bridge.js): alleen
+       de blokken bijwerken, zonder ze als zelf aangepast te markeren. */
+    syncStrengthBlocks(map) {
+      setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (map[x.id] ? { ...x, blocks: map[x.id] } : x)) } } : d));
+    },
     replacePlanItem(item) {
       setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === item.id ? { ...item, edited: true } : x)) } } : d));
     },
