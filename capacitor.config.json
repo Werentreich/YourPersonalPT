@@ -1,6 +1,6 @@
 {
   "appId": "nl.nexa.app",
-  "appName": "Nexa",
+  "appName": "Nexa Performance",
   "webDir": "native/www",
   "server": {
     "androidScheme": "https",

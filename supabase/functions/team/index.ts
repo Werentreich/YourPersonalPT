@@ -136,6 +136,9 @@ Deno.serve(async (req) => {
         });
       }
       case "invite": {
+        // alleen een coach nodigt uit: wie zelf gecoacht wordt, kan niemand uitnodigen
+        const asClient = await one(`coach_links?client_id=eq.${me}&status=eq.actief&select=id`);
+        if (asClient) return bad("Uitnodigen kan alleen een coach. U bent gekoppeld als sporter.", 403, "geen_coach");
         const name = cleanName(body.name);
         if (!name) return bad("Vul uw naam in; die ziet de ander bij de uitnodiging.");
         const now = new Date().toISOString();
@@ -168,6 +171,9 @@ Deno.serve(async (req) => {
         const l = await one(`coach_links?code=eq.${code}&status=eq.uitgenodigd&select=*`);
         if (!l || l.expires_at < new Date().toISOString()) return bad("Deze uitnodiging bestaat niet (meer). Vraag om een nieuwe.", 404, "onbekend");
         if (l.coach_id === me) return bad("U kunt uzelf niet coachen.");
+        // een coach wordt niet zelf gecoacht (anders zou de sporter weer kunnen uitnodigen)
+        const asCoach = await one(`coach_links?coach_id=eq.${me}&status=eq.actief&select=id`);
+        if (asCoach) return bad("U bent zelf coach in Nexa en kunt daarom niet gekoppeld worden als sporter.", 403, "is_coach");
         const existing = await one(`coach_links?coach_id=eq.${l.coach_id}&client_id=eq.${me}&select=id`);
         if (existing) {
           await sb(`coach_links?id=eq.${l.id}`, { method: "DELETE" });

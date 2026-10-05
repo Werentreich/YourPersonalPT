@@ -355,7 +355,14 @@ export function TeamSection({ nx, team, onOpenClient, mySettings }) {
   const coaches = team.links.filter((l) => l.role === "sporter");
   const mine = team.links.filter((l) => l.role === "coach");
   return (
-    <Section title="Gezin en coaching" sub="Coach uw partner, gezin of sporters: stel hun schema en voedingsdoel in en volg hun voortgang. Ieder houdt een eigen account en kiest zelf wat de coach mag.">
+    <Section
+      title="Gezin en coaching"
+      sub={
+        coaches.length > 0
+          ? "U wordt gecoacht. Hier kiest u wat uw coach mag, leest u berichten en kunt u ontkoppelen."
+          : "Coach uw partner, gezin of sporters: stel hun schema en voedingsdoel in en volg hun voortgang. Ieder houdt een eigen account en kiest zelf wat de coach mag."
+      }
+    >
       {!loggedIn ? (
         <Row label="Log eerst in" hint="Koppelen kan met een Nexa-account, voor u en voor degene die u coacht." />
       ) : (
@@ -397,7 +404,7 @@ export function TeamSection({ nx, team, onOpenClient, mySettings }) {
             )
           )}
           {mySettings && team.clients.some((l) => l.scopes.schema) && <ShareSchema team={team} mySettings={mySettings} />}
-          {inviting ? (
+          {coaches.length > 0 ? null : inviting ? (
             <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
               <label className="block">
                 <span className="text-xs" style={{ color: C.muted }}>
@@ -421,7 +428,7 @@ export function TeamSection({ nx, team, onOpenClient, mySettings }) {
               </TBtn>
             </Row>
           )}
-          <InviteCodeRow />
+          {mine.length === 0 && <InviteCodeRow />}
           {(err || team.error) && (
             <p className="px-4 py-2 text-xs" style={{ color: C.train }} role="alert">
               {err || team.error}
