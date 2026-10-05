@@ -82,7 +82,19 @@ export const putInbox = (userId, externalId, activity, deleted = false) =>
 export async function hybridAllowed(userId, billingOn) {
   if (!billingOn) return true;
   const row = await getSub(userId).catch(() => null);
-  return !!row && entitled(row);
+  if (!!row && entitled(row)) return true;
+  return !!(await coveringCoach(userId).catch(() => null));
+}
+
+/* Gezin en coaching: een gekoppelde sporter valt onder het abonnement van
+   zijn of haar coach. Geeft de naam van die coach terug, of null. */
+export async function coveringCoach(userId) {
+  const links = (await sb(`coach_links?client_id=eq.${encodeURIComponent(userId)}&status=eq.actief&select=coach_id,coach_name`)) || [];
+  for (const l of links) {
+    const row = await getSub(l.coach_id).catch(() => null);
+    if (row && entitled(row)) return l.coach_name;
+  }
+  return null;
 }
 
 /* ---------------- tokens ---------------- */
