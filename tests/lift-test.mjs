@@ -92,4 +92,22 @@ ok("voortgang telt werksets", p.done === 4 && p.total > p.done, JSON.stringify(p
   ok("spiergroepen gelijk tussen bibliotheken", L.muscleKey("schouder_zij") === "schouders" && L.muscleKey("buik") === "core");
 }
 
+// ---------- vooraf aanpassen en vaste wissels ----------
+{
+  ok("herhalingen lezen: 8–10, 8-10, 12, onzin", JSON.stringify(L.parseRange("8–10")) === "[8,10]" && JSON.stringify(L.parseRange("8-10")) === "[8,10]" && JSON.stringify(L.parseRange("12")) === "[12,12]" && L.parseRange("abc") === null && L.parseRange("10-8") === null);
+  const it0 = { name: "Bankdrukken", repRange: "8–10", sets: [{ kg: 60, reps: 8, target: { reps: 8, repsMax: 10, rir: 2 } }, { kg: 60, reps: 8, target: { reps: 8, repsMax: 10, rir: 2 } }] };
+  const more = L.setCount(it0, 4);
+  ok("sets erbij: kopie van de laatste set", more.sets.length === 4 && more.sets[3].kg === 60 && more.sets[3].target.repsMax === 10);
+  ok("sets: minimaal 1, maximaal 10", L.setCount(it0, 0).sets.length === 1 && L.setCount(it0, 20).sets.length === 10);
+  const r = L.setRange(it0, 6, 8);
+  ok("herhalingen wijzigen: bereik en doel per set", r.repRange === "6–8" && r.sets.every((x) => x.target.reps === 6 && x.target.repsMax === 8 && x.target.rir === 2));
+  ok("gewicht voor alle werksets", L.setKg({ sets: [{ kind: "warmup", kg: 20 }, { kg: 60 }, { kg: 60 }] }, 62.5).sets.map((x) => x.kg).join(",") === "20,62.5,62.5");
+  const Sw = { ...S, swaps: { bench_press: "smith_bench" } };
+  const wk2 = P.generateWeek(Sw, { sessions: [], profile: {} }, "2026-10-05");
+  const names = wk2.items.filter((x) => x.kind === "kracht").flatMap((x) => x.blocks.filter((b) => b.type === "sets").flatMap((b) => b.items.map((i) => i.moveId)));
+  ok("vaste wissel: planner gebruikt Smith bankdrukken in plaats van bankdrukken", names.includes("smith_bench") && !names.includes("bench_press"), names.join(","));
+  const bad = P.generateWeek({ ...S, swaps: { bench_press: "bestaat_niet" } }, { sessions: [], profile: {} }, "2026-10-05");
+  ok("onbekende wissel: gewoon het origineel", bad.items.some((x) => (x.blocks || []).some((b) => (b.items || []).some((i) => i.moveId === "bench_press"))));
+}
+
 if (fails) process.exit(1);

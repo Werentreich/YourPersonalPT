@@ -139,10 +139,10 @@ function RestDock({ rest, onAdjust, onStop, title, onOpen }) {
   );
 }
 
-const muscleOf = (it) => muscleKey((MUSCLES_OF[it.moveId] || [])[0] || (movementById(it.moveId) || {}).muscle);
+export const muscleOf = (it) => muscleKey((MUSCLES_OF[it.moveId] || [])[0] || (movementById(it.moveId) || {}).muscle);
 
 /* Oefening kiezen: eerst alternatieven voor dezelfde spiergroep, of zoeken. */
-function ExercisePicker({ title, muscle, exclude, onPick, onClose }) {
+export function ExercisePicker({ title, muscle, exclude, onPick, onClose }) {
   const [q, setQ] = useState("");
   const ex = new Set(exclude || []);
   const own = muscle ? MOVEMENTS.filter((m) => muscleKey((MUSCLES_OF[m.id] || [])[0]) === muscle) : [];
@@ -280,6 +280,11 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
             </div>
           </div>
         </div>
+        {live.note && (
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+            {live.note}
+          </p>
+        )}
         <div className="mt-3" style={{ height: 5, background: "rgba(255,255,255,.12)", borderRadius: 3 }}>
           <div className="bar-fill" style={{ height: 5, width: `${total ? (done / total) * 100 : 0}%`, background: "var(--accent)", borderRadius: 3 }} />
         </div>
@@ -375,6 +380,17 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
                         </span>
                         {last && <span className="block mt-0.5">Vorige keer: {last}</span>}
                         {it.tempo && <span className="block mt-0.5">Tempo {it.tempo}</span>}
+                        <input
+                          value={it.note || ""}
+                          onChange={(ev) => {
+                            const v = ev.target.value.slice(0, 200);
+                            setLive((x) => ({ ...x, blocks: x.blocks.map((bb, k) => (k !== bi ? bb : { ...bb, items: bb.items.map((y, n) => (n === ii ? { ...y, note: v || undefined } : y)) })) }));
+                          }}
+                          placeholder="Notitie, bijv. stoel stand 4"
+                          className="w-full mt-1.5 px-2 py-1.5 text-xs"
+                          style={inputStyle()}
+                          aria-label={`${it.name}: notitie`}
+                        />
                       </div>
                       <div className="grid gap-1.5 mt-3 text-xs" style={{ ...cols, color: C.muted }}>
                         <span>Set</span>
@@ -543,6 +559,15 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
             {done} {done === 1 ? "set" : "sets"} in {mmss(elapsed)}. Alleen afgevinkte sets worden opgeslagen.
           </p>
           <RpeInput value={rpe} onChange={setRpe} />
+          <textarea
+            value={live.note || ""}
+            onChange={(e) => setLive((x) => ({ ...x, note: e.target.value.slice(0, 500) }))}
+            rows={2}
+            placeholder="Notitie bij deze training (optioneel)"
+            className="w-full px-3 py-2 text-sm"
+            style={{ ...inputStyle(), resize: "none" }}
+            aria-label="Notitie bij deze training"
+          />
           <div className="flex gap-2">
             <TBtn onClick={() => onSave({ ...liftToSession(live), rpe })}>Opslaan</TBtn>
             <TBtn kind="ghost" onClick={() => onEdit({ ...liftToSession(live), rpe })}>

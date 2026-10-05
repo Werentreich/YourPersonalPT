@@ -198,6 +198,11 @@ export const MOVEMENTS = [
   M("man_makers", "Man makers", "gewicht", ["reps", "kg"], { legs: 0.4, upper: 0.5, perHand: true, work: { reps: 7 } }),
   // aanvullend voor hybride kracht (spiergroei, lopers)
   M("db_bench", "Dumbbell bankdrukken", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, perHand: true, work: { reps: 3 }, muscle: "borst" }),
+  M("smith_bench", "Smith machine bankdrukken", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, work: { reps: 3 }, muscle: "borst" }),
+  M("smith_incline", "Smith machine schuin bankdrukken", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, work: { reps: 3 }, muscle: "borst" }),
+  M("smith_squat", "Smith machine squat", "gewicht", ["reps", "kg"], { legs: 0.9, upper: 0, work: { reps: 3 }, muscle: "quadriceps" }),
+  M("smith_press", "Smith machine schouderdrukken", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, work: { reps: 3 }, muscle: "schouders" }),
+  M("chest_press_machine", "Chest press machine", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, work: { reps: 3 }, muscle: "borst" }),
   M("incline_db", "Schuine dumbbell press", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, perHand: true, work: { reps: 3 }, muscle: "borst" }),
   M("db_row", "Eenarmige dumbbell row", "gewicht", ["reps", "kg"], { legs: 0.05, upper: 0.85, uni: true, work: { reps: 2.5 }, muscle: "rug" }),
   M("lat_pulldown", "Lat pulldown", "gewicht", ["reps", "kg"], { legs: 0, upper: 0.9, work: { reps: 3 }, muscle: "rug" }),

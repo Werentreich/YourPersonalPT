@@ -460,7 +460,7 @@ export const MUSCLES_OF = {
   back_squat: ["quadriceps", "bilspieren"], front_squat: ["quadriceps", "bilspieren"], kb_goblet: ["quadriceps", "bilspieren"], leg_press: ["quadriceps", "bilspieren"],
   bulgarian: ["quadriceps", "bilspieren"], walking_lunges: ["quadriceps", "bilspieren"], step_ups: ["quadriceps", "bilspieren"], db_step_ups: ["quadriceps", "bilspieren"], pistols: ["quadriceps", "bilspieren"], cossack: ["quadriceps", "bilspieren"],
   trap_bar_dl: ["quadriceps", "hamstrings", "bilspieren"], rdl: ["hamstrings", "bilspieren"], sl_rdl: ["hamstrings", "bilspieren"], leg_curl: ["hamstrings"], nordic: ["hamstrings"], hip_thrust: ["bilspieren"], kb_swings: ["hamstrings", "bilspieren"],
-  bench_press: ["borst", "triceps"], db_bench: ["borst", "triceps"], incline_db: ["borst", "schouders"], push_ups: ["borst", "triceps"], hr_push_ups: ["borst", "triceps"],
+  bench_press: ["borst", "triceps"], db_bench: ["borst", "triceps"], smith_bench: ["borst", "triceps"], smith_incline: ["borst", "schouders"], chest_press_machine: ["borst", "triceps"], smith_squat: ["quadriceps", "bilspieren"], smith_press: ["schouders", "triceps"], incline_db: ["borst", "schouders"], push_ups: ["borst", "triceps"], hr_push_ups: ["borst", "triceps"],
   strict_press: ["schouders", "triceps"], push_press: ["schouders", "triceps"], landmine_press: ["schouders", "borst"], kb_press: ["schouders", "triceps"], pike_push_ups: ["schouders", "triceps"], lateral_raise: ["schouders"], face_pull: ["schouders", "rug"],
   bb_row: ["rug", "biceps"], db_row: ["rug", "biceps"], lat_pulldown: ["rug", "biceps"], strict_pull_ups: ["rug", "biceps"], weighted_pull_ups: ["rug", "biceps"], pull_ups: ["rug", "biceps"], inverted_rows: ["rug", "biceps"], renegade_row: ["rug", "core"],
   calf_raise: ["kuiten"], tib_raise: ["kuiten"], dead_bug: ["core"], pallof: ["core"], hanging_knee_raise: ["core"], side_plank: ["core"], hollow_hold: ["core"], copenhagen: ["core"],
@@ -514,8 +514,10 @@ function strengthSession(slot, ph, settings, ctx) {
   const recs = Object.fromEntries(strengthRecords(ctx.sessions || []).map((r) => [r.name, r]));
   const light = ph.deload || ph.phase === "herstel" || ph.phase === "taper" || ph.phase === "wedstrijd";
 
+  const swaps = settings.swaps || {};
   const item = (e, dose, rest) => {
-    const id = variant && e.alt ? e.alt : e.id;
+    const base = variant && e.alt ? e.alt : e.id;
+    const id = swaps[base] && movementById(swaps[base]) ? swaps[base] : base; // eigen vaste wissel (bijv. Smith in plaats van stang)
     const mv = movementById(id);
     if (!mv) return null;
     const [sets, lo, hi, rir] = dose;
