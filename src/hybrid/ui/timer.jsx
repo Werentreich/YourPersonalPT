@@ -179,7 +179,7 @@ export function TimerSheet({ block, onClose, onResult }) {
   // via een portal naar <body>: een ouder met transform (de sheet-animatie)
   // zou position: fixed anders tot die ouder beperken
   return createPortal(
-    <div className="fixed inset-0 flex flex-col hybrid macroapp" style={{ background: bg, color: C.ink, zIndex: 80, paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }} role="dialog" aria-modal="true" aria-label="Timer">
+    <div className="fixed inset-0 flex flex-col hybrid perf macroapp" style={{ background: bg, color: C.ink, zIndex: 80, paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }} role="dialog" aria-modal="true" aria-label="Timer">
       <div className="flex items-center justify-between px-4 py-3">
         <span className="eyebrow">{phase.label}</span>
         <button onClick={onClose} className="tap text-sm" style={{ color: C.muted }}>

@@ -161,7 +161,7 @@ export function LiveRecorder({ onClose, onFinish, guide: guideIn = null }) {
   const lastSplit = st && st.splits.length ? st.splits[st.splits.length - 1] : null;
 
   const view = (
-    <div className="fixed inset-0 flex flex-col hybrid macroapp" style={{ background: C.bg, color: C.ink, zIndex: 80, paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }} role="dialog" aria-modal="true" aria-label="Live opname">
+    <div className="fixed inset-0 flex flex-col hybrid perf macroapp" style={{ background: C.bg, color: C.ink, zIndex: 80, paddingTop: "env(safe-area-inset-top, 0px)", paddingBottom: "env(safe-area-inset-bottom, 0px)" }} role="dialog" aria-modal="true" aria-label="Live opname">
       <div className="flex items-center justify-between px-4 py-3">
         <span className="eyebrow">{track ? `${LIVE_SPORTS[track.sport].label} · ${track.status === "pauze" ? "gepauzeerd" : "live"}` : "Live opnemen"}</span>
         {!track && (
