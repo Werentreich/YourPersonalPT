@@ -1,6 +1,6 @@
 {
-  "name": "Nexa",
-  "short_name": "Nexa",
+  "name": "Nexa Performance",
+  "short_name": "Nexa Performance",
   "description": "Your personal performance coach",
   "start_url": "/app/?pwa=1",
   "scope": "/",

@@ -120,8 +120,8 @@ body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
 }
 
 writeApp({
-  title: "Nexa", description: "Nexa · Your personal performance coach", light: "#EEF0F4", dark: "#08090C",
-  manifest: "/manifest.webmanifest?v=nexa3", icons: "", iconVer: "nexa1",
+  title: "Nexa Performance", description: "Nexa Performance · Your personal performance coach", light: "#EEF0F4", dark: "#08090C",
+  manifest: "/manifest.webmanifest?v=nexa4", icons: "", iconVer: "nexa1",
   css: readFileSync("dist/tailwind.css", "utf8"), js: readFileSync("dist/app.js", "utf8"), out: "dist/app/index.html",
 });
 writeApp({
