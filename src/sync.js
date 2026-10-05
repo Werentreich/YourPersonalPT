@@ -12,14 +12,17 @@
 import { AuthClient } from "@supabase/auth-js";
 import { PostgrestClient } from "@supabase/postgrest-js";
 
-const SB_URL = "https://lrtkedstyhfnwaxylyue.supabase.co";
-const SB_KEY = "sb_publishable_QixrjzoNV-Kd1ng-BkmCyg_oIl11AJ8"; // publiceerbare sleutel, bedoeld voor in de app
+export const SB_URL = "https://lrtkedstyhfnwaxylyue.supabase.co";
+export const SB_KEY = "sb_publishable_QixrjzoNV-Kd1ng-BkmCyg_oIl11AJ8"; // publiceerbare sleutel, bedoeld voor in de app
 const TABLE = "nexa_data";
 const PREFIX = "macroverdeling:"; // alleen app-gegevens synchroniseren, geen sessie of hulpgegevens
 const META_KEY = "nexa:sync-meta";
 const PUSH_DELAY = 1500;
 const BILLING_KEY = "nexa:billing"; // laatst bekende abonnementsstatus, voor gebruik zonder internet
-const BILLING_URL = "/.netlify/functions/billing";
+/* In de eigen app (Capacitor) draait de code niet op de site zelf: dan naar
+   het volledige adres (de functies staan die herkomst toe). */
+const NATIVE = typeof window !== "undefined" && !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === "function" && window.Capacitor.isNativePlatform());
+const BILLING_URL = `${NATIVE ? "https://nexa-performance.netlify.app" : ""}/.netlify/functions/billing`;
 const SUB_TABLE = "nexa_subscriptions";
 export const ACTIVE_STATUSES = ["trialing", "active", "past_due", "comp"];
 const BOOT_TIMEOUT = 3500;
@@ -498,11 +501,13 @@ export function createSync(local) {
     },
     accessToken,
     refreshBilling,
-    /* Naar Stripe Checkout (proef starten of opnieuw abonneren). */
-    async checkout(plan) {
+    /* Naar Stripe Checkout (proef starten of opnieuw abonneren), of direct
+       upgraden van Coach naar Hybrid. extra: { from: "hybrid" } om daarna
+       naar Nexa Hybrid terug te keren. */
+    async checkout(plan, extra = {}) {
       setBilling({ busy: true, error: null });
       try {
-        const url = await billingCall({ action: "checkout", plan });
+        const url = await billingCall({ action: "checkout", plan, ...extra });
         location.href = url;
       } catch (e) {
         setBilling({ busy: false, error: e.message });
@@ -510,10 +515,10 @@ export function createSync(local) {
       }
     },
     /* Naar het Stripe-klantportaal: betaalgegevens, plan wisselen, opzeggen. */
-    async portal() {
+    async portal(extra = {}) {
       setBilling({ busy: true, error: null });
       try {
-        const url = await billingCall({ action: "portal" });
+        const url = await billingCall({ action: "portal", ...extra });
         location.href = url;
       } catch (e) {
         setBilling({ busy: false, error: e.message });

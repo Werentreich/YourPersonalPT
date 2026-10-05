@@ -1,5 +1,9 @@
-# De app woont op /app/, de landingspagina op /. Netlify verwerkt dit
+# De app woont op /app/, Nexa Hybrid op /hybrid/, de landingspagina op /. Netlify verwerkt dit
 # bestand vóór netlify.toml; bestaande bestanden gaan altijd voor.
 /app      /app/            301
 /app/*    /app/index.html  200
+# Nexa Hybrid is opgegaan in Nexa (oktober 2026): alles naar de app. De
+# gegevens gaan vanzelf mee (zelfde opslag en account).
+/hybrid   /app/            301!
+/hybrid/* /app/            301!
 /*        /404.html        404

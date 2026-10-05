@@ -1,4 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
+import { perfLogRows } from "./perf/screens.jsx";
+import { syncPerfWeek } from "./perf/nutrition.js";
+import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
+import { stravaCall, pullInbox, clearInboxRows } from "./hybrid/strava.js";
+import { isNative as isNativeApp } from "./hybrid/native/platform.js";
+import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
+import { useHybridStore } from "./hybrid/store.js";
 
 /* =========================================================================
    Nexa - Your personal performance coach
@@ -54,7 +62,7 @@ function weekEnergy(i) {
   const bmr = calcBMR(i);
   const rest = bmr * i.activityFactor;
   const sess = i.week.map((d) =>
-    d.session ? sessionKcal({ met: METS[d.session.type] || 5, minutes: num(d.session.minutes, 60), weight: i.weight }) : 0
+    d.session ? (d.session.kcalKg != null ? d.session.kcalKg * i.weight : sessionKcal({ met: METS[d.session.type] || 5, minutes: num(d.session.minutes, 60), weight: i.weight })) : 0
   );
   const weekTDEE = sum(sess.map((s) => rest + s));
   const tdeeAvg = weekTDEE / 7;
@@ -245,7 +253,7 @@ function phasePlan(i) {
     const bmr = calcBMR({ ...i, weight: w, bodyFat: bf });
     const rest = bmr * i.activityFactor;
     const sess = sum(
-      i.week.map((d) => (d.session ? sessionKcal({ met: METS[d.session.type], minutes: d.session.minutes, weight: w }) : 0))
+      i.week.map((d) => (d.session ? (d.session.kcalKg != null ? d.session.kcalKg * w : sessionKcal({ met: METS[d.session.type], minutes: d.session.minutes, weight: w })) : 0))
     );
     const tdee = (rest * 7 + sess) / 7;
 
@@ -462,7 +470,7 @@ function chainPlan(i) {
     const bmr = calcBMR({ ...i, weight: w, bodyFat: bf });
     const rest = bmr * i.activityFactor;
     const sess = sum(
-      i.week.map((d) => (d.session ? sessionKcal({ met: METS[d.session.type], minutes: d.session.minutes, weight: w }) : 0))
+      i.week.map((d) => (d.session ? (d.session.kcalKg != null ? d.session.kcalKg * w : sessionKcal({ met: METS[d.session.type], minutes: d.session.minutes, weight: w })) : 0))
     );
     const tdee = (rest * 7 + sess) / 7;
     const weeksLeft = horizon - week;
@@ -9105,7 +9113,7 @@ function TrainInsights({ T, D }) {
   );
 }
 
-function TrainLog({ T, setT, D }) {
+function TrainLog({ T, setT, D, perfSessions = [] }) {
   const [open, setOpen] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -9221,6 +9229,21 @@ function TrainLog({ T, setT, D }) {
           </div>
         )}
       </Section>
+      {perfSessions.length > 0 && (
+        <Section title="Andere sporten" sub="Hardlopen, hybride, kracht en conditie uit uw prestatieschema. Kies die sport bovenaan om ze te bewerken.">
+          {perfLogRows(perfSessions)
+            .slice(0, 10)
+            .map((r) => (
+              <div key={r.id} className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                <span className="text-sm font-semibold block">{r.title}</span>
+                <span className="text-xs block tnum" style={{ color: C.muted }}>
+                  {weekdayNL(r.date)}
+                  {r.facts ? ` · ${r.facts}` : ""}
+                </span>
+              </div>
+            ))}
+        </Section>
+      )}
 
       <Section title="Back-up" sub="Uw trainingsdata staan in deze app. Maak af en toe een back-up, of zet ze over naar een ander apparaat.">
         <div className="px-4 py-3 flex flex-wrap gap-2">
@@ -9312,7 +9335,7 @@ const TRAIN_VIEWS = [
   { id: "logboek", label: "Logboek" },
 ];
 
-function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSummary }) {
+function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSummary, perfSessions = [] }) {
   const [view, setView] = useState("overzicht");
   const go = (v) => {
     setView(v);
@@ -9345,7 +9368,7 @@ function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSumma
       {view === "overzicht" && <TrainOverview T={T} setT={setT} D={D} week={week} setWeek={setWeek} onStart={onStart} go={go} />}
       {view === "schema" && <TrainSchema T={T} setT={setT} D={D} week={week} setWeek={setWeek} />}
       {view === "inzichten" && <TrainInsights T={T} D={D} />}
-      {view === "logboek" && <TrainLog T={T} setT={setT} D={D} />}
+      {view === "logboek" && <TrainLog T={T} setT={setT} D={D} perfSessions={perfSessions} />}
       {summary && <SessionSummary s={summary} D={D} T={T} setT={setT} onClose={() => setSummary(null)} />}
     </>
   );
@@ -10716,6 +10739,7 @@ const COACH_FEATURES = [
   ["Meerwekenplan", "cutten, opbouwen en minicuts, week voor week doorgerekend"],
   ["Wekelijkse bijsturing", "op gewicht, taille en kracht, zodat vetverlies nooit voor stilstand wordt aangezien"],
   ["Etiketten scannen", "foto van de verpakking en het product staat erin"],
+  ["Elke sport", "bodybuilding, kracht, hybride, hardlopen en Hyrox, met begeleiding, coach, Strava en agenda"],
 ];
 
 const COACH_FEATURE_TITLE = {
@@ -10728,6 +10752,21 @@ const COACH_FEATURE_TITLE = {
 
 function CoachPaywall({ bill, feature, onStart }) {
   const [plan, setPlan] = useState("jaar");
+  /* In de eigen app (App Store / Play Store) geen aankoop of betaallink:
+     Apple 3.1.1 en Google Play eisen hun eigen betaalsysteem. Wie Nexa Coach
+     op de website heeft, logt in (Apple 3.1.3(b)). */
+  if (isNativeApp())
+    return (
+      <div className="mb-8 px-5 py-6" style={{ background: C.dark, color: C.darkInk, borderRadius: R.card }}>
+        <div className="text-[11px] uppercase tracking-wide" style={{ color: C.darkMuted, fontWeight: 600 }}>
+          Nexa Coach
+        </div>
+        <h2 className="disp text-2xl font-bold uppercase leading-tight mt-2">{COACH_FEATURE_TITLE[feature] || "Uw persoonlijke begeleiding"}</h2>
+        <p className="text-sm mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+          Nexa Coach hoort bij uw Nexa-account. Log in met het account waarmee u Nexa Coach gebruikt.
+        </p>
+      </div>
+    );
   const perMonth = bill.prices.jaar / 12;
   const saving = Math.round((1 - bill.prices.jaar / (bill.prices.maand * 12)) * 100);
   const trial = !bill.hadTrial;
@@ -11015,6 +11054,11 @@ export default function MacroAppRoot() {
 }
 
 function MacroApp() {
+  /* Prestatietraining (kracht, hybride, hardlopen, conditie): eigen opslag,
+     zelfde account. Bodybuilding is de bestaande training hieronder. */
+  const perfStore = useHybridStore();
+  const perfData = perfStore[0];
+  const discipline = perfData.discipline || (perfData.plan ? disciplineOfGoal(perfData.plan.settings.goal) : "bodybuilding");
   const [f, setF] = useState({
     sex: "man",
     age: 36,
@@ -11130,6 +11174,13 @@ function MacroApp() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [storage, setStorage] = useState("laden");
   const [loaded, setLoaded] = useState(false);
+  /* Andere sport dan bodybuilding: de trainingsdagen voor de voeding komen
+     uit het prestatieschema (src/perf/nutrition.js). */
+  useEffect(() => {
+    if (!loaded || !perfStore[2] || discipline === "bodybuilding") return;
+    const next = syncPerfWeek(week, perfData, localISO());
+    if (next) setWeek(next);
+  }, [loaded, perfStore[2], discipline, perfData.plan, perfData.calendar, week]);
   const [storeMode, setStoreMode] = useState("claude");
   const [T, setT, tLoaded] = useTrainingStore();
   const nx = useNexaSync();
@@ -11213,6 +11264,47 @@ function MacroApp() {
       /* niets */
     }
   }, [wantCoach, loaded, onboarding, bill.on, bill.locked]);
+  // terug van Strava (koppelen): melding in Profiel en de laatste 14 dagen ophalen
+  const [stravaNotice, setStravaNotice] = useState(null);
+  const [stravaKey, setStravaKey] = useState(0);
+  useEffect(() => {
+    if (!perfStore[2]) return; // eerst de trainingsgegevens laden
+    let q = null;
+    try {
+      q = new URLSearchParams(window.location.search).get("strava");
+    } catch (e) {
+      q = null;
+    }
+    if (!q) return;
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    } catch (e) {
+      /* adres laten staan */
+    }
+    const text = {
+      gekoppeld: "Strava is gekoppeld. De activiteiten van de laatste 14 dagen worden opgehaald.",
+      geweigerd: "U heeft geen toestemming gegeven in Strava. Er is niets gekoppeld.",
+      rechten: "Geef bij het koppelen toestemming om uw activiteiten te lezen, anders kan Nexa niets ophalen.",
+      fout: "Koppelen met Strava is niet gelukt. Probeer het opnieuw.",
+      uit: "De koppeling met Strava is nog niet ingeschakeld.",
+    }[q];
+    if (text) setStravaNotice(text);
+    setTab("profiel");
+    if (q === "gekoppeld") {
+      (async () => {
+        try {
+          const d = await stravaCall("sync");
+          const rows = await pullInbox();
+          if (rows.length) perfStore[1].applyInbox(rows);
+          await clearInboxRows(rows.map((x) => x.id));
+          setStravaNotice(d.count ? `Strava is gekoppeld: ${d.count} activiteiten opgehaald.` : "Strava is gekoppeld. Nieuwe activiteiten komen vanzelf binnen.");
+        } catch (e) {
+          /* ophalen lukt later bij openen */
+        }
+        setStravaKey((k) => k + 1);
+      })();
+    }
+  }, [perfStore[2]]);
   // terug van Stripe: melding tonen en de status ophalen tot de webhook binnen is
   useEffect(() => {
     let q = null;
@@ -12237,7 +12329,7 @@ function MacroApp() {
       "",
       ...DAYS.map(
         (d, i) =>
-          `${DAY_FULL[i]}: ${Math.round(energy.kcals[i])} kcal${wk[i].session ? ` (${SESSIONS.find((s) => s.id === wk[i].session.type).label}, ${wk[i].session.minutes} min vanaf ${wk[i].session.start})` : ""}`
+          `${DAY_FULL[i]}: ${Math.round(energy.kcals[i])} kcal${wk[i].session ? ` (${wk[i].session.label || SESSIONS.find((s) => s.id === wk[i].session.type).label}, ${wk[i].session.minutes} min vanaf ${wk[i].session.start})` : ""}`
       ),
       "",
       `${DAY_FULL[selDay]} in detail`,
@@ -12509,7 +12601,7 @@ function MacroApp() {
 
   return (
     <div className="min-h-screen w-full" style={{ background: C.bg, color: C.ink }}>
-      <style>{STYLE}</style>
+      <style>{STYLE + PERF_STYLE}</style>
       <span className="grain" aria-hidden="true" />
 
       {/* ---------------- afdrukweergave ---------------- */}
@@ -12565,7 +12657,7 @@ function MacroApp() {
                     </div>
                     <div className="text-xs mt-1 soft">
                       {p.days.map((d) => DAY_FULL[d]).join(", ")}
-                      {p.session ? ` · ${SESSIONS.find((x) => x.id === p.session.type).label}, ${p.session.minutes} min vanaf ${p.session.start}` : ""}
+                      {p.session ? ` · ${p.session.label || SESSIONS.find((x) => x.id === p.session.type).label}, ${p.session.minutes} min vanaf ${p.session.start}` : ""}
                     </div>
                   </div>
                   <div className="text-right shrink-0">
@@ -13259,7 +13351,11 @@ function MacroApp() {
             )}
             {!bill.locked && (
               <TrainingBoundary quiet>
-                <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
+                {discipline === "bodybuilding" || T.active ? (
+                  <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
+                ) : (
+                  <PerfTodayCard store={perfStore} onOpen={() => setTab("training")} />
+                )}
               </TrainingBoundary>
             )}
             {loaded && !T.active && !bill.locked && (() => {
@@ -13535,7 +13631,7 @@ function MacroApp() {
                   <div className="flex-1 px-3 py-2" style={{ background: C.train, color: C.onTrain, borderRadius: R.field }}>
                     <div className="disp text-lg font-bold uppercase leading-none">Training tot {toHHMM(e.end)}</div>
                     <div className="text-xs mt-1" style={{ opacity: 0.9 }}>
-                      {SESSIONS.find((s) => s.id === session.type).label} · {Math.round(energy.sess[selDay])} kcal extra
+                      {session.label || SESSIONS.find((s) => s.id === session.type).label} · {Math.round(energy.sess[selDay])} kcal extra
                       verbruik
                     </div>
                   </div>
@@ -14185,7 +14281,25 @@ function MacroApp() {
           </>
         )}
         {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
-        {tab === "training" && !bill.locked && (
+        {tab === "training" && !bill.locked && !T.active && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
+        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
+          <TrainingBoundary>
+            <PerformanceTraining
+              store={perfStore}
+              nx={nx}
+              discipline={discipline}
+              bbLog={T.sessions
+                .filter((x) => x.end)
+                .map((x) => {
+                  const st = sessionStats(x);
+                  return { id: x.id, date: x.date, name: x.name, facts: `${st.min} min · ${st.sets} werksets · ${fmtKgTotal(st.ton)}` };
+                })}
+              onBodybuilding={() => perfStore[1].setDiscipline("bodybuilding")}
+              onGoTab={setTab}
+            />
+          </TrainingBoundary>
+        )}
+        {tab === "training" && !bill.locked && (discipline === "bodybuilding" || T.active) && (
           <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
             <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
             <TrainingTab
@@ -14198,6 +14312,7 @@ function MacroApp() {
               onStart={startTraining}
               summary={trainSummary}
               setSummary={setTrainSummary}
+              perfSessions={perfData.sessions}
             />
             </ProfileCtx.Provider>
           </TrainingBoundary>
@@ -14205,6 +14320,7 @@ function MacroApp() {
         {tab === "eten" && bill.locked && <CoachPaywall bill={bill} feature="eten" onStart={startCoach} />}
         {tab === "eten" && !bill.locked && (
           <>
+        {discipline !== "bodybuilding" && <PerfFueling store={perfStore} weight={weight} />}
         {/* ---------------- variatie deze week ---------------- */}
         <Section
           title="Variatie deze week"
@@ -14670,6 +14786,7 @@ function MacroApp() {
         {tab === "plan" && bill.locked && <CoachPaywall bill={bill} feature="plan" onStart={startCoach} />}
         {tab === "plan" && !bill.locked && (
           <>
+        {discipline !== "bodybuilding" && <PerfProgress store={perfStore} onOpen={() => setTab("training")} />}
         {/* ---------------- actief plan ---------------- */}
         {autopilot && (
           <Section
@@ -15412,6 +15529,7 @@ function MacroApp() {
         {tab === "gezondheid" && bill.locked && <CoachPaywall bill={bill} feature="gezondheid" onStart={startCoach} />}
         {tab === "gezondheid" && !bill.locked && (
           <>
+        {discipline !== "bodybuilding" && <PerfRecovery store={perfStore} />}
         {/* ---------------- micronutriënten en hormonen ---------------- */}
         <Section
           title="Hormonale gezondheid"
@@ -15625,18 +15743,19 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
+        {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
         <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
         <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
         <PrivacySection s={nx} />
         {/* ---------------- invoer ---------------- */}
-        <Section title="Weekschema" sub="Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen.">
+        <Section title="Weekschema" sub={discipline === "bodybuilding" ? "Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen." : "Uw trainingen komen uit uw schema in Training en sturen de voeding per dag. Pas ze daar aan; wijzigingen hier worden overschreven."}>
           {week.map((d, i) => (
             <div key={i} style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
               <button onClick={() => setEditDay(editDay === i ? null : i)} className="w-full px-3 py-3 flex items-center justify-between gap-3 text-left">
                 <span className="text-sm font-medium w-24 shrink-0">{DAY_FULL[i]}</span>
                 <span className="text-xs text-right" style={{ color: d.session ? C.ink : C.muted }}>
                   {d.session
-                    ? `${SESSIONS.find((s) => s.id === d.session.type).label}, ${d.session.minutes} min vanaf ${d.session.start}`
+                    ? `${d.session.label || SESSIONS.find((s) => s.id === d.session.type).label}, ${d.session.minutes} min vanaf ${d.session.start}`
                     : "Rustdag"}
                   {d.flex ? ` · flex ${d.flex > 0 ? "+" : ""}${d.flex} kcal` : ""}
                   {dayCfg(i).own ? ` · eigen ritme, ${dayCfg(i).meals} maaltijden` : ""}
@@ -16199,3 +16318,10 @@ function MacroApp() {
     </div>
   );
 }
+
+/* Gedeelde bouwstenen voor Nexa Hybrid (src/hybrid/). Bewust één exportregel
+   onderaan: de tests knippen functies uit dit bestand en voeren ze los uit,
+   dus een "export" vóór een functie zou daar breken. Alle kleuren lopen via
+   CSS-variabelen, zodat deze onderdelen in Hybrid vanzelf de Hybrid-kleuren
+   krijgen. */
+export { STYLE, C, R, Section, Row, Seg, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur, EXERCISES, MUSCLES, calcBMR, recommendedProtein, ACTIVITY, activityFactorOf, stepsOf };

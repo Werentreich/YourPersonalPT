@@ -1,10 +1,10 @@
-/* Twee pagina's om te cachen: de landingspagina (/) en de app (/app/).
-   De app is één zelfstandig HTML-bestand (React, stijlen en logica inline).
+/* Drie pagina's om te cachen: de landingspagina (/), de app (/app/) en
+   Nexa Hybrid (/hybrid/). Elke app is één zelfstandig HTML-bestand (React, stijlen en logica inline).
    Elke navigatie gaat eerst naar het netwerk en valt zonder verbinding terug
    op de laatst opgeslagen versie van die pagina. Lettertypen en afbeeldingen
    van de landingspagina komen uit de gewone cache. */
-const CACHE = "nexa-shell-v10";
-const SHELL = ["/", "/app/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/icon-512-maskable.png"];
+const CACHE = "nexa-shell-v11";
+const SHELL = ["/", "/app/", "/hybrid/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/icon-512-maskable.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
@@ -26,7 +26,8 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/.netlify/")) return; // serverfuncties nooit uit de cache
 
   if (req.mode === "navigate") {
-    const key = url.pathname === "/app" || url.pathname.startsWith("/app/") ? "/app/" : "/";
+    const app = (p) => url.pathname === p || url.pathname.startsWith(p + "/");
+    const key = app("/app") ? "/app/" : app("/hybrid") ? "/hybrid/" : "/";
     event.respondWith(
       fetch(req)
         .then((res) => {

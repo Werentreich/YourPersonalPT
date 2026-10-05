@@ -2,7 +2,7 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
-  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin
 
 /sw.js
@@ -13,7 +13,14 @@
   Cache-Control: no-cache
   Content-Type: application/manifest+json
 
+/hybrid.webmanifest
+  Cache-Control: no-cache
+  Content-Type: application/manifest+json
+
 /icon-*.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/hybrid-icon-*.png
   Cache-Control: public, max-age=31536000, immutable
 
 /assets/fonts/*

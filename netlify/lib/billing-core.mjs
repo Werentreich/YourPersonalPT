@@ -22,10 +22,27 @@ export const TABLE = "nexa_subscriptions";
 export const TRIAL_DAYS = 7;
 export const PRODUCT_NAME = "Nexa Coach";
 
+/* Twee niveaus. Nexa Hybrid is de upgrade boven Nexa Coach en geeft ook
+   toegang tot alles van Coach. In Supabase staat het niveau in de kolom plan:
+   maand/jaar voor Coach, hybrid_maand/hybrid_jaar voor Hybrid. */
 export const PLANS = {
-  maand: { lookup: "nexa_coach_maand", amount: 1499, interval: "month", label: "Nexa Coach, per maand", env: "STRIPE_PRICE_MAAND" },
-  jaar: { lookup: "nexa_coach_jaar", amount: 9999, interval: "year", label: "Nexa Coach, per jaar", env: "STRIPE_PRICE_JAAR" },
+  maand: { lookup: "nexa_coach_maand", amount: 1499, interval: "month", label: "Nexa Coach, per maand", env: "STRIPE_PRICE_MAAND", tier: "coach" },
+  jaar: { lookup: "nexa_coach_jaar", amount: 9999, interval: "year", label: "Nexa Coach, per jaar", env: "STRIPE_PRICE_JAAR", tier: "coach" },
+  hybrid_maand: { lookup: "nexa_hybrid_maand", amount: 1999, interval: "month", label: "Nexa Hybrid, per maand", env: "STRIPE_PRICE_HYBRID_MAAND", tier: "hybrid" },
+  hybrid_jaar: { lookup: "nexa_hybrid_jaar", amount: 13999, interval: "year", label: "Nexa Hybrid, per jaar", env: "STRIPE_PRICE_HYBRID_JAAR", tier: "hybrid" },
 };
+const PRODUCTS = { coach: "Nexa Coach", hybrid: "Nexa Hybrid" };
+export const isHybridPlan = (plan) => typeof plan === "string" && plan.startsWith("hybrid_");
+
+/* Niveau van een Stripe-prijs: via de lookup key, de metadata of een eigen
+   prijs-ID uit de omgeving. */
+export function tierOfPrice(price) {
+  if (!price) return "coach";
+  if ((price.lookup_key || "").startsWith("nexa_hybrid")) return "hybrid";
+  if (price.metadata && price.metadata.nexa_tier === "hybrid") return "hybrid";
+  if ([env("STRIPE_PRICE_HYBRID_MAAND"), env("STRIPE_PRICE_HYBRID_JAAR")].filter(Boolean).includes(price.id)) return "hybrid";
+  return "coach";
+}
 
 /* Statussen die toegang geven. past_due: de betaling is mislukt en Stripe
    probeert het nog; de gebruiker houdt toegang tot Stripe opgeeft. */
@@ -121,8 +138,8 @@ export async function priceFor(planId) {
   const found = await s.prices.list({ lookup_keys: [p.lookup], active: true, limit: 1 });
   if (found.data.length) return found.data[0].id;
   const products = await s.products.list({ active: true, limit: 100 });
-  let product = products.data.find((x) => x.metadata && x.metadata.nexa === "coach");
-  if (!product) product = await s.products.create({ name: PRODUCT_NAME, metadata: { nexa: "coach" } });
+  let product = products.data.find((x) => x.metadata && x.metadata.nexa === p.tier);
+  if (!product) product = await s.products.create({ name: PRODUCTS[p.tier], metadata: { nexa: p.tier } });
   const price = await s.prices.create({
     product: product.id,
     currency: "eur",
@@ -131,6 +148,7 @@ export async function priceFor(planId) {
     tax_behavior: "inclusive",
     lookup_key: p.lookup,
     nickname: p.label,
+    metadata: { nexa_tier: p.tier },
   });
   return price.id;
 }
@@ -140,11 +158,13 @@ export async function priceFor(planId) {
 export function rowFromSubscription(sub) {
   const item = sub.items && sub.items.data && sub.items.data[0];
   const interval = item && item.price && item.price.recurring ? item.price.recurring.interval : null;
+  const base = interval === "year" ? "jaar" : interval === "month" ? "maand" : null;
+  const plan = base && tierOfPrice(item && item.price) === "hybrid" ? `hybrid_${base}` : base;
   const periodEnd = (item && item.current_period_end) || sub.current_period_end || null;
   const ts = (x) => (x ? new Date(x * 1000).toISOString() : null);
   return {
     status: sub.status,
-    plan: interval === "year" ? "jaar" : interval === "month" ? "maand" : null,
+    plan,
     trial_end: ts(sub.trial_end),
     current_period_end: ts(periodEnd),
     cancel_at_period_end: !!sub.cancel_at_period_end,
@@ -193,6 +213,18 @@ export async function syncSubscription(sub, hintUserId = null) {
    quotum op is. Werkt zonder de geheime sleutel. */
 export async function labelQuota(token) {
   const r = await fetch(`${SB_URL}/rest/v1/rpc/label_quota`, {
+    method: "POST",
+    headers: { apikey: SB_PUBLISHABLE, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  if (!r.ok) throw new Error(`quotum: ${r.status}`);
+  return Number(await r.json());
+}
+
+/* Dagquotum van de AI-coach van Nexa Hybrid (Supabase-functie coach_quota),
+   op dezelfde manier als labelQuota. */
+export async function coachQuota(token) {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/coach_quota`, {
     method: "POST",
     headers: { apikey: SB_PUBLISHABLE, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: "{}",

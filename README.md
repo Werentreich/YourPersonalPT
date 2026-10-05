@@ -19,6 +19,8 @@ behouden bewust hun oude naam, zodat bestaande gegevens bewaard blijven.
 
 ```
 src/App.jsx          de volledige app: rekenkern, UI, alles in één bestand
+src/boot.jsx         opstart en opslaglaag, gedeeld door Nexa en Nexa Hybrid
+src/hybrid/          Nexa Hybrid (tweede build, op /hybrid/), zie docs/hybrid/
 src/sync.js          account, synchronisatie en abonnementsstatus (Supabase)
 landing/             landingspagina (statische HTML, lettertypen, schermafbeeldingen)
 public/              statische bestanden (manifest, service worker, iconen, 404, robots)
@@ -38,6 +40,43 @@ beschikbaar is. Wie eraan werkt via Claude Code kan gewoon in dat ene
 bestand editen; `npm run build` zet het om naar een zelfstandige
 `dist/index.html` van ongeveer 460 kB, met alles inline (React, stijlen,
 logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
+
+## Nexa Hybrid (opgegaan in Nexa)
+
+Sinds oktober 2026 zit alles van Hybrid in Nexa zelf: Training heeft een sportkeuze (bodybuilding, kracht, hybride, hardlopen, conditie) via `src/perf/`; /hybrid stuurt door naar /app. Zie `docs/hybrid/05-NEXA-COMPLEET.md`.
+
+Tweede app uit deze codebase voor hybride atleten (kracht en duur), op
+`/hybrid/`. Upgrade boven Nexa Coach, zelfde account, eigen merk.
+Plan en fasering: `docs/hybrid/00-PLAN.md`; merk: `docs/hybrid/01-MERK.md`.
+Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify.app/hybrid/
+
+- `npm run build` bouwt beide apps: `dist/app/index.html` en `dist/hybrid/index.html`.
+- Hybrid gebruikt gedeelde onderdelen uit `src/App.jsx` via de exportregel
+  onderaan dat bestand (niet via losse `export`-woorden: de tests knippen
+  functies uit `App.jsx`).
+- Opslag onder `macroverdeling:hybrid:*`, zodat het Nexa-account het
+  vanzelf synchroniseert.
+- Rekenkern in `src/hybrid/engine/` (model, zones, belasting, bewegingen en
+  blokken: sets, rondes, AMRAP, EMOM, For Time, intervallen, doorlopend), import in
+  `src/hybrid/import/files.js` (FIT/GPX/TCX), schermen in `src/hybrid/ui/`.
+  Planner en herstel in `src/hybrid/engine/planner.js` en `readiness.js`,
+  voeding in `src/hybrid/engine/fuel.js` (gebruikt Nexa's rustverbruik),
+  live timer in `src/hybrid/ui/timer.jsx`.
+  Tests: `tests/hybrid-*.mjs` (toegang, motor, blokken, planner, timer,
+  voeding, Strava, coach, GPS).
+- Routes (GPS) staan alleen op het apparaat onder `nexa:hybrid-route:<id>`.
+- Strava: `netlify/functions/strava-*.mjs` en `netlify/lib/strava-core.mjs`,
+  tabel en postvak in `supabase/migrations/20261003_hybrid_strava.sql`.
+  Inschakelen: zie `docs/hybrid/00-PLAN.md`, "Inschakelen".
+- AI-coach: `netlify/functions/hybrid-coach.mjs` en `netlify/lib/coach-core.mjs`
+  (Claude), context in `src/hybrid/engine/coach.js` (alleen afgeleide cijfers,
+  geen Strava-gegevens), quotum in `supabase/migrations/20261004_hybrid_coach.sql`.
+- Live GPS: `src/hybrid/engine/gps.js` en `src/hybrid/ui/live.jsx`.
+- Eigen app (Capacitor): `capacitor.config.json`, `npm run native:www`,
+  `src/hybrid/native/`; zie `docs/hybrid/03-NATIVE.md`. Garmin: `docs/hybrid/04-GARMIN.md`.
+- Abonnement: plannen `hybrid_maand` en `hybrid_jaar` (Stripe-lookup keys
+  `nexa_hybrid_maand` / `nexa_hybrid_jaar`). Coach naar Hybrid wordt direct
+  geüpgraded op hetzelfde Stripe-abonnement, naar rato verrekend.
 
 ## Ontwikkelen
 

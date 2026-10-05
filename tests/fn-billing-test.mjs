@@ -126,4 +126,47 @@ ok("etiket zonder account: 401", (await etiket(eReq())).status === 401);
 db.set("u1", { ...db.get("u1"), status: "canceled" });
 ok("etiket zonder abonnement: 402", (await etiket(eReq("Bearer goed"))).status === 402);
 
+// ---------- Nexa Hybrid: tweede niveau, upgrade vanaf Coach ----------
+const upd = [];
+s.subscriptions.retrieve = async (id) => ({ id, status: db.get("u1").status, metadata: { user_id: "u1" }, items: { data: [{ id: "si_1", price: { recurring: { interval: "year" } } }] } });
+s.subscriptions.update = async (id, p) => (upd.push(p), sub({ id, status: "active", metadata: p.metadata, items: { data: [{ price: { lookup_key: "nexa_hybrid_jaar", recurring: { interval: "year" } }, current_period_end: 1790000000 }] } }));
+d = await (await billing(req("GET"))).json();
+ok("GET: Hybrid-prijzen erbij, Coach ongewijzigd", d.prices.hybrid_jaar === 139.99 && d.prices.hybrid_maand === 19.99 && d.prices.jaar === 99.99 && d.prices.maand === 14.99);
+
+db.set("u1", { user_id: "u1", status: "active", plan: "jaar", stripe_customer_id: "cus_1", stripe_subscription_id: "sub_new" });
+made.length = 0;
+r = await billing(req("POST", { action: "checkout", plan: "hybrid_jaar", from: "hybrid" }, { authorization: "Bearer goed" }));
+d = await r.json();
+ok("upgrade Coach naar Hybrid: zelfde abonnement, nieuwe prijs, naar rato", d.upgraded === true && upd.length === 1 && upd[0].items[0].id === "si_1" && upd[0].proration_behavior === "always_invoice" && made.every((m) => m[0] !== "checkout"));
+ok("upgrade: terug naar /hybrid/", d.url === "https://nexa-performance.netlify.app/hybrid/?abonnement=gelukt");
+ok("upgrade: plan in Supabase is hybrid_jaar", db.get("u1").plan === "hybrid_jaar", JSON.stringify(db.get("u1")));
+const hp = made.find((m) => m[0] === "product");
+const hpr = made.find((m) => m[0] === "price");
+ok("Hybrid-product en -prijs zelf aangemaakt", hp && hp[1].name === "Nexa Hybrid" && hp[1].metadata.nexa === "hybrid" && hpr && hpr[1].unit_amount === 13999 && hpr[1].metadata.nexa_tier === "hybrid" && hpr[1].lookup_key === "nexa_hybrid_jaar");
+
+made.length = 0;
+r = await billing(req("POST", { action: "checkout", plan: "hybrid_jaar", from: "hybrid" }, { authorization: "Bearer goed" }));
+d = await r.json();
+const hpo = made.find((m) => m[0] === "portal");
+ok("al Hybrid: naar beheer, terug naar /hybrid/", d.existing === true && upd.length === 1 && hpo && hpo[1].return_url.endsWith("/hybrid/?abonnement=terug"));
+
+db.set("u1", { user_id: "u1", status: "trialing", plan: "maand", stripe_customer_id: "cus_1", stripe_subscription_id: "sub_new", trial_end: "2026-10-09T00:00:00Z" });
+await billing(req("POST", { action: "checkout", plan: "hybrid_maand", from: "hybrid" }, { authorization: "Bearer goed" }));
+ok("upgrade tijdens proef: proef loopt door, geen tussentijdse factuur", upd.length === 2 && upd[1].proration_behavior === "none");
+
+db.set("u1", { user_id: "u1", status: "canceled", stripe_customer_id: "cus_1", stripe_subscription_id: "sub_x", trial_end: "2026-01-01T00:00:00Z" });
+made.length = 0;
+await billing(req("POST", { action: "checkout", plan: "hybrid_maand", from: "hybrid" }, { authorization: "Bearer goed" }));
+const hco = made.find((m) => m[0] === "checkout");
+ok("nieuw Hybrid-abonnement via Checkout, terug naar /hybrid/", hco && hco[1].success_url.endsWith("/hybrid/?abonnement=gelukt") && hco[1].metadata.plan === "hybrid_maand");
+
+const rs = (price) => core.rowFromSubscription(sub({ items: { data: [{ price, current_period_end: 1 }] } })).plan;
+ok("niveau via lookup key", rs({ lookup_key: "nexa_hybrid_maand", recurring: { interval: "month" } }) === "hybrid_maand");
+ok("niveau via metadata", rs({ metadata: { nexa_tier: "hybrid" }, recurring: { interval: "year" } }) === "hybrid_jaar");
+process.env.STRIPE_PRICE_HYBRID_MAAND = "price_eigen";
+ok("niveau via eigen prijs-ID", rs({ id: "price_eigen", recurring: { interval: "month" } }) === "hybrid_maand");
+delete process.env.STRIPE_PRICE_HYBRID_MAAND;
+ok("Coach blijft maand/jaar", rs({ lookup_key: "nexa_coach_jaar", recurring: { interval: "year" } }) === "jaar");
+ok("geen from: terug naar /app/ (Nexa ongewijzigd)", co.success_url.includes("/app/"));
+
 console.log(fails ? fails + " FOUT" : "Alle tests geslaagd");

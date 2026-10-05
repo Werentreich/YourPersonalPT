@@ -1,0 +1,19 @@
+{
+  "appId": "nl.nexa.app",
+  "appName": "Nexa",
+  "webDir": "native/www",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost"
+  },
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#EEF0F4"
+  },
+  "android": {
+    "backgroundColor": "#EEF0F4"
+  },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false }
+  }
+}
