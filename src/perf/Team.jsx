@@ -8,7 +8,7 @@ import { C, R, Section, Row, Sheet, TBtn } from "../App.jsx";
 import { SETTINGS_DEFAULT, GOALS } from "../hybrid/engine/planner.js";
 import { PlanSheet } from "../hybrid/ui/plan.jsx";
 import { DISCIPLINES, disciplineOfGoal } from "./theme.js";
-import { SCOPES, DEFAULT_SCOPES, INVITE_KEY, teamCall, inviteUrl, takeInviteFromUrl, applyPlan, assignmentText, readTeamCache, writeTeamCache } from "./team.js";
+import { SCOPES, DEFAULT_SCOPES, INVITE_KEY, teamCall, inviteUrl, takeInviteFromUrl, applyPlan, assignmentText, readTeamCache, writeTeamCache, readSeen, writeSeen, newActivity, activityText } from "./team.js";
 
 const inputStyle = () => ({ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink });
 const dayLabel = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" });
@@ -22,6 +22,10 @@ export function useTeam(nx, { perfApi, perfData, f, setF }) {
   const [team, setTeam] = useState(() => readTeamCache());
   const [notice, setNotice] = useState(null); // { text, undo }
   const [error, setError] = useState(null);
+  const [unread, setUnread] = useState({});
+  const [feed, setFeed] = useState([]);
+  const [seen, setSeen] = useState(() => readSeen());
+  const [msgOpen, setMsgOpen] = useState(null);
   const ctx = useRef({});
   ctx.current = { perfApi, perfData, f, setF };
   const loggedIn = !!(nx && nx.user);
@@ -63,6 +67,8 @@ export function useTeam(nx, { perfApi, perfData, f, setF }) {
       const t = { links: d.links || [], coveredBy: d.coveredBy || null };
       setTeam(t);
       writeTeamCache(t);
+      setUnread(d.unread || {});
+      setFeed(d.feed || []);
       setError(null);
       if (d.assignments && d.assignments.length) apply(d.assignments);
       return t;
@@ -85,13 +91,68 @@ export function useTeam(nx, { perfApi, perfData, f, setF }) {
   }, [loggedIn, refresh]);
 
   const clients = team.links.filter((l) => l.role === "coach" && l.status === "actief");
-  return { ...team, clients, notice, setNotice, error, refresh };
+  const act = newActivity(feed, seen);
+  useEffect(() => {
+    // koppelingen die nog niet bekend waren: vanaf nu meetellen
+    if (Object.keys(act.seen).length !== Object.keys(seen).length) {
+      setSeen(act.seen);
+      writeSeen(act.seen);
+    }
+  }, [feed]);
+  const markSeen = (linkId) => {
+    const next = { ...seen, ...(linkId ? { [linkId]: Date.now() } : Object.fromEntries(Object.keys(act.seen).map((k) => [k, Date.now()]))) };
+    setSeen(next);
+    writeSeen(next);
+  };
+  const badge = (linkId) => (unread[linkId] || 0) + act.items.filter((x) => x.linkId === linkId).length;
+  return { ...team, clients, notice, setNotice, error, refresh, unread, feed, activity: act.items, markSeen, badge, msgOpen, setMsgOpen };
 }
 
 /* Melding bovenaan na een opdracht van de coach. */
-export function TeamNotice({ team }) {
+export function TeamNotice({ team, onOpenClient }) {
   const n = team.notice;
-  if (!n) return null;
+  const msgLinks = team.links.filter((l) => l.status === "actief" && team.unread[l.id]);
+  const act = team.activity || [];
+  return (
+    <>
+      {msgLinks.map((l) => (
+        <button key={l.id} onClick={() => team.setMsgOpen(l)} className="tap w-full text-left mb-3 px-4 py-3 flex items-center gap-3" style={{ background: C.panel, borderRadius: R.card, border: `1px solid ${C.accent}` }}>
+          <span className="shrink-0 rounded-full" style={{ width: 10, height: 10, background: C.accent }} />
+          <span className="text-sm flex-1">
+            <strong>{team.unread[l.id] === 1 ? "Nieuw bericht" : `${team.unread[l.id]} nieuwe berichten`}</strong> van {l.role === "coach" ? l.clientName : l.coachName}
+          </span>
+          <span className="text-xs shrink-0" style={{ color: C.accent, fontWeight: 600 }}>
+            Lezen
+          </span>
+        </button>
+      ))}
+      {act.length > 0 && (
+        <div className="mb-3 px-4 py-3 flex items-center gap-3" style={{ background: C.panel, borderRadius: R.card, border: `1px solid ${C.line}` }} role="status">
+          <span className="shrink-0 rounded-full" style={{ width: 10, height: 10, background: "var(--carb-fill)" }} />
+          <span className="text-sm flex-1 leading-snug">{activityText(act)}</span>
+          <div className="flex flex-col gap-1 shrink-0 text-xs" style={{ fontWeight: 600 }}>
+            <button
+              onClick={() => {
+                const l = team.clients.find((x) => x.id === act[0].linkId);
+                if (l && onOpenClient) onOpenClient(l);
+              }}
+              className="tap"
+              style={{ color: C.accent }}
+            >
+              Bekijken
+            </button>
+            <button onClick={() => team.markSeen(null)} className="tap" style={{ color: C.muted }}>
+              Gezien
+            </button>
+          </div>
+        </div>
+      )}
+      {n && <NoticeBox team={team} n={n} />}
+    </>
+  );
+}
+
+function NoticeBox({ team, n }) {
   return (
     <div className="mb-4 px-4 py-3 flex items-start gap-3" style={{ background: "var(--accent-soft)", borderRadius: R.card, border: `1px solid ${C.accent}` }} role="status">
       <p className="text-sm flex-1 leading-relaxed" style={{ color: C.ink }}>
@@ -303,9 +364,14 @@ export function TeamSection({ nx, team, onOpenClient }) {
           {coaches.map((l) => (
             <div key={l.id} style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
               <Row label={`Coach: ${l.coachName}`} hint={Object.entries(SCOPES).filter(([k]) => l.scopes[k]).map(([, s]) => s.label.toLowerCase()).join(", ") || "geen rechten"}>
-                <TBtn small kind="ghost" onClick={() => setEditing(editing === l.id ? null : l.id)}>
-                  Rechten
-                </TBtn>
+                <div className="flex gap-1.5">
+                  <TBtn small onClick={() => team.setMsgOpen(l)}>
+                    {team.unread[l.id] ? `Berichten (${team.unread[l.id]})` : "Berichten"}
+                  </TBtn>
+                  <TBtn small kind="ghost" onClick={() => setEditing(editing === l.id ? null : l.id)}>
+                    Rechten
+                  </TBtn>
+                </div>
               </Row>
               {editing === l.id && <ScopeEditor link={l} busy={busy} onSave={(s) => saveScopes(l, s)} onStop={() => stop(l)} />}
             </div>
@@ -314,7 +380,7 @@ export function TeamSection({ nx, team, onOpenClient }) {
             l.status === "actief" ? (
               <Row key={l.id} label={l.clientName} hint={`U coacht · ${Object.entries(SCOPES).filter(([k]) => l.scopes[k]).map(([, s]) => s.label.toLowerCase()).join(", ") || "geen rechten"}`}>
                 <TBtn small onClick={() => onOpenClient(l)}>
-                  Openen
+                  {team.badge(l.id) ? `Openen (${team.badge(l.id)})` : "Openen"}
                 </TBtn>
               </Row>
             ) : (
@@ -433,8 +499,13 @@ export function TeamSwitcher({ team, onOpenClient }) {
         Ik
       </span>
       {team.clients.map((l) => (
-        <button key={l.id} onClick={() => onOpenClient(l)} className="tap shrink-0 px-3.5 py-1.5 text-sm" style={{ borderRadius: 999, border: `1px solid ${C.line}`, background: C.panel, color: C.ink, fontWeight: 500 }}>
+        <button key={l.id} onClick={() => onOpenClient(l)} className="tap shrink-0 px-3.5 py-1.5 text-sm flex items-center gap-1.5" style={{ borderRadius: 999, border: `1px solid ${C.line}`, background: C.panel, color: C.ink, fontWeight: 500 }}>
           {l.clientName}
+          {team.badge(l.id) > 0 && (
+            <span className="tnum text-[11px] px-1.5 rounded-full" style={{ background: C.accent, color: C.onAccent, fontWeight: 700 }} aria-label={`${team.badge(l.id)} nieuw`}>
+              {team.badge(l.id)}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -445,7 +516,7 @@ export function TeamSwitcher({ team, onOpenClient }) {
 
 const GOAL_LABEL = { cut: "Afvallen", onderhoud: "Gewicht houden", bulk: "Spiermassa opbouwen" };
 
-export function ClientSheet({ link, onClose }) {
+export function ClientSheet({ link, onClose, team }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   const [plan, setPlan] = useState(false);
@@ -457,6 +528,9 @@ export function ClientSheet({ link, onClose }) {
       .catch((e) => setErr(e.message));
   }, [link.id]);
   useEffect(load, [load]);
+  useEffect(() => {
+    if (team) team.markSeen(link.id);
+  }, [link.id]);
   const s = d && d.summary;
   const sc = (d && d.link && d.link.scopes) || link.scopes;
   const assign = async (kind, payload) => {
@@ -500,6 +574,11 @@ export function ClientSheet({ link, onClose }) {
           <p className="text-sm px-3 py-2" style={{ background: "var(--accent-soft)", borderRadius: R.field }} role="status">
             {msg}
           </p>
+        )}
+        {team && (
+          <TBtn full kind="ghost" onClick={() => team.setMsgOpen(link)}>
+            {team.unread[link.id] ? `Berichten (${team.unread[link.id]} nieuw)` : `Bericht aan ${link.clientName}`}
+          </TBtn>
         )}
         {s && (
           <>
@@ -689,5 +768,111 @@ function Tile({ label, value, sub }) {
         {sub}
       </div>
     </div>
+  );
+}
+
+/* ---------------- berichten ---------------- */
+
+const timeLabel = (iso) => {
+  const d = new Date(iso);
+  const today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" }) : d.toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+};
+
+export function MessagesSheet({ link, team, onClose }) {
+  const [list, setList] = useState(null);
+  const [me, setMe] = useState(link.role === "coach" ? "coach" : "sporter");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const end = useRef(null);
+  const other = link.role === "coach" ? link.clientName : link.coachName;
+  const load = useCallback(() => {
+    teamCall("messages", { linkId: link.id })
+      .then((d) => {
+        setList(d.messages || []);
+        if (d.me) setMe(d.me);
+        team.refresh();
+      })
+      .catch((e) => setErr(e.message));
+  }, [link.id]);
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 20000); // zolang het scherm open is: af en toe verversen
+    return () => clearInterval(id);
+  }, [load]);
+  useEffect(() => {
+    if (end.current && end.current.scrollIntoView) end.current.scrollIntoView({ block: "end" });
+  }, [list && list.length]);
+  const send = async () => {
+    const t = text.trim();
+    if (!t) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const d = await teamCall("send", { linkId: link.id, text: t });
+      setList((l) => [...(l || []), d.message]);
+      setText("");
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet title={other} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="space-y-2" style={{ minHeight: 120 }}>
+          {list === null && !err && <p className="text-sm" style={{ color: C.muted }}>Laden…</p>}
+          {list && !list.length && (
+            <p className="text-sm" style={{ color: C.muted }}>
+              Nog geen berichten. {link.role === "coach" ? `Schrijf ${other} een tip, een compliment of uitleg bij het schema.` : `Stel ${other} een vraag of laat weten hoe het gaat.`}
+            </p>
+          )}
+          {(list || []).map((m) => {
+            const mine = m.author === me;
+            return (
+              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                <div className="max-w-[85%] px-3 py-2" style={{ background: mine ? C.accent : C.surface2, color: mine ? C.onAccent : C.ink, borderRadius: 14, borderBottomRightRadius: mine ? 4 : 14, borderBottomLeftRadius: mine ? 14 : 4 }}>
+                  <div className="text-sm whitespace-pre-wrap leading-snug" style={{ overflowWrap: "anywhere" }}>
+                    {m.body}
+                  </div>
+                  <div className="text-[10px] mt-0.5" style={{ opacity: 0.7 }}>
+                    {timeLabel(m.created_at)}
+                    {mine && m.read_at ? " · gelezen" : ""}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={end} />
+        </div>
+        {err && (
+          <p className="text-sm" style={{ color: C.train }} role="alert">
+            {err}
+          </p>
+        )}
+        <div className="flex gap-2 items-end">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value.slice(0, 1000))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            rows={2}
+            placeholder={`Bericht aan ${other}`}
+            className="flex-1 px-3 py-2 text-sm"
+            style={{ ...inputStyle(), resize: "none" }}
+            aria-label={`Bericht aan ${other}`}
+          />
+          <TBtn disabled={busy || !text.trim()} onClick={send}>
+            Stuur
+          </TBtn>
+        </div>
+      </div>
+    </Sheet>
   );
 }

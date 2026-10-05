@@ -52,4 +52,25 @@ const mem = { v: {}, setItem(k, x) { this.v[k] = x; }, getItem(k) { return this.
 ok("code uit de link bewaard", A.takeInviteFromUrl({ search: "?koppel=abcd2345", pathname: "/app/", hash: "" }, mem) === "ABCD2345" && mem.v[A.INVITE_KEY] === "ABCD2345");
 ok("uitnodigingslink", A.inviteUrl("ABCD2345", "https://x.nl") === "https://x.nl/app/?koppel=ABCD2345");
 
+// ---------- fase 2: berichten en activiteit ----------
+ok("bericht: leeg geweigerd, lange tekst ingekort, witregels beperkt", T.cleanMessage("   ") === null && T.cleanMessage("x".repeat(2000)).length === 1000 && T.cleanMessage("a\n\n\n\nb") === "a\n\nb");
+{
+  const links = [
+    { id: "L1", client_id: "u1", client_name: "Lisa", scopes: { voortgang: true } },
+    { id: "L2", client_id: "u2", client_name: "Tom", scopes: { voortgang: false } },
+  ];
+  const rowsF = [
+    { user_id: "u1", value: JSON.stringify({ sessions: [{ date: "2026-10-06", title: "Kracht A", kind: "kracht", createdAt: 2000, rpe: 7, notes: "privé" }, { date: "2026-09-01", title: "oud" }, { date: "2026-10-05", kind: "duur", sport: "hardlopen", createdAt: 1000 }] }) },
+    { user_id: "u2", value: JSON.stringify({ sessions: [{ date: "2026-10-06", title: "Geheim" }] }) },
+  ];
+  const feed = T.activityFeed(rowsF, links, now);
+  ok("activiteit: alleen sporters die voortgang delen, laatste 7 dagen, nieuwste eerst", feed.length === 2 && feed[0].title === "Kracht A" && feed[1].title === "hardlopen" && !feed.some((x) => x.title === "Geheim" || x.title === "oud"));
+  ok("activiteit: geen notities", feed[0].notes === undefined && feed[0].name === "Lisa");
+  const first = A.newActivity(feed, {}, 5000);
+  ok("nieuwe koppeling: telt pas vanaf nu (geen stortvloed)", first.items.length === 0 && first.seen.L1 === 5000);
+  const later = A.newActivity([...feed, { linkId: "L1", name: "Lisa", title: "Loop-wandel", at: 6000 }], first.seen, 7000);
+  ok("daarna: alleen wat nieuw is", later.items.length === 1 && later.items[0].title === "Loop-wandel");
+  ok("meldtekst activiteit", A.activityText([{ name: "Lisa", title: "Kracht A" }, { name: "Lisa", title: "B" }]) === 'Lisa heeft "Kracht A" gedaan, en nog 1 training.');
+}
+
 if (fails) process.exit(1);

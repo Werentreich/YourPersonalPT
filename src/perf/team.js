@@ -93,3 +93,37 @@ export function writeTeamCache(t, store = typeof localStorage !== "undefined" ? 
     /* alleen in het geheugen */
   }
 }
+
+/* ---------------- fase 2: gezien en nieuw ---------------- */
+export const SEEN_KEY = "nexa:team-seen"; // per koppeling: tot wanneer de coach de activiteit heeft gezien
+
+export function readSeen(store = typeof localStorage !== "undefined" ? localStorage : null) {
+  try {
+    const v = JSON.parse((store && store.getItem(SEEN_KEY)) || "null");
+    return v && typeof v === "object" ? v : {};
+  } catch (e) {
+    return {};
+  }
+}
+export function writeSeen(v, store = typeof localStorage !== "undefined" ? localStorage : null) {
+  try {
+    store && store.setItem(SEEN_KEY, JSON.stringify(v));
+  } catch (e) {
+    /* niets */
+  }
+}
+
+/* Nieuwe activiteit sinds de coach laatst keek. Een koppeling die nog niet
+   bekend was, telt vanaf nu (geen stortvloed van oude trainingen). */
+export function newActivity(feed, seen, now = Date.now()) {
+  const next = { ...seen };
+  for (const f of feed || []) if (next[f.linkId] == null) next[f.linkId] = now;
+  return { items: (feed || []).filter((f) => f.at > next[f.linkId]), seen: next };
+}
+
+export function activityText(items) {
+  if (!items.length) return null;
+  const first = items[0];
+  const more = items.length - 1;
+  return `${first.name} heeft "${first.title}" gedaan${more > 0 ? `, en nog ${more} ${more === 1 ? "training" : "trainingen"}` : ""}.`;
+}
