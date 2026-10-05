@@ -2,7 +2,9 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
-import { PerfRecovery, PerfFueling, PerfProgress } from "./perf/tabs.jsx";
+import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
+import { stravaCall, pullInbox, clearInboxRows } from "./hybrid/strava.js";
+import { isNative as isNativeApp } from "./hybrid/native/platform.js";
 import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
 import { useHybridStore } from "./hybrid/store.js";
 
@@ -10737,6 +10739,7 @@ const COACH_FEATURES = [
   ["Meerwekenplan", "cutten, opbouwen en minicuts, week voor week doorgerekend"],
   ["Wekelijkse bijsturing", "op gewicht, taille en kracht, zodat vetverlies nooit voor stilstand wordt aangezien"],
   ["Etiketten scannen", "foto van de verpakking en het product staat erin"],
+  ["Elke sport", "bodybuilding, kracht, hybride, hardlopen en Hyrox, met begeleiding, coach, Strava en agenda"],
 ];
 
 const COACH_FEATURE_TITLE = {
@@ -10749,6 +10752,21 @@ const COACH_FEATURE_TITLE = {
 
 function CoachPaywall({ bill, feature, onStart }) {
   const [plan, setPlan] = useState("jaar");
+  /* In de eigen app (App Store / Play Store) geen aankoop of betaallink:
+     Apple 3.1.1 en Google Play eisen hun eigen betaalsysteem. Wie Nexa Coach
+     op de website heeft, logt in (Apple 3.1.3(b)). */
+  if (isNativeApp())
+    return (
+      <div className="mb-8 px-5 py-6" style={{ background: C.dark, color: C.darkInk, borderRadius: R.card }}>
+        <div className="text-[11px] uppercase tracking-wide" style={{ color: C.darkMuted, fontWeight: 600 }}>
+          Nexa Coach
+        </div>
+        <h2 className="disp text-2xl font-bold uppercase leading-tight mt-2">{COACH_FEATURE_TITLE[feature] || "Uw persoonlijke begeleiding"}</h2>
+        <p className="text-sm mt-2 leading-relaxed" style={{ color: C.darkMuted }}>
+          Nexa Coach hoort bij uw Nexa-account. Log in met het account waarmee u Nexa Coach gebruikt.
+        </p>
+      </div>
+    );
   const perMonth = bill.prices.jaar / 12;
   const saving = Math.round((1 - bill.prices.jaar / (bill.prices.maand * 12)) * 100);
   const trial = !bill.hadTrial;
@@ -11246,6 +11264,47 @@ function MacroApp() {
       /* niets */
     }
   }, [wantCoach, loaded, onboarding, bill.on, bill.locked]);
+  // terug van Strava (koppelen): melding in Profiel en de laatste 14 dagen ophalen
+  const [stravaNotice, setStravaNotice] = useState(null);
+  const [stravaKey, setStravaKey] = useState(0);
+  useEffect(() => {
+    if (!perfStore[2]) return; // eerst de trainingsgegevens laden
+    let q = null;
+    try {
+      q = new URLSearchParams(window.location.search).get("strava");
+    } catch (e) {
+      q = null;
+    }
+    if (!q) return;
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    } catch (e) {
+      /* adres laten staan */
+    }
+    const text = {
+      gekoppeld: "Strava is gekoppeld. De activiteiten van de laatste 14 dagen worden opgehaald.",
+      geweigerd: "U heeft geen toestemming gegeven in Strava. Er is niets gekoppeld.",
+      rechten: "Geef bij het koppelen toestemming om uw activiteiten te lezen, anders kan Nexa niets ophalen.",
+      fout: "Koppelen met Strava is niet gelukt. Probeer het opnieuw.",
+      uit: "De koppeling met Strava is nog niet ingeschakeld.",
+    }[q];
+    if (text) setStravaNotice(text);
+    setTab("profiel");
+    if (q === "gekoppeld") {
+      (async () => {
+        try {
+          const d = await stravaCall("sync");
+          const rows = await pullInbox();
+          if (rows.length) perfStore[1].applyInbox(rows);
+          await clearInboxRows(rows.map((x) => x.id));
+          setStravaNotice(d.count ? `Strava is gekoppeld: ${d.count} activiteiten opgehaald.` : "Strava is gekoppeld. Nieuwe activiteiten komen vanzelf binnen.");
+        } catch (e) {
+          /* ophalen lukt later bij openen */
+        }
+        setStravaKey((k) => k + 1);
+      })();
+    }
+  }, [perfStore[2]]);
   // terug van Stripe: melding tonen en de status ophalen tot de webhook binnen is
   useEffect(() => {
     let q = null;
@@ -15684,6 +15743,7 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
+        {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
         <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
         <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
         <PrivacySection s={nx} />

@@ -11,7 +11,7 @@ import { calendarLink, downloadICS } from "../calendar.js";
 import { platform } from "../native/platform.js";
 import { Card, Eyebrow, Field } from "./kit.jsx";
 
-const SITE_URL = "https://nexa-performance.netlify.app/hybrid/";
+const SITE_URL = "https://nexa-performance.netlify.app/app/";
 const isApple = () => platform() === "ios" || (typeof navigator !== "undefined" && /iPhone|iPad|Macintosh/.test(navigator.userAgent));
 
 function TimeSelect({ value, onChange }) {

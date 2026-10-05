@@ -95,8 +95,8 @@ const review = { kop: "Sterke week", samenvatting: "Goed volume.", goed: ["Rusti
 ok("GET: klaar met sleutel", (await (await fn(new Request(`${ORIGIN}/.netlify/functions/hybrid-coach`))).json()).ok === true);
 ok("vreemde herkomst: 403", (await call({ mode: "week", context: ctx }, { origin: "https://evil.example" })).status === 403);
 ok("niet ingelogd: 401", (await call({ mode: "week", context: ctx }, { auth: "Bearer fout" })).status === 401);
-subs = [{ user_id: "u1", status: "active", plan: "coach_maand" }];
-ok("alleen Nexa Coach: 402", (await call({ mode: "week", context: ctx })).status === 402 && quota === 5);
+subs = [];
+ok("geen abonnement: 402", (await call({ mode: "week", context: ctx })).status === 402 && quota === 5);
 subs = [{ user_id: "u1", status: "active", plan: "hybrid_maand" }];
 ok("ongeldige invoer: 400 zonder quotum te gebruiken", (await call({ mode: "week" })).status === 400 && quota === 5);
 

@@ -2,7 +2,7 @@
 
    GET                         -> { enabled }
    GET ?code=…&state=…         terugkeer van Strava na toestemming: tokens
-                               opslaan en terug naar /hybrid/
+                               opslaan en terug naar /app/ (Nexa)
    POST { action: "start" }    -> { url } naar de toestemmingspagina van Strava
    POST { action: "status" }   -> { connected, athlete }
    POST { action: "sync" }     -> activiteiten van de laatste 14 dagen ophalen
@@ -39,7 +39,7 @@ export default async (req) => {
   const origin0 = allowedOrigin(req);
   const json = req.method === "POST" ? jsonFor(origin0) : plainJson;
   const origin = url.origin;
-  const back = (q) => redirect(`${origin}/hybrid/?strava=${q}`);
+  const back = (q) => redirect(`${origin}/app/?strava=${q}`);
   const callback = `${origin}/.netlify/functions/strava-auth`;
 
   if (req.method === "GET") {
@@ -81,7 +81,7 @@ export default async (req) => {
   } catch {
     return json(400, { ok: false, code: "invoer" });
   }
-  if (!(await hybridAllowed(user.id, billingEnabled()))) return json(402, { ok: false, code: "hybrid", message: "De koppeling met Strava hoort bij Nexa Hybrid." });
+  if (!(await hybridAllowed(user.id, billingEnabled()))) return json(402, { ok: false, code: "hybrid", message: "De koppeling met Strava hoort bij Nexa Coach." });
 
   try {
     if (body.action === "start") {

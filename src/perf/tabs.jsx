@@ -11,6 +11,9 @@ import { fuelingFor, hoursToNext } from "../hybrid/engine/fuel.js";
 import { CheckinCard } from "../hybrid/ui/plan.jsx";
 import { FuelTips } from "../hybrid/ui/fuel.jsx";
 import { PillarMini, FitnessChart } from "../hybrid/ui/charts.jsx";
+import { AthleteSection } from "../hybrid/ui/screens.jsx";
+import { StravaSection } from "../hybrid/ui/integrations.jsx";
+import { CalendarCard } from "../hybrid/ui/calendar.jsx";
 import { fmtDuration } from "../hybrid/engine/model.js";
 
 /* Kop in de stijl van een Nexa-sectie, zonder kaart eromheen. */
@@ -130,6 +133,25 @@ export function PerfProgress({ store, onOpen }) {
           </div>
         )}
       </Section>
+    </div>
+  );
+}
+
+/* ---------------- Profiel ----------------
+   Sporterprofiel (hartslag, tempo, vermogen), Strava en agenda. */
+export function PerfProfile({ store, nx, stravaKey, notice }) {
+  const [data, api] = store;
+  const acc = { locked: false, loggedIn: !!(nx && nx.user), on: false };
+  return (
+    <div className="perf perf-cards mb-8">
+      {notice && (
+        <p className="text-sm px-3 py-2" style={{ background: "var(--accent-soft)", color: C.ink, borderRadius: R.field }} role="status">
+          {notice}
+        </p>
+      )}
+      <AthleteSection profile={data.profile} setProfile={api.setProfile} />
+      <StravaSection data={data} api={api} nx={nx} acc={acc} refreshKey={stravaKey} />
+      {data.plan && <CalendarCard data={data} api={api} nx={nx} />}
     </div>
   );
 }

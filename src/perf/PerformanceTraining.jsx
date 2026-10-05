@@ -23,7 +23,7 @@ const VIEWS = [
   { id: "week", label: "Schema" },
   { id: "log", label: "Logboek" },
   { id: "voortgang", label: "Inzichten" },
-  { id: "meer", label: "Meer" },
+  { id: "meer", label: "Coach" },
 ];
 
 /* Keuze van de sport, boven in Training. */
@@ -158,8 +158,9 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
     page = (
       <div className="perf-cards">
         <CoachCard data={data} api={api} nx={nx} acc={acc} />
-        <AthleteSection profile={data.profile} setProfile={api.setProfile} />
-        <StravaSection data={data} api={api} nx={nx} acc={acc} />
+        <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+          Hartslag, tempo en vermogen voor uw zones, Strava en uw agenda stelt u in bij Profiel.
+        </p>
       </div>
     );
 

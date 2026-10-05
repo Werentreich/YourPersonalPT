@@ -1,6 +1,6 @@
 {
-  "appId": "nl.nexa.hybrid",
-  "appName": "Nexa Hybrid",
+  "appId": "nl.nexa.app",
+  "appName": "Nexa",
   "webDir": "native/www",
   "server": {
     "androidScheme": "https",
@@ -8,10 +8,10 @@
   },
   "ios": {
     "contentInset": "never",
-    "backgroundColor": "#F1EDE6"
+    "backgroundColor": "#EEF0F4"
   },
   "android": {
-    "backgroundColor": "#F1EDE6"
+    "backgroundColor": "#EEF0F4"
   },
   "plugins": {
     "CapacitorHttp": { "enabled": false }

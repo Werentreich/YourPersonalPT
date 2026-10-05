@@ -9,7 +9,7 @@ contact [privacy-e-mailadres]. Geen functionaris gegevensbescherming verplicht
 (geen grootschalige verwerking als kernactiviteit van een overheid of
 monitoring); heroverwegen bij grote groei.
 
-Laatst bijgewerkt: 3 oktober 2026 (Nexa Hybrid: rij 8 t/m 13).
+Laatst bijgewerkt: 5 oktober 2026. Nexa Hybrid is opgegaan in Nexa; rij 8 t/m 13 gelden nu voor de prestatietraining in Nexa (kracht, hybride, hardlopen, conditie), bij het abonnement Nexa Coach.
 
 | # | Verwerking | Doel | Categorieën betrokkenen | Persoonsgegevens | Grondslag | Ontvangers / verwerkers | Doorgifte buiten EER | Bewaartermijn | Beveiliging |
 |---|---|---|---|---|---|---|---|---|---|

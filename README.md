@@ -41,7 +41,9 @@ bestand editen; `npm run build` zet het om naar een zelfstandige
 `dist/index.html` van ongeveer 460 kB, met alles inline (React, stijlen,
 logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
 
-## Nexa Hybrid
+## Nexa Hybrid (opgegaan in Nexa)
+
+Sinds oktober 2026 zit alles van Hybrid in Nexa zelf: Training heeft een sportkeuze (bodybuilding, kracht, hybride, hardlopen, conditie) via `src/perf/`; /hybrid stuurt door naar /app. Zie `docs/hybrid/05-NEXA-COMPLEET.md`.
 
 Tweede app uit deze codebase voor hybride atleten (kracht en duur), op
 `/hybrid/`. Upgrade boven Nexa Coach, zelfde account, eigen merk.

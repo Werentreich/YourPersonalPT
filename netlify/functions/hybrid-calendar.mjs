@@ -28,7 +28,7 @@ export default async (req) => {
       const data = await hybridData(tok.userId);
       const cal = (data && data.calendar) || {};
       if (!cal.enabled || Number(cal.v || 1) !== tok.v) return new Response("Niet gevonden", { status: 404 });
-      const ics = buildICS(calendarItems(data, todayAmsterdam()), { time: cal.time || DEFAULT_TIME, alarm: cal.alarm || null, url: `${SITE}/hybrid/`, name: "Nexa Hybrid" });
+      const ics = buildICS(calendarItems(data, todayAmsterdam()), { time: cal.time || DEFAULT_TIME, alarm: cal.alarm || null, url: `${SITE}/app/`, name: "Nexa training" });
       return new Response(ics, { status: 200, headers: { "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "private, max-age=900", "Content-Disposition": 'inline; filename="nexa-hybrid.ics"' } });
     } catch (e) {
       console.error("calendar:", e && e.message);
@@ -43,7 +43,7 @@ export default async (req) => {
   if (!calendarEnabled()) return json(503, { ok: false, code: "uit", message: "De agenda-koppeling is nog niet ingeschakeld." });
   const user = await userFromRequest(req).catch(() => null);
   if (!user) return json(401, { ok: false, code: "inloggen", message: "Log in met uw Nexa-account om uw agenda te koppelen." });
-  if (!(await hybridAllowed(user.id, billingEnabled()))) return json(402, { ok: false, code: "abonnement", message: "De agenda-koppeling hoort bij Nexa Hybrid." });
+  if (!(await hybridAllowed(user.id, billingEnabled()))) return json(402, { ok: false, code: "abonnement", message: "De agenda-koppeling hoort bij Nexa Coach." });
   let body;
   try {
     body = await req.json();

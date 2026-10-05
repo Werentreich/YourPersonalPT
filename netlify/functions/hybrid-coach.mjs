@@ -32,7 +32,7 @@ export default async (req) => {
 
   const user = await userFromRequest(req).catch(() => null);
   if (!user) return json(401, { ok: false, code: "inloggen", message: "Log in met uw Nexa-account om de coach te gebruiken." });
-  if (!(await hybridAllowed(user.id, billingEnabled()))) return json(402, { ok: false, code: "abonnement", message: "De coach hoort bij Nexa Hybrid." });
+  if (!(await hybridAllowed(user.id, billingEnabled()))) return json(402, { ok: false, code: "abonnement", message: "De coach hoort bij Nexa Coach." });
 
   let body;
   try {

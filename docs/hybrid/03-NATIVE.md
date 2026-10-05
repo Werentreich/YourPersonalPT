@@ -1,4 +1,7 @@
-# Nexa Hybrid als eigen app (iOS en Android)
+# Nexa als eigen app (iOS en Android)
+
+> Sinds oktober 2026 is Nexa Hybrid opgegaan in Nexa. De eigen app is daarom
+> Nexa (`nl.nexa.app`, webmap uit `dist/app`); alles hieronder geldt voor Nexa.
 
 De webapp is voorbereid op een eigen app met **Capacitor**: dezelfde code in
 een native schil, met toegang tot GPS op de achtergrond, Apple Gezondheid

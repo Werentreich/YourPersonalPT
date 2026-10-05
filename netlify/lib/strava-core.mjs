@@ -76,11 +76,13 @@ export const putInbox = (userId, externalId, activity, deleted = false) =>
     body: JSON.stringify({ user_id: userId, provider: "strava", external_id: String(externalId), deleted, activity: deleted ? null : activity, created_at: new Date().toISOString() }),
   });
 
-/* Alleen voor Nexa Hybrid (of gratis toegang). Zonder betaalmuur: iedereen. */
+/* Coach, Strava en agenda horen bij het betaalde abonnement van Nexa
+   (Nexa Coach; ook een lopend Hybrid-abonnement telt). Zonder betaalmuur:
+   iedereen. */
 export async function hybridAllowed(userId, billingOn) {
   if (!billingOn) return true;
   const row = await getSub(userId).catch(() => null);
-  return !!row && entitled(row) && (row.status === "comp" || isHybridPlan(row.plan));
+  return !!row && entitled(row);
 }
 
 /* ---------------- tokens ---------------- */
