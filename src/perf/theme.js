@@ -22,6 +22,10 @@ export const PERF_STYLE = `
 :root[data-theme="dark"] .perf {${DARK}}
 .perf .contours { display: none; }
 .perf h1 { display: none; }
+/* Inzichten en Meer: kaartkoppen als Nexa-sectiekoppen */
+.perf-cards .eyebrow { font-family: 'Barlow Condensed', 'Barlow', sans-serif; font-size: 20px; font-weight: 700; letter-spacing: 0; color: var(--ink); text-transform: uppercase; display: flex; align-items: center; gap: 8px; line-height: 1; }
+.perf-cards .eyebrow::before { content: ""; display: inline-block; width: 6px; height: 18px; border-radius: 2px; background: var(--accent); }
+.perf-cards > * + * { margin-top: 1.5rem; }
 .perf .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 `;
 

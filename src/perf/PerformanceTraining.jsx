@@ -16,6 +16,7 @@ import { CoachCard } from "../hybrid/ui/coach.jsx";
 import { CalendarCard } from "../hybrid/ui/calendar.jsx";
 import { LiveRecorder, savedLive } from "../hybrid/ui/live.jsx";
 import { DISCIPLINES } from "./theme.js";
+import { PerfOverview, PerfSchema, UnifiedLog } from "./screens.jsx";
 
 const VIEWS = [
   { id: "vandaag", label: "Vandaag" },
@@ -91,7 +92,7 @@ function StartPlan({ discipline, onMake }) {
   );
 }
 
-export function PerformanceTraining({ store, nx, discipline }) {
+export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodybuilding }) {
   ensureNexaExercises();
   const [data, api, loaded, nexa] = store;
   const acc = { locked: false, loggedIn: !!(nx && nx.user), on: false };
@@ -132,32 +133,37 @@ export function PerformanceTraining({ store, nx, discipline }) {
   else if (!planFits && view !== "log" && view !== "voortgang" && view !== "meer") page = <StartPlan discipline={discipline} onMake={() => setPlanOpen(true)} />;
   else if (view === "vandaag")
     page = (
-      <TodayView
+      <PerfOverview
         data={data}
+        api={api}
+        discipline={discipline}
+        onLog={logDraft}
+        onGuide={guide}
+        onOpenSession={openSession}
         onAdd={add}
         onOpen={open}
-        focus={data.plan ? <TodayPlan data={data} api={api} onLog={logDraft} onGuide={guide} onOpenSession={openSession} nbase={nbase} /> : <QuickStart onQuick={quick} onLive={() => setLive(true)} onAdd={add} onPlan={() => setPlanOpen(true)} />}
-        top={
-          <>
+        onQuick={quick}
+        onLive={() => setLive(true)}
+        onPlan={() => setPlanOpen(true)}
+        goTo={go}
+        checkin={
+          <div className="mb-8">
             <NeedsRpeCard sessions={data.sessions} onOpen={open} />
-            <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
-            {nbase && <NutritionToday data={data} base={nbase} />}
-          </>
+            <div className="mt-3">
+              <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
+            </div>
+          </div>
         }
+        nutrition={nbase ? <div className="mb-8"><NutritionToday data={data} base={nbase} /></div> : null}
       />
     );
   else if (view === "week")
-    page = (
-      <div className="space-y-4">
-        <WeekView data={data} api={api} onLog={logDraft} onGuide={guide} onOpenSession={openSession} nbase={nbase} goals={d.goals} />
-        <CalendarCard data={data} api={api} nx={nx} />
-      </div>
-    );
-  else if (view === "log") page = <LogView data={data} onAdd={add} onOpen={open} />;
-  else if (view === "voortgang") page = <ProgressView data={data} />;
+    page = <PerfSchema data={data} api={api} goals={d.goals} nbase={nbase} onLog={logDraft} onGuide={guide} onOpenSession={openSession} extraBelow={<CalendarCard data={data} api={api} nx={nx} />} />;
+  else if (view === "log") page = <UnifiedLog data={data} bbLog={bbLog} onAdd={add} onOpen={open} onOpenBodybuilding={onBodybuilding} />;
+  else if (view === "voortgang") page = <div className="perf-cards"><ProgressView data={data} /></div>;
   else
     page = (
-      <div className="space-y-4">
+      <div className="perf-cards">
         <CoachCard data={data} api={api} nx={nx} acc={acc} />
         <AthleteSection profile={data.profile} setProfile={api.setProfile} />
         <StravaSection data={data} api={api} nx={nx} acc={acc} />

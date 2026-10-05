@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
+import { perfLogRows } from "./perf/screens.jsx";
 import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
 import { useHybridStore } from "./hybrid/store.js";
 
@@ -9108,7 +9109,7 @@ function TrainInsights({ T, D }) {
   );
 }
 
-function TrainLog({ T, setT, D }) {
+function TrainLog({ T, setT, D, perfSessions = [] }) {
   const [open, setOpen] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [msg, setMsg] = useState(null);
@@ -9224,6 +9225,21 @@ function TrainLog({ T, setT, D }) {
           </div>
         )}
       </Section>
+      {perfSessions.length > 0 && (
+        <Section title="Andere sporten" sub="Hardlopen, hybride, kracht en conditie uit uw prestatieschema. Kies die sport bovenaan om ze te bewerken.">
+          {perfLogRows(perfSessions)
+            .slice(0, 10)
+            .map((r) => (
+              <div key={r.id} className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                <span className="text-sm font-semibold block">{r.title}</span>
+                <span className="text-xs block tnum" style={{ color: C.muted }}>
+                  {weekdayNL(r.date)}
+                  {r.facts ? ` · ${r.facts}` : ""}
+                </span>
+              </div>
+            ))}
+        </Section>
+      )}
 
       <Section title="Back-up" sub="Uw trainingsdata staan in deze app. Maak af en toe een back-up, of zet ze over naar een ander apparaat.">
         <div className="px-4 py-3 flex flex-wrap gap-2">
@@ -9315,7 +9331,7 @@ const TRAIN_VIEWS = [
   { id: "logboek", label: "Logboek" },
 ];
 
-function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSummary }) {
+function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSummary, perfSessions = [] }) {
   const [view, setView] = useState("overzicht");
   const go = (v) => {
     setView(v);
@@ -9348,7 +9364,7 @@ function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSumma
       {view === "overzicht" && <TrainOverview T={T} setT={setT} D={D} week={week} setWeek={setWeek} onStart={onStart} go={go} />}
       {view === "schema" && <TrainSchema T={T} setT={setT} D={D} week={week} setWeek={setWeek} />}
       {view === "inzichten" && <TrainInsights T={T} D={D} />}
-      {view === "logboek" && <TrainLog T={T} setT={setT} D={D} />}
+      {view === "logboek" && <TrainLog T={T} setT={setT} D={D} perfSessions={perfSessions} />}
       {summary && <SessionSummary s={summary} D={D} T={T} setT={setT} onClose={() => setSummary(null)} />}
     </>
   );
@@ -14200,7 +14216,18 @@ function MacroApp() {
         {tab === "training" && !bill.locked && !T.active && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
         {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
           <TrainingBoundary>
-            <PerformanceTraining store={perfStore} nx={nx} discipline={discipline} />
+            <PerformanceTraining
+              store={perfStore}
+              nx={nx}
+              discipline={discipline}
+              bbLog={T.sessions
+                .filter((x) => x.end)
+                .map((x) => {
+                  const st = sessionStats(x);
+                  return { id: x.id, date: x.date, name: x.name, facts: `${st.min} min · ${st.sets} werksets · ${fmtKgTotal(st.ton)}` };
+                })}
+              onBodybuilding={() => perfStore[1].setDiscipline("bodybuilding")}
+            />
           </TrainingBoundary>
         )}
         {tab === "training" && !bill.locked && (discipline === "bodybuilding" || T.active) && (
@@ -14216,6 +14243,7 @@ function MacroApp() {
               onStart={startTraining}
               summary={trainSummary}
               setSummary={setTrainSummary}
+              perfSessions={perfData.sessions}
             />
             </ProfileCtx.Provider>
           </TrainingBoundary>

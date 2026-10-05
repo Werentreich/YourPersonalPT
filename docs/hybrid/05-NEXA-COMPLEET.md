@@ -17,7 +17,7 @@ Besloten op 5 oktober 2026: Nexa Hybrid gaat op in de originele Nexa-app.
 | Fase | Inhoud | Stand |
 |---|---|---|
 | 1 | Sportkeuze in Training; de Hybrid-planner, het loggen, live GPS en begeleiding, agenda en coach binnen Nexa; Vandaag toont de training van elke sport | klaar (5 okt) |
-| 2 | Schermen herbouwen met de eigen onderdelen van Nexa (Section, Row), één logboek voor alle sporten | |
+| 2 | Schermen herbouwen met de eigen onderdelen van Nexa (Section, Row), één logboek voor alle sporten | klaar (5 okt): Vandaag, Schema en Logboek in Nexa-onderdelen (`src/perf/screens.jsx`); Inzichten en Meer met Nexa-koppen; bodybuilding-logboek toont ook de andere sporten |
 | 3 | Eten: koolhydraten naar belasting in het Nexa-voedingsschema; Gezondheid: herstel, HRV, slaap; Plan: belasting, vorm en records | |
 | 4 | Coach, Strava en agenda in Profiel; /hybrid doorsturen; één abonnement in Stripe en de app | |
 | 5 | Meer sporten (fietsen, triathlon, teamsport) | |
