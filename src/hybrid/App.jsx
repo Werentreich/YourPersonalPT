@@ -16,7 +16,7 @@ import { useHybridStore, HYBRID_KEY } from "./store.js";
 import { newSession } from "./engine/model.js";
 import { isNative, SITE } from "./native/platform.js";
 import { Card, Contours, HIcon } from "./ui/kit.jsx";
-import { SessionSheet } from "./ui/session.jsx";
+import { SessionSheet, ensureNexaExercises } from "./ui/session.jsx";
 import { TodayView, QuickStart, LogView, ProgressView, AthleteSection } from "./ui/screens.jsx";
 import { newBlock } from "./engine/blocks.js";
 import { programFromBlocks } from "./engine/guide.js";
@@ -305,6 +305,7 @@ class HybridBoundary extends React.Component {
 
 /* ---------------- app ---------------- */
 function HybridApp() {
+  ensureNexaExercises();
   const nx = useNexaSync();
   const acc = hybridAccess(nx);
   const [data, api, loaded, nexa] = useHybridStore();

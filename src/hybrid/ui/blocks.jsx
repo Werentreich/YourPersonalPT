@@ -27,7 +27,8 @@ import { fmtDuration, fmtKm, num } from "../engine/model.js";
 import { Field, TextInput, NumInput, DurationInput, Choice, HIcon } from "./kit.jsx";
 import { TimerSheet, canTime } from "./timer.jsx";
 
-const small = { fontSize: 12, color: C.muted };
+/* lui: C komt uit App.jsx, dat in een gezamenlijke build later laadt */
+const small = { fontSize: 12, color: "var(--muted)" };
 const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : "transparent", color: C.ink, fontWeight: on ? 600 : 500 });
 
 function Toggle({ on, onChange, children }) {

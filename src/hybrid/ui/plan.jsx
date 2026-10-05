@@ -23,7 +23,7 @@ const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : 
 /* Kan deze geplande sessie live begeleid worden? (duur, met tijd of afstand per stuk) */
 export const guidable = (item) => item && item.kind === "duur" && item.status === "gepland" && LIVE_SPORTS[item.sport || "hardlopen"] && programFromBlocks(item.blocks).length > 0;
 
-export function PlanSheet({ initial, onSave, onStop, onClose }) {
+export function PlanSheet({ initial, onSave, onStop, onClose, goals = null }) {
   const [s, setS] = useState({ ...SETTINGS_DEFAULT, ...(initial || {}) });
   const set = (p) => setS((x) => ({ ...x, ...p }));
   const toggleDay = (d) => {
@@ -37,7 +37,7 @@ export function PlanSheet({ initial, onSave, onStop, onClose }) {
       <div className="space-y-5 pb-2">
         <Field label="Doel">
           <div className="space-y-1.5">
-            {Object.entries(GOALS).map(([k, g]) => (
+            {Object.entries(GOALS).filter(([k]) => !goals || goals.includes(k)).map(([k, g]) => (
               <button key={k} type="button" onClick={() => set({ goal: k })} className="tap w-full text-left px-3 py-2" style={{ ...chip(s.goal === k), borderRadius: R.field }} aria-pressed={s.goal === k}>
                 <span className="block text-sm" style={{ fontWeight: 600 }}>
                   {g.label}
@@ -331,7 +331,7 @@ export function PlanItemRow({ item, onOpen, border = true }) {
 }
 
 /* ---------------- weekoverzicht ---------------- */
-export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
+export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase, goals = null }) {
   const today = localISO();
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -367,7 +367,7 @@ export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
             </div>
           </div>
         </Card>
-        {editing && <PlanSheet onClose={() => setEditing(false)} onSave={(s) => { api.setPlan(s); setEditing(false); }} />}
+        {editing && <PlanSheet goals={goals} onClose={() => setEditing(false)} onSave={(s) => { api.setPlan(s); setEditing(false); }} />}
       </div>
     );
 
@@ -502,6 +502,7 @@ export function WeekView({ data, api, onLog, onGuide, onOpenSession, nbase }) {
 
       {editing && (
         <PlanSheet
+          goals={goals}
           initial={plan.settings}
           onClose={() => setEditing(false)}
           onSave={(s) => {

@@ -1,4 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
+import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
+import { useHybridStore } from "./hybrid/store.js";
 
 /* =========================================================================
    Nexa - Your personal performance coach
@@ -11015,6 +11018,11 @@ export default function MacroAppRoot() {
 }
 
 function MacroApp() {
+  /* Prestatietraining (kracht, hybride, hardlopen, conditie): eigen opslag,
+     zelfde account. Bodybuilding is de bestaande training hieronder. */
+  const perfStore = useHybridStore();
+  const perfData = perfStore[0];
+  const discipline = perfData.discipline || (perfData.plan ? disciplineOfGoal(perfData.plan.settings.goal) : "bodybuilding");
   const [f, setF] = useState({
     sex: "man",
     age: 36,
@@ -12509,7 +12517,7 @@ function MacroApp() {
 
   return (
     <div className="min-h-screen w-full" style={{ background: C.bg, color: C.ink }}>
-      <style>{STYLE}</style>
+      <style>{STYLE + PERF_STYLE}</style>
       <span className="grain" aria-hidden="true" />
 
       {/* ---------------- afdrukweergave ---------------- */}
@@ -13259,7 +13267,11 @@ function MacroApp() {
             )}
             {!bill.locked && (
               <TrainingBoundary quiet>
-                <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
+                {discipline === "bodybuilding" || T.active ? (
+                  <TodayTrainingCard T={T} D={D} onOpen={() => setTab("training")} onStart={startTraining} />
+                ) : (
+                  <PerfTodayCard store={perfStore} onOpen={() => setTab("training")} />
+                )}
               </TrainingBoundary>
             )}
             {loaded && !T.active && !bill.locked && (() => {
@@ -14185,7 +14197,13 @@ function MacroApp() {
           </>
         )}
         {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
-        {tab === "training" && !bill.locked && (
+        {tab === "training" && !bill.locked && !T.active && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
+        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
+          <TrainingBoundary>
+            <PerformanceTraining store={perfStore} nx={nx} discipline={discipline} />
+          </TrainingBoundary>
+        )}
+        {tab === "training" && !bill.locked && (discipline === "bodybuilding" || T.active) && (
           <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
             <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
             <TrainingTab

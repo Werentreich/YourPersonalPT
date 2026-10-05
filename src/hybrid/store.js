@@ -132,6 +132,10 @@ export function useHybridStore() {
         return { ...d, coach: c };
       });
     },
+    /* Sport in Nexa (bodybuilding, kracht, hybride, hardlopen, conditie). */
+    setDiscipline(v) {
+      setData((d) => ({ ...d, discipline: v }));
+    },
     setCalendar(patch) {
       setData((d) => ({ ...d, calendar: { ...(d.calendar || {}), ...patch } }));
     },

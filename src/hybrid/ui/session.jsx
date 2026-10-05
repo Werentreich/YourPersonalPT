@@ -23,8 +23,17 @@ import { BlocksEditor } from "./blocks.jsx";
 import { importActivity } from "../import/files.js";
 import { Field, TextInput, NumInput, DurationInput, Choice, RpeInput, HIcon, PillarDot, dateLabel } from "./kit.jsx";
 
-export const EX_INDEX = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
-registerNexaExercises(EXERCISES);
+/* Oefeningen van Nexa: pas bij het eerste gebruik inlezen (EXERCISES komt uit
+   App.jsx, dat in de gezamenlijke build later laadt dan dit bestand). */
+export const EX_INDEX = {};
+let nexaReady = false;
+export function ensureNexaExercises() {
+  if (nexaReady || !Array.isArray(EXERCISES)) return EX_INDEX;
+  for (const e of EXERCISES) EX_INDEX[e.id] = e;
+  registerNexaExercises(EXERCISES);
+  nexaReady = true;
+  return EX_INDEX;
+}
 
 /* ---------------- soort kiezen ---------------- */
 const STARTS = [

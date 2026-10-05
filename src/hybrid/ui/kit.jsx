@@ -26,7 +26,7 @@ export function Contours({ seed = 0 }) {
     return `M-10 ${y} C 60 ${y - a}, 110 ${y + a}, 170 ${y - a / 2} S 280 ${y + a}, 340 ${y}`;
   });
   return (
-    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 330 130" preserveAspectRatio="none" aria-hidden="true">
+    <svg className="contours absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 330 130" preserveAspectRatio="none" aria-hidden="true">
       {lines.map((d, i) => (
         <path key={i} d={d} fill="none" stroke="var(--contour)" strokeWidth="1.2" />
       ))}
@@ -80,7 +80,8 @@ export function Field({ label, hint, children }) {
   );
 }
 
-const inputStyle = { background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink };
+/* lui opgebouwd: C en R komen uit App.jsx, dat in de gezamenlijke build later laadt */
+const inputStyleOf = () => ({ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink });
 
 export function TextInput({ value, onChange, placeholder, inputMode, multiline, rows = 3, ariaLabel }) {
   const common = {
@@ -89,7 +90,7 @@ export function TextInput({ value, onChange, placeholder, inputMode, multiline, 
     placeholder,
     "aria-label": ariaLabel,
     className: "w-full px-3 py-2.5 text-sm tnum",
-    style: inputStyle,
+    style: inputStyleOf(),
   };
   return multiline ? <textarea rows={rows} {...common} /> : <input type="text" inputMode={inputMode} {...common} />;
 }
@@ -97,7 +98,7 @@ export function TextInput({ value, onChange, placeholder, inputMode, multiline, 
 /* Getal met eenheid; leeg = null. */
 export function NumInput({ value, onChange, unit, placeholder, step = "any", ariaLabel }) {
   return (
-    <div className="flex items-center" style={{ ...inputStyle, paddingRight: unit ? 10 : 0 }}>
+    <div className="flex items-center" style={{ ...inputStyleOf(), paddingRight: unit ? 10 : 0 }}>
       <input
         type="number"
         inputMode="decimal"
@@ -138,7 +139,7 @@ export function DurationInput({ value, onChange, placeholder = "u:mm:ss", ariaLa
       }}
       onBlur={() => value && setText(fmtDuration(value))}
       className="w-full px-3 py-2.5 text-sm tnum"
-      style={{ ...inputStyle, borderColor: bad ? C.train : C.line }}
+      style={{ ...inputStyleOf(), borderColor: bad ? C.train : C.line }}
     />
   );
 }
