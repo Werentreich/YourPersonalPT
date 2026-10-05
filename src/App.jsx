@@ -15754,7 +15754,7 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
-        <TeamSection nx={nx} team={team} onOpenClient={setClientOpen} />
+        <TeamSection nx={nx} team={team} onOpenClient={setClientOpen} mySettings={perfData.plan ? perfData.plan.settings : null} />
         {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
         <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
         <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
@@ -16268,7 +16268,7 @@ function MacroApp() {
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
         {!bill.locked && tab !== "training" && !T.active && <LiftDock onOpen={() => setTab("training")} />}
         <AcceptInvite nx={nx} team={team} />
-        {clientOpen && !team.msgOpen && <ClientSheet link={clientOpen} team={team} onClose={() => setClientOpen(null)} />}
+        {clientOpen && !team.msgOpen && <ClientSheet link={clientOpen} team={team} mySettings={perfData.plan ? perfData.plan.settings : null} onClose={() => setClientOpen(null)} />}
         {team.msgOpen && <MessagesSheet link={team.msgOpen} team={team} onClose={() => team.setMsgOpen(null)} />}
       </TrainingBoundary>
 

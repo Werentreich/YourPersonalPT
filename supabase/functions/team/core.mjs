@@ -114,6 +114,7 @@ export function clientSummary(rows, scopes, now = Date.now()) {
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .slice(0, 30)
     .map((s) => ({
+      id: typeof s.id === "string" ? s.id.slice(0, 40) : null,
       date: s.date,
       kind: s.kind || null,
       title: s.title || null,
@@ -182,4 +183,14 @@ export function activityFeed(rows, links, now = Date.now()) {
     }
   }
   return out.sort((a, b) => b.at - a.at).slice(0, 30);
+}
+
+/* Training waar een bericht bij hoort (fase 3). */
+export function cleanRef(r) {
+  if (!r || typeof r !== "object") return null;
+  const date = typeof r.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) ? r.date : null;
+  const title = String(r.title || "").trim().slice(0, 80);
+  const sessionId = typeof r.sessionId === "string" ? r.sessionId.slice(0, 40) : null;
+  if (!date || !title) return null;
+  return { sessionId, title, date };
 }
