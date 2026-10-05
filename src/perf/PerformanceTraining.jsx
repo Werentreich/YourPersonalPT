@@ -18,7 +18,7 @@ import { LiveRecorder, savedLive } from "../hybrid/ui/live.jsx";
 import { DISCIPLINES } from "./theme.js";
 import { PerfOverview, PerfSchema, UnifiedLog, RecoveryLine } from "./screens.jsx";
 import { LiveLift } from "./LiveLift.jsx";
-import { liftable, startLift, savedLift, storeLift } from "./lift.js";
+import { liftable, startLift, savedLift, storeLift, emptyLift } from "./lift.js";
 
 const VIEWS = [
   { id: "vandaag", label: "Vandaag" },
@@ -80,7 +80,7 @@ export function PerfTodayCard({ store, onOpen }) {
 }
 
 /* Nog geen schema voor deze sport: kort uitleggen en het schema laten maken. */
-function StartPlan({ discipline, onMake }) {
+function StartPlan({ discipline, onMake, onLift }) {
   const d = DISCIPLINES[discipline];
   return (
     <Section title={`${d.label}: uw schema`}>
@@ -88,7 +88,14 @@ function StartPlan({ discipline, onMake }) {
         <p className="text-sm leading-relaxed" style={{ color: C.ink }}>
           Vertel wat uw doel is en op welke dagen u kunt trainen. Nexa maakt een week die zich aanpast aan wat u doet en hoe u herstelt, en u kunt altijd een week vooruit kijken.
         </p>
-        <TBtn onClick={onMake}>Schema maken</TBtn>
+        <div className="flex flex-wrap gap-2">
+          <TBtn onClick={onMake}>Schema maken</TBtn>
+          {discipline !== "hardlopen" && (
+            <TBtn kind="ghost" onClick={onLift}>
+              Losse krachttraining
+            </TBtn>
+          )}
+        </div>
       </div>
     </Section>
   );
@@ -136,6 +143,10 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
       go("vandaag");
     } else setLive({ item });
   };
+  const startFree = () => {
+    setLift(emptyLift());
+    go("vandaag");
+  };
   const endLift = () => {
     storeLift(null);
     setLift(null);
@@ -162,7 +173,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
         }}
       />
     );
-  else if (!planFits && view !== "log" && view !== "voortgang" && view !== "meer") page = <StartPlan discipline={discipline} onMake={() => setPlanOpen(true)} />;
+  else if (!planFits && view !== "log" && view !== "voortgang" && view !== "meer") page = <StartPlan discipline={discipline} onMake={() => setPlanOpen(true)} onLift={startFree} />;
   else if (view === "vandaag")
     page = (
       <PerfOverview
@@ -176,6 +187,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
         onOpen={open}
         onQuick={quick}
         onLive={() => setLive(true)}
+        onLift={startFree}
         onPlan={() => setPlanOpen(true)}
         goTo={go}
         checkin={<RecoveryLine data={data} onOpen={() => onGoTab && onGoTab("gezondheid")} onRpe={open} />}

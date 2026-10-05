@@ -245,3 +245,72 @@ export function storeLift(t) {
     /* privévenster: dan alleen in het geheugen */
   }
 }
+
+/* ---------------- oefeningen wisselen en toevoegen ---------------- */
+
+/* Losse training zonder schema: begint leeg, oefeningen voegt u toe. */
+export function emptyLift(title = "Krachttraining", now = Date.now()) {
+  return { itemId: null, title, kind: "kracht", start: now, blocks: [], rest: null };
+}
+
+const timedMove = (mv) => !!mv && Array.isArray(mv.metrics) && mv.metrics[0] === "time";
+
+function freshSets(mv, sessions, n, like) {
+  const timed = timedMove(mv);
+  const last = lastFor(sessions, mv.id, mv.name);
+  const lastKg = last && last.sets.map((x) => num(x.kg)).find((v) => v != null);
+  const t = (like && like.target) || {};
+  const target = timed ? { reps: null, repsMax: null, rir: null, sec: t.sec || 30 } : { reps: t.reps || 8, repsMax: t.repsMax || 12, rir: t.rir != null ? t.rir : 2, sec: null };
+  return Array.from({ length: n }, () => ({ kg: timed ? null : lastKg != null ? lastKg : null, reps: null, sec: null, rir: null, done: false, target }));
+}
+
+function itemFor(mv, sessions, n, like) {
+  const sets = freshSets(mv, sessions, n, like);
+  const t = sets[0].target;
+  return {
+    moveId: mv.id || null,
+    name: mv.name,
+    reps: null,
+    distanceM: null,
+    timeSec: null,
+    cal: null,
+    kg: null,
+    heightCm: null,
+    perSide: !!mv.uni && !timedMove(mv),
+    restSec: (like && like.restSec) || 90,
+    repRange: t.sec ? null : `${t.reps}–${t.repsMax}`,
+    sets,
+  };
+}
+
+/* Oefening erbij, als eigen blok aan het eind (3 sets, 8–12 herhalingen). */
+export function addExercise(live, mv, sessions) {
+  const block = { id: newId(), type: "sets", name: live.itemId ? "Extra" : undefined, items: [itemFor(mv, sessions, 3, null)], result: {} };
+  return { ...live, blocks: [...live.blocks, block] };
+}
+
+/* Oefening vervangen (toestel bezet, pijn, geen materiaal): zelfde aantal
+   sets, herhalingsbereik en rust; kg van de vorige keer met de nieuwe
+   oefening. Alleen zolang er nog geen set van is afgevinkt. */
+export function swapExercise(live, bi, ii, mv, sessions) {
+  const blocks = live.blocks.map((b, k) => {
+    if (k !== bi) return b;
+    return {
+      ...b,
+      items: b.items.map((it, n) => {
+        if (n !== ii || it.sets.some((s) => s.done)) return it;
+        return { ...itemFor(mv, sessions, it.sets.length, { target: (it.sets[0] || {}).target, restSec: it.restSec }), swappedFrom: it.name };
+      }),
+    };
+  });
+  return { ...live, blocks };
+}
+
+export function removeExercise(live, bi, ii) {
+  const blocks = live.blocks.map((b, k) => (k !== bi ? b : { ...b, items: b.items.filter((it, n) => n !== ii || it.sets.some((s) => s.done)) })).filter((b) => b.type !== "sets" || b.items.length);
+  return { ...live, blocks };
+}
+
+/* Spiergroep in één taal voor beide bibliotheken (Nexa splitst schouders,
+   Hybrid noemt buik "core"). */
+export const muscleKey = (m) => (!m ? null : m.startsWith("schouder") ? "schouders" : m === "buik" ? "core" : m === "trapezius" ? "rug" : m);

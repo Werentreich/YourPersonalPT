@@ -65,4 +65,31 @@ ok("sessie: afgevinkte warming-up telt mee, open blokken niet", s.blocks.some((b
 const p = L.progress(live);
 ok("voortgang telt werksets", p.done === 4 && p.total > p.done, JSON.stringify(p));
 
+// ---------- wisselen, toevoegen, losse training ----------
+{
+  const M = await import("../src/hybrid/engine/movements.js");
+  let lv = L.startLift(kr, [], 0);
+  const bi = lv.blocks.findIndex((b) => b.name === "Hoofdoefeningen");
+  const before = lv.blocks[bi].items[0];
+  lv = L.swapExercise(lv, bi, 0, M.movementById("leg_press"), []);
+  const after = lv.blocks[bi].items[0];
+  ok("wisselen: nieuwe oefening, zelfde aantal sets, bereik en rust", after.moveId === "leg_press" && after.sets.length === before.sets.length && after.repRange === before.repRange && after.restSec === before.restSec && after.swappedFrom === before.name);
+  lv = L.toggleSet(L.setField(lv, bi, 0, 0, "reps", 10), bi, 0, 0, 1).live;
+  ok("wisselen kan niet meer na een afgevinkte set", L.swapExercise(lv, bi, 0, M.movementById("back_squat"), []).blocks[bi].items[0].moveId === "leg_press");
+  ok("verwijderen kan niet na een afgevinkte set", L.removeExercise(lv, bi, 0).blocks[bi].items.length === lv.blocks[bi].items.length);
+  let free = L.emptyLift();
+  ok("losse training begint leeg", free.blocks.length === 0 && free.itemId === null && !L.anyDone(free));
+  const hist = [{ date: "2026-10-01", createdAt: 1, blocks: [{ type: "sets", items: [{ moveId: "bench_press", name: "Bankdrukken", sets: [{ kg: 70, reps: 8 }] }] }] }];
+  free = L.addExercise(free, M.movementById("bench_press"), hist);
+  const it = free.blocks[0].items[0];
+  ok("toevoegen: 3 sets, 8–12, kg van de vorige keer", free.blocks.length === 1 && it.sets.length === 3 && it.repRange === "8–12" && it.sets[0].kg === 70, JSON.stringify(it.sets[0]));
+  free = L.addExercise(free, M.movementById("dead_bug"), []);
+  free = L.removeExercise(free, 1, 0);
+  ok("open oefening weghalen: blok verdwijnt", free.blocks.length === 1);
+  free = L.toggleSet(L.setField(free, 0, 0, 0, "reps", 8), 0, 0, 0, 5).live;
+  const fs = L.liftToSession(free, 600005);
+  ok("losse training opslaan: geen planItemId, kracht", fs.planItemId === undefined && fs.kind === "kracht" && fs.blocks[0].items[0].sets.length === 1);
+  ok("spiergroepen gelijk tussen bibliotheken", L.muscleKey("schouder_zij") === "schouders" && L.muscleKey("buik") === "core");
+}
+
 if (fails) process.exit(1);

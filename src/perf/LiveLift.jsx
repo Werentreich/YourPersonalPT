@@ -2,12 +2,32 @@
    afwerken, in de stijl van de Nexa-krachttraining. Afvinken start de rust;
    aan het eind van de rust een piep, trilling en de volgende oefening. */
 import React, { useEffect, useRef, useState } from "react";
-import { C, R, TBtn } from "../App.jsx";
+import { C, R, TBtn, EXERCISES } from "../App.jsx";
 import { num } from "../hybrid/engine/model.js";
 import { blockHeader, ROLES } from "../hybrid/engine/blocks.js";
 import { unlockCues, beep, buzz, speak } from "../hybrid/ui/cues.js";
 import { RpeInput } from "../hybrid/ui/kit.jsx";
-import { toggleSet, setField, addSet, removeSet, progress, anyDone, liftToSession, isTimed, lastFor, lastText, storeLift, savedLift, order } from "./lift.js";
+import { MOVEMENTS, movementById, searchMovements } from "../hybrid/engine/movements.js";
+import { MUSCLES_OF } from "../hybrid/engine/planner.js";
+import {
+  toggleSet,
+  setField,
+  addSet,
+  removeSet,
+  progress,
+  anyDone,
+  liftToSession,
+  isTimed,
+  lastFor,
+  lastText,
+  storeLift,
+  savedLift,
+  order,
+  addExercise,
+  swapExercise,
+  removeExercise,
+  muscleKey,
+} from "./lift.js";
 
 const mmss = (sec) => {
   const s = Math.max(0, Math.ceil(sec));
@@ -119,6 +139,66 @@ function RestDock({ rest, onAdjust, onStop, title, onOpen }) {
   );
 }
 
+const muscleOf = (it) => muscleKey((MUSCLES_OF[it.moveId] || [])[0] || (movementById(it.moveId) || {}).muscle);
+
+/* Oefening kiezen: eerst alternatieven voor dezelfde spiergroep, of zoeken. */
+function ExercisePicker({ title, muscle, exclude, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  const ex = new Set(exclude || []);
+  const own = muscle ? MOVEMENTS.filter((m) => muscleKey((MUSCLES_OF[m.id] || [])[0]) === muscle) : [];
+  const names = new Set(own.map((m) => m.name.toLowerCase()));
+  const nexa = muscle
+    ? (EXERCISES || [])
+        .filter((e) => muscleKey((e.pri || [])[0]) === muscle && !names.has(e.name.toLowerCase()))
+        .map((e) => movementById("nexa:" + e.id))
+        .filter(Boolean)
+    : [];
+  const sugg = [...own, ...nexa].filter((m) => !ex.has(m.id)).slice(0, 10);
+  const hits = q.trim() ? searchMovements(q, 10).filter((m) => !ex.has(m.id)) : [];
+  const list = q.trim() ? hits : sugg;
+  return (
+    <div className="mb-4 px-4 py-3" style={{ background: C.panel, border: `1px solid ${C.accent}`, borderRadius: R.card, boxShadow: C.shadow }}>
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <div className="text-sm font-semibold">{title}</div>
+        <button onClick={onClose} className="tap text-xs" style={{ color: C.muted }}>
+          Annuleren
+        </button>
+      </div>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Oefening zoeken, bijv. squat of roeien"
+        className="w-full px-3 py-2.5 text-sm"
+        style={inputStyle()}
+        aria-label="Oefening zoeken"
+        autoFocus={!muscle}
+      />
+      {!q.trim() && muscle && sugg.length > 0 && (
+        <div className="text-[11px] uppercase tracking-wide mt-3 mb-1" style={{ color: C.muted, fontWeight: 600 }}>
+          Zelfde spiergroep
+        </div>
+      )}
+      <div className="mt-1.5 overflow-hidden" style={{ border: list.length ? `1px solid ${C.line}` : "none", borderRadius: R.field }}>
+        {list.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => onPick(m)}
+            className="tap w-full text-left px-3 py-2.5 text-sm"
+            style={{ color: C.ink, borderBottom: `1px solid ${C.lineSoft || C.line}`, background: C.panel }}
+          >
+            {m.name}
+          </button>
+        ))}
+      </div>
+      {q.trim() && (
+        <button onClick={() => onPick({ id: null, name: q.trim(), metrics: ["reps", "kg"] })} className="tap mt-2 text-sm" style={{ color: C.accent, fontWeight: 600 }}>
+          "{q.trim()}" toevoegen als eigen oefening
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Check({ done, onClick, label }) {
   return (
     <button
@@ -145,6 +225,7 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
   const [toast, setToast] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [rpe, setRpe] = useState(null);
+  const [pick, setPick] = useState(null);
   const [open, setOpen] = useState(() => {
     const p = order(live).find((x) => x.ii != null && !live.blocks[x.bi].items[x.ii].sets[x.j].done);
     return p ? `${p.bi}:${p.ii}` : null;
@@ -227,12 +308,14 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
         const ss = b.superset && b.items.length > 1;
         return (
           <div key={b.id || bi} className="mb-4">
-            <div className="flex items-baseline justify-between gap-2 px-1 mb-1.5 text-xs">
-              <span className="font-semibold" style={{ color: ss ? C.accent : C.ink }}>
-                {b.name || "Kracht"}
-              </span>
-              {ss && <span style={{ color: C.muted }}>om de beurt, één set van elk</span>}
-            </div>
+            {(b.name || ss) && (
+              <div className="flex items-baseline justify-between gap-2 px-1 mb-1.5 text-xs">
+                <span className="font-semibold" style={{ color: ss ? C.accent : C.ink }}>
+                  {b.name || "Kracht"}
+                </span>
+                {ss && <span style={{ color: C.muted }}>om de beurt, één set van elk</span>}
+              </div>
+            )}
             {b.text && (
               <p className="px-1 mb-2 text-xs leading-relaxed" style={{ color: C.muted }}>
                 {b.text}
@@ -359,7 +442,37 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
                             − Set
                           </button>
                         )}
+                        <span className="flex-1" />
+                        {!it.sets.some((s) => s.done) && (
+                          <>
+                            <button onClick={() => setPick({ mode: "swap", bi, ii, muscle: muscleOf(it), name: it.name })} className="tap" style={{ color: C.accent, fontWeight: 600 }}>
+                              Wisselen
+                            </button>
+                            <button onClick={() => setLive((x) => removeExercise(x, bi, ii))} className="tap" style={{ color: C.muted }}>
+                              Weg
+                            </button>
+                          </>
+                        )}
                       </div>
+                      {it.swappedFrom && (
+                        <p className="text-[11px] mt-1" style={{ color: C.muted }}>
+                          In plaats van {it.swappedFrom}
+                        </p>
+                      )}
+                      {pick && pick.mode === "swap" && pick.bi === bi && pick.ii === ii && (
+                        <div className="mt-3">
+                          <ExercisePicker
+                            title={`${pick.name} vervangen`}
+                            muscle={pick.muscle}
+                            exclude={[it.moveId]}
+                            onClose={() => setPick(null)}
+                            onPick={(mv) => {
+                              setLive((x) => swapExercise(x, bi, ii, mv, sessions));
+                              setPick(null);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -368,6 +481,36 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
           </div>
         );
       })}
+
+      {pick && pick.mode === "add" ? (
+        <ExercisePicker
+          title="Oefening toevoegen"
+          muscle={null}
+          exclude={[]}
+          onClose={() => setPick(null)}
+          onPick={(mv) => {
+            setLive((x) => addExercise(x, mv, sessions));
+            setOpen(`${live.blocks.length}:0`);
+            setPick(null);
+          }}
+        />
+      ) : (
+        confirm !== "klaar" && (
+          <button
+            onClick={() => setPick({ mode: "add" })}
+            className="tap w-full mb-4 py-3 text-sm"
+            style={{ border: `1px dashed ${C.line}`, borderRadius: R.card, color: C.accent, fontWeight: 600, background: "transparent" }}
+          >
+            + Oefening toevoegen
+          </button>
+        )
+      )}
+
+      {!live.blocks.length && !pick && (
+        <p className="text-sm mb-4 px-1" style={{ color: C.muted }}>
+          Voeg uw eerste oefening toe. Per set vult u kg en herhalingen in en vinkt u hem af; de rust loopt dan vanzelf.
+        </p>
+      )}
 
       {confirm === "leeg" ? (
         <div className="mb-4 px-4 py-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
