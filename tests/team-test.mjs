@@ -1,5 +1,5 @@
 /* Gezin en coaching: codes, rechten, opdrachten en het overzicht voor de coach. */
-const T = await import("../netlify/lib/team-core.mjs");
+const T = await import("../supabase/functions/team/core.mjs");
 const A = await import("../src/perf/team.js");
 let fails = 0;
 const ok = (l, c, i = "") => { if (!c) fails++; console.log((c ? "OK  " : "FOUT") + " " + l + (i !== "" ? "  " + i : "")); };

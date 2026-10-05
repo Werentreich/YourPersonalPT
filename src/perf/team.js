@@ -1,6 +1,9 @@
-/* Gezin en coaching vanuit de app: praat met de functie team. */
-import { fnUrl } from "../hybrid/native/platform.js";
+/* Gezin en coaching vanuit de app: praat met de Edge Function team in
+   Supabase (supabase/functions/team). */
+import { SB_URL, SB_KEY } from "../sync.js";
 import { token } from "../hybrid/strava.js";
+
+export const TEAM_URL = `${SB_URL}/functions/v1/team`;
 
 export const SCOPES = {
   schema: { label: "Trainingsschema instellen", hint: "Uw coach kiest doel, dagen en niveau; Nexa maakt er uw schema van." },
@@ -16,7 +19,7 @@ export async function teamCall(action, body = {}) {
   if (!t) throw Object.assign(new Error("Log eerst in met uw Nexa-account."), { code: "inloggen" });
   let r;
   try {
-    r = await fetch(fnUrl("team"), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` }, body: JSON.stringify({ ...body, action }) });
+    r = await fetch(TEAM_URL, { method: "POST", headers: { "Content-Type": "application/json", apikey: SB_KEY, Authorization: `Bearer ${t}` }, body: JSON.stringify({ ...body, action }) });
   } catch (e) {
     throw new Error("Geen verbinding. Controleer uw internet en probeer het opnieuw.");
   }
