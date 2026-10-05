@@ -14,11 +14,11 @@
    - assign  { linkId, kind, payload } -> { ok }      (coach, binnen de rechten)
    - applied { ids }                -> { ok }         (sporter: opdrachten toegepast)
    - messages { linkId }            -> { messages }   (berichten van een koppeling; markeert gelezen)
-   - send    { linkId, text }       -> { message }    (coach of sporter)
+   - send    { linkId, text, ref? } -> { message }    (coach of sporter; ref: de training waar het bij hoort)
    list geeft ook: unread { linkId: aantal } en feed (gedane trainingen van
    sporters die hun voortgang delen, afgelopen 7 dagen).
    De tabellen coach_links en coach_assignments zijn dicht voor de app. */
-import { newCode, cleanCode, validCode, cleanName, cleanScopes, cleanSchema, cleanVoeding, clientSummary, linkView, cleanMessage, activityFeed, MAX_CLIENTS } from "./core.mjs";
+import { newCode, cleanCode, validCode, cleanName, cleanScopes, cleanSchema, cleanVoeding, clientSummary, linkView, cleanMessage, activityFeed, cleanRef, MAX_CLIENTS } from "./core.mjs";
 
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
         const l = await linkById(body.linkId);
         if (!l || l.status !== "actief" || (l.client_id !== me && l.coach_id !== me)) return bad("Koppeling niet gevonden.", 404, "onbekend");
         const other = l.coach_id === me ? "sporter" : "coach";
-        const msgs = (await sb(`coach_messages?link_id=eq.${l.id}&select=id,author,body,created_at,read_at&order=created_at.desc&limit=100`)) || [];
+        const msgs = (await sb(`coach_messages?link_id=eq.${l.id}&select=id,author,body,ref,created_at,read_at&order=created_at.desc&limit=100`)) || [];
         await sb(`coach_messages?link_id=eq.${l.id}&author=eq.${other}&read_at=is.null`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ read_at: new Date().toISOString() }) });
         return json(200, { ok: true, me: other === "sporter" ? "coach" : "sporter", messages: msgs.reverse() });
       }
@@ -235,7 +235,7 @@ Deno.serve(async (req) => {
         if (!text) return bad("Schrijf eerst een bericht.");
         const recent = (await sb(`coach_messages?link_id=eq.${l.id}&created_at=gt.${enc(new Date(Date.now() - 3600_000).toISOString())}&select=id`)) || [];
         if (recent.length >= 60) return bad("Even rustig aan: te veel berichten in het afgelopen uur.", 429, "te_veel");
-        const rows = await sb(`coach_messages`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ link_id: l.id, author: l.coach_id === me ? "coach" : "sporter", body: text }) });
+        const rows = await sb(`coach_messages`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ link_id: l.id, author: l.coach_id === me ? "coach" : "sporter", body: text, ref: cleanRef(body.ref) }) });
         return json(200, { ok: true, message: rows[0] });
       }
       default:

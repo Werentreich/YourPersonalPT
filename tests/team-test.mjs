@@ -73,4 +73,9 @@ ok("bericht: leeg geweigerd, lange tekst ingekort, witregels beperkt", T.cleanMe
   ok("meldtekst activiteit", A.activityText([{ name: "Lisa", title: "Kracht A" }, { name: "Lisa", title: "B" }]) === 'Lisa heeft "Kracht A" gedaan, en nog 1 training.');
 }
 
+// ---------- fase 3: reactie bij een training ----------
+ok("ref: training met titel en datum", JSON.stringify(T.cleanRef({ sessionId: "s1", title: "Kracht A", date: "2026-10-05", extra: 1 })) === JSON.stringify({ sessionId: "s1", title: "Kracht A", date: "2026-10-05" }));
+ok("ref: ongeldig wordt null", T.cleanRef({ title: "x", date: "gisteren" }) === null && T.cleanRef(null) === null && T.cleanRef({ date: "2026-10-05" }) === null);
+ok("overzicht: training heeft id voor een reactie", T.clientSummary([{ key: "macroverdeling:hybrid:v1", value: JSON.stringify({ sessions: [{ id: "abc", date: "2026-10-05" }] }) }], { voortgang: true }, now).sessions[0].id === "abc");
+
 if (fails) process.exit(1);

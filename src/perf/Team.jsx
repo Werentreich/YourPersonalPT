@@ -293,7 +293,7 @@ function ScopeToggles({ value, onChange, disabled }) {
 
 /* ---------------- Profiel: koppelingen beheren ---------------- */
 
-export function TeamSection({ nx, team, onOpenClient }) {
+export function TeamSection({ nx, team, onOpenClient, mySettings }) {
   const [inviting, setInviting] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -396,6 +396,7 @@ export function TeamSection({ nx, team, onOpenClient }) {
               </Row>
             )
           )}
+          {mySettings && team.clients.some((l) => l.scopes.schema) && <ShareSchema team={team} mySettings={mySettings} />}
           {inviting ? (
             <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
               <label className="block">
@@ -516,7 +517,7 @@ export function TeamSwitcher({ team, onOpenClient }) {
 
 const GOAL_LABEL = { cut: "Afvallen", onderhoud: "Gewicht houden", bulk: "Spiermassa opbouwen" };
 
-export function ClientSheet({ link, onClose, team }) {
+export function ClientSheet({ link, onClose, team, mySettings }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   const [plan, setPlan] = useState(false);
@@ -610,6 +611,15 @@ export function ClientSheet({ link, onClose, team }) {
                   Instellen
                 </TBtn>
               </div>
+              {mySettings && sc.schema && (
+                <button
+                  onClick={() => assign("schema", { settings: mySettings, note: "Hetzelfde schema als dat van uw coach." })}
+                  className="tap text-xs"
+                  style={{ color: C.accent, fontWeight: 600 }}
+                >
+                  Mijn eigen schema-instellingen aan {link.clientName} geven
+                </button>
+              )}
               {food && <FoodGoalForm initial={s.basis.voeding} onSave={async (p) => (await assign("voeding", p)) && setFood(false)} />}
               {(!sc.schema || !sc.voeding) && (
                 <p className="text-[11px]" style={{ color: C.muted }}>
@@ -619,7 +629,7 @@ export function ClientSheet({ link, onClose, team }) {
             </div>
 
             {sc.voortgang ? (
-              <ClientProgress s={s} />
+              <ClientProgress s={s} onReact={team ? (x) => team.setMsgOpen({ ...link, _ref: { sessionId: x.id, title: x.title || x.sport || x.kind || "training", date: x.date } }) : null} />
             ) : (
               <p className="text-xs" style={{ color: C.muted }}>
                 {link.clientName} deelt de voortgang niet.
@@ -690,7 +700,7 @@ function FoodGoalForm({ initial, onSave }) {
   );
 }
 
-function ClientProgress({ s }) {
+function ClientProgress({ s, onReact }) {
   const today = new Date().toISOString().slice(0, 10);
   const week = (s.week || []).filter((x) => x.date >= today.slice(0, 8) + "01" || true);
   const done = (s.week || []).filter((x) => x.status === "gedaan" && x.date <= today).length;
@@ -748,6 +758,11 @@ function ClientProgress({ s }) {
                   {x.sets ? ` · ${x.sets} sets` : ""}
                 </span>
                 {x.rpe != null && <span style={{ color: C.muted }}>RPE {x.rpe}</span>}
+                {onReact && (
+                  <button onClick={() => onReact(x)} className="tap shrink-0" style={{ color: C.accent, fontWeight: 600 }}>
+                    Reageren
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -785,6 +800,7 @@ export function MessagesSheet({ link, team, onClose }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [ref, setRef] = useState(link._ref || null);
   const end = useRef(null);
   const other = link.role === "coach" ? link.clientName : link.coachName;
   const load = useCallback(() => {
@@ -810,9 +826,10 @@ export function MessagesSheet({ link, team, onClose }) {
     setBusy(true);
     setErr(null);
     try {
-      const d = await teamCall("send", { linkId: link.id, text: t });
+      const d = await teamCall("send", { linkId: link.id, text: t, ref });
       setList((l) => [...(l || []), d.message]);
       setText("");
+      setRef(null);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -834,6 +851,11 @@ export function MessagesSheet({ link, team, onClose }) {
             return (
               <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div className="max-w-[85%] px-3 py-2" style={{ background: mine ? C.accent : C.surface2, color: mine ? C.onAccent : C.ink, borderRadius: 14, borderBottomRightRadius: mine ? 4 : 14, borderBottomLeftRadius: mine ? 14 : 4 }}>
+                  {m.ref && (
+                    <div className="text-[11px] mb-1 pb-1" style={{ opacity: 0.8, borderBottom: `1px solid ${mine ? "rgba(255,255,255,.3)" : C.line}` }}>
+                      Bij: {m.ref.title} · {dayLabel(m.ref.date)}
+                    </div>
+                  )}
                   <div className="text-sm whitespace-pre-wrap leading-snug" style={{ overflowWrap: "anywhere" }}>
                     {m.body}
                   </div>
@@ -851,6 +873,16 @@ export function MessagesSheet({ link, team, onClose }) {
           <p className="text-sm" style={{ color: C.train }} role="alert">
             {err}
           </p>
+        )}
+        {ref && (
+          <div className="flex items-center gap-2 text-xs px-3 py-1.5" style={{ background: C.surface2, borderRadius: R.field }}>
+            <span className="flex-1">
+              Reactie bij <strong>{ref.title}</strong> · {dayLabel(ref.date)}
+            </span>
+            <button onClick={() => setRef(null)} className="tap" style={{ color: C.muted }} aria-label="Niet bij deze training">
+              ×
+            </button>
+          </div>
         )}
         <div className="flex gap-2 items-end">
           <textarea
@@ -874,5 +906,72 @@ export function MessagesSheet({ link, team, onClose }) {
         </div>
       </div>
     </Sheet>
+  );
+}
+
+/* Eigen schema-instellingen als sjabloon aan één of meer sporters geven.
+   Ieders app maakt er een eigen schema van (met eigen herstel en
+   geschiedenis). */
+function ShareSchema({ team, mySettings }) {
+  const able = team.clients.filter((l) => l.scopes.schema);
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState(() => new Set(able.map((l) => l.id)));
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const goal = (GOALS[mySettings.goal] || {}).label || mySettings.goal;
+  if (!open)
+    return (
+      <Row label="Mijn schema delen" hint={`${goal}, ${(mySettings.days || []).length} dagen per week. Als sjabloon voor wie u coacht.`}>
+        <TBtn small kind="ghost" onClick={() => setOpen(true)}>
+          Delen
+        </TBtn>
+      </Row>
+    );
+  const send = async () => {
+    setBusy(true);
+    setMsg(null);
+    const ids = able.filter((l) => pick.has(l.id));
+    const res = await Promise.all(ids.map((l) => teamCall("assign", { linkId: l.id, kind: "schema", payload: { settings: mySettings, note: "Hetzelfde schema als dat van uw coach." } }).then(() => null, (e) => `${l.clientName}: ${e.message}`)));
+    const errs = res.filter(Boolean);
+    setBusy(false);
+    setMsg(errs.length ? errs.join(" ") : `Verstuurd naar ${ids.map((l) => l.clientName).join(", ")}. Ieders app maakt er een eigen schema van.`);
+  };
+  return (
+    <div className="px-4 py-3 space-y-2" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+      <div className="text-sm">
+        <strong>Mijn schema delen</strong>
+        <span className="block text-xs" style={{ color: C.muted }}>
+          {goal}, {(mySettings.days || []).length} dagen per week. Dagen, niveau en voorrang gaan mee; ieders app past het aan op eigen herstel.
+        </span>
+      </div>
+      {able.map((l) => (
+        <label key={l.id} className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={pick.has(l.id)}
+            onChange={(e) => {
+              const n = new Set(pick);
+              e.target.checked ? n.add(l.id) : n.delete(l.id);
+              setPick(n);
+            }}
+            style={{ width: 18, height: 18, accentColor: "var(--accent)" }}
+          />
+          {l.clientName}
+        </label>
+      ))}
+      {msg && (
+        <p className="text-xs" style={{ color: C.muted }} role="status">
+          {msg}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <TBtn small disabled={busy || !pick.size} onClick={send}>
+          {busy ? "Even geduld…" : "Versturen"}
+        </TBtn>
+        <TBtn small kind="ghost" onClick={() => setOpen(false)}>
+          Sluiten
+        </TBtn>
+      </div>
+    </div>
   );
 }
