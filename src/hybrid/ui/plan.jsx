@@ -15,6 +15,7 @@ import { blockHeader, itemLine, BLOCK_TYPES, ROLES } from "../engine/blocks.js";
 import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js";
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
 import { ItemFuel, WeekNutrition } from "./fuel.jsx";
+import { liftable } from "../../perf/lift.js";
 
 const pillarOfKind = (k) => (k === "kracht" ? "kracht" : k === "duur" ? "duur" : k === "mobiliteit" ? "mobiliteit" : "conditie");
 const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : C.panel, color: C.ink, fontWeight: on ? 600 : 500 });
@@ -22,6 +23,8 @@ const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : 
 /* ---------------- intake ---------------- */
 /* Kan deze geplande sessie live begeleid worden? (duur, met tijd of afstand per stuk) */
 export const guidable = (item) => item && item.kind === "duur" && item.status === "gepland" && LIVE_SPORTS[item.sport || "hardlopen"] && programFromBlocks(item.blocks).length > 0;
+/* Live te starten: begeleid (duur) of set voor set afvinken (kracht). */
+export const startable = (item) => guidable(item) || liftable(item);
 
 export function PlanSheet({ initial, onSave, onStop, onClose, goals = null }) {
   const [s, setS] = useState({ ...SETTINGS_DEFAULT, ...(initial || {}) });
@@ -243,13 +246,13 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGu
           </TBtn>
         ) : (
           <div className="space-y-2">
-            {onGuide && guidable(item) && (
+            {onGuide && startable(item) && (
               <TBtn full onClick={() => onGuide(item)}>
-                Start met begeleiding
+                {guidable(item) ? "Start met begeleiding" : "Start training"}
               </TBtn>
             )}
-            <TBtn full kind={onGuide && guidable(item) ? "ghost" : "primary"} onClick={() => onLog(draftFromItem(item))}>
-              {onGuide && guidable(item) ? "Al gedaan? Vastleggen" : "Training vastleggen"}
+            <TBtn full kind={onGuide && startable(item) ? "ghost" : "primary"} onClick={() => onLog(draftFromItem(item))}>
+              {onGuide && startable(item) ? "Al gedaan? Vastleggen" : "Training vastleggen"}
             </TBtn>
             {moving ? (
               <div className="p-3 space-y-2" style={{ border: `1px solid ${C.line}`, borderRadius: R.field }}>

@@ -9,7 +9,7 @@ import { readinessFor, READINESS_TEXT } from "../hybrid/engine/readiness.js";
 import { previewWeek } from "../hybrid/engine/weeks.js";
 import { titleOf } from "../hybrid/engine/blocks.js";
 import { K } from "../hybrid/theme.js";
-import { ItemSheet, PlanSheet, guidable } from "../hybrid/ui/plan.jsx";
+import { ItemSheet, PlanSheet, guidable, startable } from "../hybrid/ui/plan.jsx";
 import { ItemFuel } from "../hybrid/ui/fuel.jsx";
 import { AddToCalendar } from "../hybrid/ui/calendar.jsx";
 import { sessionFacts } from "../hybrid/ui/screens.jsx";
@@ -73,7 +73,7 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
   const done = main.filter((x) => x.status === "gedaan").length;
 
   const actions = (x) =>
-    guidable(x) ? (
+    startable(x) ? (
       <TBtn small onClick={() => onGuide(x)}>
         Start
       </TBtn>
@@ -101,8 +101,14 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
               <button onClick={onAdd} className="tap" style={{ color: C.muted }}>
                 Iets anders gedaan? Vastleggen
               </button>
-              {todays.some((x) => guidable(x)) && (
-                <span style={{ color: C.muted }}>Start = begeleiding met stem en GPS</span>
+              {todays.some((x) => startable(x)) && (
+                <span style={{ color: C.muted }}>
+                  {todays.some((x) => guidable(x)) && todays.some((x) => startable(x) && !guidable(x))
+                    ? "Start = begeleiding met stem, of sets afvinken met rusttimer"
+                    : todays.some((x) => guidable(x))
+                    ? "Start = begeleiding met stem en GPS"
+                    : "Start = sets afvinken, de rust loopt vanzelf"}
+                </span>
               )}
             </div>
           )}
@@ -325,7 +331,7 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
                 </div>
               )}
               {its.map((x) => (
-                <ItemRow key={x.id} x={x} onOpen={(it) => !preview && setOpen(it.id)} actions={!preview && x.date === today && x.status === "gepland" ? (guidable(x) ? <TBtn small onClick={() => onGuide(x)}>Start</TBtn> : null) : null} />
+                <ItemRow key={x.id} x={x} onOpen={(it) => !preview && setOpen(it.id)} actions={!preview && x.date === today && x.status === "gepland" ? (startable(x) ? <TBtn small onClick={() => onGuide(x)}>Start</TBtn> : null) : null} />
               ))}
               {ex.map((s) => (
                 <button key={s.id} onClick={() => onOpenSession(s.id)} className="tap w-full text-left px-4 py-2 text-xs" style={{ color: C.muted, borderBottom: `1px solid ${C.lineSoft}` }}>

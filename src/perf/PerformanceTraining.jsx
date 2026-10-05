@@ -17,6 +17,8 @@ import { CalendarCard } from "../hybrid/ui/calendar.jsx";
 import { LiveRecorder, savedLive } from "../hybrid/ui/live.jsx";
 import { DISCIPLINES } from "./theme.js";
 import { PerfOverview, PerfSchema, UnifiedLog, RecoveryLine } from "./screens.jsx";
+import { LiveLift } from "./LiveLift.jsx";
+import { liftable, startLift, savedLift, storeLift } from "./lift.js";
 
 const VIEWS = [
   { id: "vandaag", label: "Vandaag" },
@@ -100,6 +102,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
   const [view, setView] = useState("vandaag");
   const [sheet, setSheet] = useState(null);
   const [live, setLive] = useState(() => (savedLive() ? true : false));
+  const [lift, setLift] = useState(() => savedLift());
   const [planOpen, setPlanOpen] = useState(false);
   const [notice, setNotice] = useState(null);
   useAutoAdjust(data, api, loaded);
@@ -126,10 +129,39 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
     const s = data.sessions.find((x) => x.id === id);
     if (s) setSheet({ session: s });
   };
-  const guide = (item) => setLive({ item });
+  // Start: krachtsessies set voor set afvinken, duur met begeleiding (stem en GPS)
+  const guide = (item) => {
+    if (liftable(item)) {
+      setLift(startLift(item, data.sessions));
+      go("vandaag");
+    } else setLive({ item });
+  };
+  const endLift = () => {
+    storeLift(null);
+    setLift(null);
+  };
 
   let page;
   if (!loaded) page = null;
+  else if (lift)
+    page = (
+      <LiveLift
+        live={lift}
+        setLive={(f) => setLift((x) => (typeof f === "function" ? (x ? f(x) : x) : f))}
+        sessions={data.sessions}
+        onDiscard={endLift}
+        onSave={(session) => {
+          endLift();
+          api.saveSession(session);
+          setNotice("Training opgeslagen. De geplande sessie staat op gedaan.");
+          setTimeout(() => setNotice((n) => (n && n.startsWith("Training opgeslagen") ? null : n)), 5000);
+        }}
+        onEdit={(session) => {
+          endLift();
+          setSheet({ session, fresh: true });
+        }}
+      />
+    );
   else if (!planFits && view !== "log" && view !== "voortgang" && view !== "meer") page = <StartPlan discipline={discipline} onMake={() => setPlanOpen(true)} />;
   else if (view === "vandaag")
     page = (
@@ -153,7 +185,12 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
   else if (view === "week")
     page = <PerfSchema data={data} api={api} goals={d.goals} nbase={nbase} onLog={logDraft} onGuide={guide} onOpenSession={openSession} extraBelow={<CalendarCard data={data} api={api} nx={nx} />} />;
   else if (view === "log") page = <UnifiedLog data={data} bbLog={bbLog} onAdd={add} onOpen={open} onOpenBodybuilding={onBodybuilding} />;
-  else if (view === "voortgang") page = <div className="perf-cards"><ProgressView data={data} /></div>;
+  else if (view === "voortgang")
+    page = (
+      <div className="perf-cards">
+        <ProgressView data={data} />
+      </div>
+    );
   else
     page = (
       <div className="perf-cards">
@@ -166,16 +203,25 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
 
   return (
     <div className="perf">
-      <div className="flex gap-1 p-1 mb-5" style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 999 }} role="tablist">
-        {VIEWS.map((v) => {
-          const on = view === v.id;
-          return (
-            <button key={v.id} role="tab" aria-selected={on} onClick={() => go(v.id)} className="tap flex-1 py-1.5 text-sm rounded-full" style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}>
-              {v.label}
-            </button>
-          );
-        })}
-      </div>
+      {!lift && (
+        <div className="flex gap-1 p-1 mb-5" style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 999 }} role="tablist">
+          {VIEWS.map((v) => {
+            const on = view === v.id;
+            return (
+              <button
+                key={v.id}
+                role="tab"
+                aria-selected={on}
+                onClick={() => go(v.id)}
+                className="tap flex-1 py-1.5 text-sm rounded-full"
+                style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+              >
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {notice && (
         <p className="text-sm px-3 py-2 mb-4" style={{ background: C.accentSoft || "var(--accent-soft)", color: C.ink, borderRadius: R.field }} role="status">
           {notice}

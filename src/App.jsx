@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
+import { LiftDock } from "./perf/LiveLift.jsx";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -16254,6 +16255,7 @@ function MacroApp() {
 
       <TrainingBoundary quiet>
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
+        {!bill.locked && tab !== "training" && !T.active && <LiftDock onOpen={() => setTab("training")} />}
       </TrainingBoundary>
 
       {/* ---------------- tabbalk ---------------- */}
