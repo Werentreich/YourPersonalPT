@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
 import { LiftDock } from "./perf/LiveLift.jsx";
+import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet } from "./perf/Team.jsx";
 import { savedLift } from "./perf/lift.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
@@ -11188,8 +11189,13 @@ function MacroApp() {
   const nx = useNexaSync();
   const [accountOpen, setAccountOpen] = useState(null);
 
-  /* abonnement */
-  const bill = billingInfo(nx);
+  /* gezin en coaching: koppelingen, opdrachten van een coach */
+  const team = useTeam(nx, { perfApi: perfStore[1], perfData, f, setF });
+  const [clientOpen, setClientOpen] = useState(null);
+
+  /* abonnement (een gekoppelde sporter valt onder het abonnement van de coach) */
+  const bill0 = billingInfo(nx);
+  const bill = bill0.locked && team.coveredBy ? { ...bill0, locked: false, active: true, family: team.coveredBy } : bill0;
   const [paywallOpen, setPaywallOpen] = useState(null);
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentLater, setConsentLater] = useState(false);
@@ -13122,6 +13128,8 @@ function MacroApp() {
           </div>
         </header>
 
+        <TeamNotice team={team} />
+
         {tab === "vandaag" && (
           <>
             {loaded && storeMode === "memory" && (
@@ -14283,6 +14291,7 @@ function MacroApp() {
           </>
         )}
         {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
+        {tab === "training" && !bill.locked && !T.active && !savedLift() && <TeamSwitcher team={team} onOpenClient={setClientOpen} />}
         {tab === "training" && !bill.locked && !T.active && !(discipline !== "bodybuilding" && savedLift()) && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
         {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
           <TrainingBoundary>
@@ -15745,6 +15754,7 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
+        <TeamSection nx={nx} team={team} onOpenClient={setClientOpen} />
         {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
         <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
         <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
@@ -16257,6 +16267,8 @@ function MacroApp() {
       <TrainingBoundary quiet>
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
         {!bill.locked && tab !== "training" && !T.active && <LiftDock onOpen={() => setTab("training")} />}
+        <AcceptInvite nx={nx} team={team} />
+        {clientOpen && <ClientSheet link={clientOpen} onClose={() => setClientOpen(null)} />}
       </TrainingBoundary>
 
       {/* ---------------- tabbalk ---------------- */}
