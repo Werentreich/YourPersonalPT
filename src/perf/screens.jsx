@@ -241,6 +241,7 @@ export function PerfOverview({ data, api, discipline, onLog, onGuide, onOpenSess
           }}
           onUpdate={(p) => api.updatePlanItem(openItem.id, p)}
           onReplace={(it) => api.replacePlanItem(it)}
+          onSwapAlways={(from, to) => api.setSwap(from, to)}
           onOpenSession={(id) => {
             setOpen(null);
             onOpenSession(id);
@@ -426,6 +427,7 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
           }}
           onUpdate={(p) => api.updatePlanItem(openItem.id, p)}
           onReplace={(it) => api.replacePlanItem(it)}
+          onSwapAlways={(from, to) => api.setSwap(from, to)}
           onOpenSession={(id) => {
             setOpen(null);
             onOpenSession(id);

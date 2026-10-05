@@ -16,6 +16,7 @@ import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js"
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
 import { ItemFuel, WeekNutrition } from "./fuel.jsx";
 import { liftable } from "../../perf/lift.js";
+import { PlanLiftEditor } from "../../perf/PlanLiftEditor.jsx";
 
 const pillarOfKind = (k) => (k === "kracht" ? "kracht" : k === "duur" ? "duur" : k === "mobiliteit" ? "mobiliteit" : "conditie");
 const chip = (on) => ({ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : C.panel, color: C.ink, fontWeight: on ? 600 : 500 });
@@ -178,8 +179,9 @@ export function BlocksPreview({ blocks }) {
                   <span>
                     {b.superset ? <span style={{ color: C.muted }}>{String.fromCharCode(65 + (k % 26))}{" · "}</span> : null}
                     {it.name}
+                    {it.note ? <span className="block text-[11px]" style={{ color: C.muted }}>{it.note}</span> : null}
                   </span>
-                  <span className="tnum" style={{ color: C.muted }}>
+                  <span className="tnum shrink-0" style={{ color: C.muted }}>
                     {setLine(it)}
                   </span>
                 </li>
@@ -203,8 +205,22 @@ export function BlocksPreview({ blocks }) {
   );
 }
 
-export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGuide, onReplace, onUpdate, onOpenSession, fuel, extra }) {
+export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGuide, onReplace, onUpdate, onOpenSession, onSwapAlways, fuel, extra }) {
   const [moving, setMoving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  if (editing)
+    return (
+      <PlanLiftEditor
+        item={item}
+        sessions={(ctx && ctx.sessions) || []}
+        onSwapAlways={onSwapAlways}
+        onClose={() => setEditing(false)}
+        onSave={(it) => {
+          onReplace(it);
+          setEditing(false);
+        }}
+      />
+    );
   const monday = mondayOf(item.date);
   const preview = (date) => conflictsFor(weekItems.map((x) => (x.id === item.id ? { ...x, date } : x)), monday).filter((c) => c.a === item.id || c.b === item.id);
   const conflicts = preview(item.date);
@@ -223,6 +239,11 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGu
             {item.note}
           </p>
         )}
+        {item.userNote && (
+          <p className="text-sm px-3 py-2" style={{ background: "var(--accent-soft)", borderRadius: R.field }}>
+            <strong>Uw notitie:</strong> {item.userNote}
+          </p>
+        )}
         {item.changed && (
           <p className="text-xs px-3 py-2" style={{ background: "var(--warn-bg)", color: C.warn, borderRadius: R.field }}>
             Aangepast: {item.changed === "minder" ? "minder volume" : item.changed === "rustig" ? "rustige sessie in plaats van zwaar" : "herstel in plaats van training"}.
@@ -234,6 +255,11 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGu
           </p>
         ))}
         <BlocksPreview blocks={item.blocks} />
+        {!done && liftable(item) && (
+          <TBtn full kind="ghost" onClick={() => setEditing(true)}>
+            Training aanpassen (oefeningen, sets, rust, notities)
+          </TBtn>
+        )}
         {fuel}
         {extra}
         {done ? (

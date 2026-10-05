@@ -4,6 +4,7 @@
    - nexa:hybrid-route:<id>     routes (GPS) alleen op dit apparaat: locatie
      is extra gevoelig (plan §9). Het voorvoegsel "nexa:" valt buiten de sync
      en wordt gewist bij uitloggen met wissen. */
+import { movementById } from "./engine/movements.js";
 import { useEffect, useRef, useState } from "react";
 import { STORE_DEFAULT, normalizeStore, newId, localISO, mondayOf, dayNum, isoOfNum } from "./engine/model.js";
 import { generateWeek, applySuggestion } from "./engine/planner.js";
@@ -201,6 +202,25 @@ export function useHybridStore() {
     updatePlanItem(id, patch) {
       const own = Object.keys(patch).some((k) => k !== "doneId" && !(k === "status" && patch.status === "gedaan"));
       setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === id ? { ...x, ...patch, ...(own ? { edited: true } : {}) } : x)) } } : d));
+    },
+    /* Een oefening voortaan vervangen (ook in volgende weken). Past de nog
+       geplande trainingen meteen aan; null = wissel weer opheffen. */
+    setSwap(from, to) {
+      setData((d) => {
+        if (!d.plan) return d;
+        const swaps = { ...(d.plan.settings.swaps || {}) };
+        if (to) swaps[from] = to;
+        else delete swaps[from];
+        const mv = to ? movementById(to) : null;
+        const today = localISO();
+        const items = d.plan.items.map((x) => {
+          if (!to || !mv || x.status !== "gepland" || x.date < today || !Array.isArray(x.blocks)) return x;
+          let hit = false;
+          const blocks = x.blocks.map((b) => (b.type !== "sets" ? b : { ...b, items: (b.items || []).map((it) => (it.moveId === from ? ((hit = true), { ...it, moveId: mv.id, name: mv.name, swappedFrom: it.swappedFrom || it.name }) : it)) }));
+          return hit ? { ...x, blocks } : x;
+        });
+        return { ...d, plan: { ...d.plan, settings: { ...d.plan.settings, swaps }, items } };
+      });
     },
     replacePlanItem(item) {
       setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === item.id ? { ...item, edited: true } : x)) } } : d));

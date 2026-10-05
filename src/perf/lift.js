@@ -65,7 +65,7 @@ export function startLift(item, sessions, now = Date.now()) {
     });
     return c;
   });
-  return { itemId: item.id, title: item.title || "Kracht", kind: item.kind || "kracht", start: now, blocks, rest: null };
+  return { itemId: item.id, title: item.title || "Kracht", kind: item.kind || "kracht", start: now, blocks, rest: null, note: item.userNote || "" };
 }
 
 /* Volgorde waarin de sets worden gedaan. Superset: per ronde één set van elke
@@ -218,7 +218,7 @@ export function liftToSession(live, now = Date.now()) {
     kind: live.kind || "kracht",
     title: live.title,
     rpe: null,
-    notes: "",
+    notes: String(live.note || "").trim(),
     source: "handmatig",
     live: true,
     createdAt: now,
@@ -264,7 +264,7 @@ function freshSets(mv, sessions, n, like) {
   return Array.from({ length: n }, () => ({ kg: timed ? null : lastKg != null ? lastKg : null, reps: null, sec: null, rir: null, done: false, target }));
 }
 
-function itemFor(mv, sessions, n, like) {
+export function itemFor(mv, sessions, n, like) {
   const sets = freshSets(mv, sessions, n, like);
   const t = sets[0].target;
   return {
@@ -314,3 +314,30 @@ export function removeExercise(live, bi, ii) {
 /* Spiergroep in één taal voor beide bibliotheken (Nexa splitst schouders,
    Hybrid noemt buik "core"). */
 export const muscleKey = (m) => (!m ? null : m.startsWith("schouder") ? "schouders" : m === "buik" ? "core" : m === "trapezius" ? "rug" : m);
+
+/* ---------------- vooraf aanpassen (PlanLiftEditor) ---------------- */
+
+/* "8–10", "8-10" of "12" naar [laag, hoog]. */
+export function parseRange(t) {
+  const m = String(t || "").match(/(\d+)\s*(?:[-–]\s*(\d+))?/);
+  if (!m) return null;
+  const lo = Number(m[1]);
+  const hi = m[2] ? Number(m[2]) : lo;
+  if (!(lo >= 1 && lo <= 100 && hi >= lo && hi <= 100)) return null;
+  return [lo, hi];
+}
+
+/* Wijzigingen op een oefening (zuiver, ook getest). */
+export function setCount(it, n) {
+  const k = Math.max(1, Math.min(10, n));
+  const sets = it.sets.slice(0, k);
+  while (sets.length < k) sets.push({ ...(it.sets[it.sets.length - 1] || {}), done: undefined });
+  return { ...it, sets };
+}
+export function setRange(it, lo, hi) {
+  return { ...it, repRange: lo === hi ? `${lo}` : `${lo}–${hi}`, sets: it.sets.map((s) => ({ ...s, reps: lo, target: { ...(s.target || {}), reps: lo, repsMax: hi } })) };
+}
+export function setKg(it, kg) {
+  return { ...it, sets: it.sets.map((s) => (s.kind === "warmup" ? s : { ...s, kg })) };
+}
+
