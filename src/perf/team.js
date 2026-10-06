@@ -54,6 +54,20 @@ export function takeInviteFromUrl(loc = typeof location !== "undefined" ? locati
               sport die erbij hoort
    - voeding: doel, tempo en eventueel eiwit per kilo in het Nexa-profiel */
 export function applyPlan(a, cur) {
+  if (a.kind === "schema" && a.payload && a.payload.settings && a.payload.settings.goal === "bodybuilding") {
+    return { kind: "bodybuilding", settings: a.payload.settings, beforeDiscipline: cur.discipline || null };
+  }
+  if (a.kind === "verplaats") {
+    const p = a.payload || {};
+    const item = (cur.planItems || []).find((x) => x.id === p.itemId);
+    if (!item || item.status === "gedaan") return null;
+    return p.skip ? { kind: "verplaats", itemId: item.id, patch: { status: "overgeslagen" }, before: { status: item.status } } : { kind: "verplaats", itemId: item.id, patch: { date: p.toDate }, before: { date: item.date } };
+  }
+  if (a.kind === "programma") {
+    const p = a.payload || {};
+    if (!Array.isArray(p.days) || !p.days.length) return null;
+    return { kind: "programma", programId: p.programId || null, days: p.days };
+  }
   if (a.kind === "schema") {
     const s = a.payload && a.payload.settings;
     if (!s || !s.goal) return null;
@@ -64,6 +78,10 @@ export function applyPlan(a, cur) {
     if (!p.goal) return null;
     const patch = { goal: p.goal, rate: p.goal === "onderhoud" ? 0 : p.rate };
     if (p.proteinPerKg != null) patch.proteinOverride = p.proteinPerKg;
+    if (p.fatPercent != null) patch.fatPercent = p.fatPercent;
+    if (p.meals != null) patch.meals = p.meals;
+    if (p.activity != null) patch.activity = p.activity;
+    if (p.cycling != null) patch.cycling = p.cycling;
     const before = Object.fromEntries(Object.keys(patch).map((k) => [k, cur.f ? cur.f[k] ?? null : null]));
     return { kind: "voeding", patch, before };
   }
@@ -71,9 +89,13 @@ export function applyPlan(a, cur) {
 }
 
 const GOAL_TEXT = { cut: "afvallen", onderhoud: "gewicht houden", bulk: "spiermassa opbouwen" };
+const DAYS_NL = ["zondag", "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag"];
 export function assignmentText(a) {
-  if (a.kind === "schema") return `${a.coachName} heeft uw trainingsschema ingesteld.`;
   const p = a.payload || {};
+  if (a.kind === "schema" && p.settings && p.settings.goal === "bodybuilding") return `${a.coachName} heeft een bodybuildingschema voor u gemaakt (${(p.settings.days || []).length} trainingen per week).`;
+  if (a.kind === "schema") return `${a.coachName} heeft uw trainingsschema ingesteld.`;
+  if (a.kind === "verplaats") return p.skip ? `${a.coachName} heeft "${p.title || "een training"}" geschrapt.` : `${a.coachName} heeft "${p.title || "een training"}" verplaatst naar ${DAYS_NL[new Date(p.toDate + "T12:00:00").getDay()]}.`;
+  if (a.kind === "programma") return `${a.coachName} heeft uw krachtprogramma aangepast.`;
   const rate = p.goal === "onderhoud" ? "" : `, ${String(Math.abs(p.rate)).replace(".", ",")}% van uw gewicht per week`;
   return `${a.coachName} heeft uw voedingsdoel ingesteld: ${GOAL_TEXT[p.goal] || p.goal}${rate}.`;
 }

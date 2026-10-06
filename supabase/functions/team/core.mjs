@@ -14,6 +14,7 @@ export const MAX_CLIENTS = 10;
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // zonder 0/O en 1/I
 const HYBRID_KEY = "macroverdeling:hybrid:v1";
 const NEXA_KEY = "macroverdeling:v1";
+const TRAIN_KEY = "macroverdeling:training:v1";
 const DAY = 86400000;
 
 export function newCode(rand = Math.random) {
@@ -37,13 +38,29 @@ export function cleanScopes(s) {
 
 /* ---------------- opdrachten ---------------- */
 
-const GOALS = ["5k", "10k", "halve", "marathon", "hybride", "kracht", "hyrox", "conditie"];
+const GOALS = ["5k", "10k", "halve", "marathon", "hybride", "kracht", "hyrox", "conditie", "bodybuilding"];
 const NUM = (v, lo, hi) => (typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
 
 /* Trainingsschema: alleen de instellingen; de app van de sporter maakt er
    zelf het schema van (met haar eigen geschiedenis en herstel). */
 export function cleanSchema(p) {
   const s = p && typeof p === "object" ? p.settings : null;
+  if (s && s.goal === "bodybuilding") {
+    const days = Array.isArray(s.days) ? [...new Set(s.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : [];
+    if (days.length < 1 || days.length > 6) return { error: "Kies 1 tot 6 trainingsdagen." };
+    return {
+      payload: {
+        settings: {
+          goal: "bodybuilding",
+          days,
+          minutes: [45, 60, 75, 90].includes(s.minutes) ? s.minutes : 60,
+          experience: ["beginner", "gevorderd", "ervaren"].includes(s.experience) ? s.experience : "gevorderd",
+          equipment: ["gym", "basis", "thuis"].includes(s.equipment) ? s.equipment : "gym",
+        },
+        note: cleanNote(p.note),
+      },
+    };
+  }
   if (!s || typeof s !== "object" || !GOALS.includes(s.goal)) return { error: "Kies een doel voor het schema." };
   const days = Array.isArray(s.days) ? [...new Set(s.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : [];
   if (days.length < 2) return { error: "Kies minstens twee trainingsdagen." };
@@ -65,7 +82,14 @@ export function cleanVoeding(p) {
   if (o.goal === "cut" && rate >= 0) return { error: "Bij afvallen hoort een negatief tempo." };
   if (o.goal === "bulk" && rate <= 0) return { error: "Bij opbouwen hoort een positief tempo." };
   const protein = o.proteinPerKg == null ? null : NUM(o.proteinPerKg, 1.2, 3);
-  return { payload: { goal: o.goal, rate, proteinPerKg: protein, note: cleanNote(o.note) } };
+  const out = { goal: o.goal, rate, proteinPerKg: protein, note: cleanNote(o.note) };
+  // optioneel, alleen meegestuurd als de coach het instelt
+  if (o.fatPercent != null) out.fatPercent = NUM(o.fatPercent, 15, 40);
+  if (o.meals != null) out.meals = Number.isInteger(o.meals) && o.meals >= 2 && o.meals <= 7 ? o.meals : null;
+  if (o.activity != null) out.activity = ["zittend", "licht", "actief", "zwaar"].includes(o.activity) ? o.activity : null;
+  if (o.cycling != null) out.cycling = o.cycling === true;
+  for (const k of Object.keys(out)) if (out[k] === null && !["proteinPerKg", "note"].includes(k)) delete out[k];
+  return { payload: out };
 }
 
 const cleanNote = (n) => {
@@ -97,16 +121,17 @@ export function clientSummary(rows, scopes, now = Date.now()) {
     basis: {
       discipline: h.discipline || null,
       plan: h.plan && h.plan.settings ? { settings: h.plan.settings } : null,
-      voeding: { goal: f.goal || null, rate: typeof f.rate === "number" ? f.rate : null, proteinPerKg: typeof f.proteinOverride === "number" ? f.proteinOverride : null },
+      voeding: { goal: f.goal || null, rate: typeof f.rate === "number" ? f.rate : null, proteinPerKg: typeof f.proteinOverride === "number" ? f.proteinOverride : null, fatPercent: typeof f.fatPercent === "number" ? f.fatPercent : null, meals: typeof f.meals === "number" ? f.meals : null, activity: typeof f.activity === "string" ? f.activity.slice(0, 20) : null, cycling: typeof f.cycling === "boolean" ? f.cycling : null },
     },
   };
+  if (scopes.schema) out.program = programSummary(byKey[TRAIN_KEY]);
   if (!scopes.voortgang) return out;
   const from = since(7);
   const to = since(-14);
   out.week = h.plan && Array.isArray(h.plan.items)
     ? h.plan.items
         .filter((x) => x.date >= from && x.date <= to && !x.optional)
-        .map((x) => ({ date: x.date, title: x.title || null, kind: x.kind || null, status: x.status || null, targetMin: x.targetMin || null, part: x.part || null }))
+        .map((x) => ({ id: typeof x.id === "string" ? x.id.slice(0, 40) : null, date: x.date, title: x.title || null, kind: x.kind || null, status: x.status || null, targetMin: x.targetMin || null, part: x.part || null }))
         .slice(0, 40)
     : [];
   out.sessions = (Array.isArray(h.sessions) ? h.sessions : [])
@@ -193,4 +218,65 @@ export function cleanRef(r) {
   const sessionId = typeof r.sessionId === "string" ? r.sessionId.slice(0, 40) : null;
   if (!date || !title) return null;
   return { sessionId, title, date };
+}
+
+/* ---------------- fase 4: verplaatsen en krachtprogramma ---------------- */
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/* Geplande training verplaatsen of overslaan. */
+export function cleanMove(p) {
+  const o = p && typeof p === "object" ? p : {};
+  const itemId = typeof o.itemId === "string" && o.itemId.length <= 40 ? o.itemId : null;
+  if (!itemId) return { error: "Kies een training." };
+  if (o.skip === true) return { payload: { itemId, skip: true, title: String(o.title || "").slice(0, 80) || null } };
+  if (typeof o.toDate !== "string" || !ISO.test(o.toDate)) return { error: "Kies een dag." };
+  return { payload: { itemId, toDate: o.toDate, title: String(o.title || "").slice(0, 80) || null } };
+}
+
+/* Krachtprogramma van de sporter: per dag de oefeningen met sets, bereik,
+   rust en notitie. Oefening-ids uit de Nexa-bibliotheek of eigen (hyb_...). */
+export function cleanProgram(p) {
+  const days = p && Array.isArray(p.days) ? p.days.slice(0, 7) : null;
+  if (!days || !days.length) return { error: "Het programma is leeg." };
+  const out = [];
+  for (const d of days) {
+    if (!d || typeof d !== "object" || typeof d.id !== "string" || d.id.length > 40) return { error: "Onbekende trainingsdag." };
+    const slots = (Array.isArray(d.slots) ? d.slots : []).slice(0, 15).map((x) => {
+      const exId = typeof x.exId === "string" && /^[a-z0-9_]{1,40}$/.test(x.exId) ? x.exId : null;
+      const lo = Number.isInteger(x.repMin) && x.repMin >= 1 && x.repMin <= 60 ? x.repMin : 8;
+      const hi = Number.isInteger(x.repMax) && x.repMax >= lo && x.repMax <= 60 ? x.repMax : lo;
+      return exId && {
+        exId,
+        sets: Number.isInteger(x.sets) && x.sets >= 1 && x.sets <= 10 ? x.sets : 3,
+        repMin: lo,
+        repMax: hi,
+        rest: Number.isInteger(x.rest) && x.rest >= 15 && x.rest <= 600 ? x.rest : 120,
+        note: String(x.note || "").slice(0, 200),
+        ss: x.ss === true,
+      };
+    }).filter(Boolean);
+    if (!slots.length) return { error: "Een trainingsdag heeft minstens één oefening nodig." };
+    out.push({ id: d.id, slots });
+  }
+  const programId = typeof p.programId === "string" && p.programId.length <= 40 ? p.programId : null;
+  return { payload: { programId, days: out, note: cleanNote(p.note) } };
+}
+
+/* Het krachtprogramma zoals de coach het ziet (uit macroverdeling:training:v1):
+   het prestatieprogramma, of anders het actieve bodybuildingschema. */
+export function programSummary(T) {
+  if (!T || !Array.isArray(T.programs)) return null;
+  const prog = T.programs.find((p) => p.perf && p.id === T.activeProgramId) || T.programs.find((p) => p.id === T.activeProgramId) || T.programs.find((p) => p.perf) || null;
+  if (!prog) return null;
+  const custom = Object.fromEntries((T.customEx || []).map((e) => [e.id, e.name]));
+  return {
+    id: prog.id,
+    name: prog.name,
+    perf: !!prog.perf,
+    days: (prog.days || []).slice(0, 7).map((d) => ({
+      id: d.id,
+      name: d.name,
+      slots: (d.slots || []).slice(0, 15).map((x) => ({ exId: x.exId, name: custom[x.exId] || null, sets: x.sets, repMin: x.repMin, repMax: x.repMax, rest: x.rest, note: x.note || "", ss: !!x.ss })),
+    })),
+  };
 }

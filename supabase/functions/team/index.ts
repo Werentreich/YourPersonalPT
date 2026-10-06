@@ -18,7 +18,7 @@
    list geeft ook: unread { linkId: aantal } en feed (gedane trainingen van
    sporters die hun voortgang delen, afgelopen 7 dagen).
    De tabellen coach_links en coach_assignments zijn dicht voor de app. */
-import { newCode, cleanCode, validCode, cleanName, cleanScopes, cleanSchema, cleanVoeding, clientSummary, linkView, cleanMessage, activityFeed, cleanRef, MAX_CLIENTS } from "./core.mjs";
+import { newCode, cleanCode, validCode, cleanName, cleanScopes, cleanSchema, cleanVoeding, clientSummary, linkView, cleanMessage, activityFeed, cleanRef, cleanMove, cleanProgram, MAX_CLIENTS } from "./core.mjs";
 
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -202,7 +202,7 @@ Deno.serve(async (req) => {
       case "view": {
         const l = await linkById(body.linkId);
         if (!l || l.coach_id !== me || l.status !== "actief") return bad("Koppeling niet gevonden.", 404, "onbekend");
-        const rows = (await sb(`nexa_data?user_id=eq.${l.client_id}&key=in.(${enc('"macroverdeling:hybrid:v1"')},${enc('"macroverdeling:v1"')})&select=key,value`)) || [];
+        const rows = (await sb(`nexa_data?user_id=eq.${l.client_id}&key=in.(${enc('"macroverdeling:hybrid:v1"')},${enc('"macroverdeling:v1"')},${enc('"macroverdeling:training:v1"')})&select=key,value`)) || [];
         const pending = (await sb(`coach_assignments?link_id=eq.${l.id}&applied_at=is.null&select=kind,created_at`)) || [];
         return json(200, { ok: true, link: linkView(l, me), summary: clientSummary(rows, cleanScopes(l.scopes)), pending });
       }
@@ -211,12 +211,17 @@ Deno.serve(async (req) => {
         if (!l || l.coach_id !== me || l.status !== "actief") return bad("Koppeling niet gevonden.", 404, "onbekend");
         const scopes = cleanScopes(l.scopes) as Record<string, boolean>;
         const kind = body.kind;
-        if (kind !== "schema" && kind !== "voeding") return bad("Onbekende opdracht.");
-        if (!scopes[kind]) return bad(`${l.client_name || "De sporter"} heeft u daar (nog) geen toestemming voor gegeven.`, 403, "geen_recht");
-        const c: any = kind === "schema" ? cleanSchema(body.payload) : cleanVoeding(body.payload);
+        if (!["schema", "voeding", "verplaats", "programma"].includes(kind)) return bad("Onbekende opdracht.");
+        const scope = kind === "voeding" ? "voeding" : "schema";
+        if (!scopes[scope]) return bad(`${l.client_name || "De sporter"} heeft u daar (nog) geen toestemming voor gegeven.`, 403, "geen_recht");
+        const c: any = kind === "schema" ? cleanSchema(body.payload) : kind === "voeding" ? cleanVoeding(body.payload) : kind === "verplaats" ? cleanMove(body.payload) : cleanProgram(body.payload);
         if (c.error) return bad(c.error);
-        // een nieuwere opdracht van dezelfde soort vervangt een nog niet toegepaste
-        await sb(`coach_assignments?link_id=eq.${l.id}&kind=eq.${kind}&applied_at=is.null`, { method: "DELETE" });
+        // een nieuwere opdracht van dezelfde soort vervangt een nog niet toegepaste (verplaatsen: per training)
+        if (kind === "verplaats") {
+          const open = (await sb(`coach_assignments?link_id=eq.${l.id}&kind=eq.verplaats&applied_at=is.null&select=id,payload`)) || [];
+          const same = open.filter((a: any) => a.payload && a.payload.itemId === c.payload.itemId).map((a: any) => a.id);
+          if (same.length) await sb(`coach_assignments?id=in.(${same.join(",")})`, { method: "DELETE" });
+        } else await sb(`coach_assignments?link_id=eq.${l.id}&kind=eq.${kind}&applied_at=is.null`, { method: "DELETE" });
         await sb(`coach_assignments`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ link_id: l.id, client_id: l.client_id, kind, payload: c.payload }) });
         return json(200, { ok: true });
       }
