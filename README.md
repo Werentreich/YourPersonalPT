@@ -72,6 +72,16 @@ Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify
   (Claude), context in `src/hybrid/engine/coach.js` (alleen afgeleide cijfers,
   geen Strava-gegevens), quotum in `supabase/migrations/20261004_hybrid_coach.sql`.
 - Live GPS: `src/hybrid/engine/gps.js` en `src/hybrid/ui/live.jsx`.
+- Krachtsessie uit het schema starten (`startPerfStrength` in `App.jsx`):
+  de algemene warming-up van de geplande sessie (`warmupOf` in
+  `src/perf/bridge.js`) staat als kaart boven de training, met "Gedaan";
+  de opbouwsets (W) zitten in de oefeningen.
+- Geschatte duur leert van de werkelijke duur (`src/perf/duration.js`):
+  mediaan van de verhouding werkelijk/geschat over de laatste vijf
+  soortgelijke trainingen (zelfde sessie, anders zelfde soort vanaf twee).
+  De opslag houdt de schatting van het schema; `useHybridStore` geeft een
+  weergave met `targetMin` (geleerd), `baseMin` en `learned`. Nexa-dagen:
+  `shownMinutes` met `estMin` op de training. Test: `tests/duration-test.mjs`.
 - Eigen app (Capacitor): `capacitor.config.json`, `npm run native:www`,
   `src/hybrid/native/`; zie `docs/hybrid/03-NATIVE.md`. Garmin: `docs/hybrid/04-GARMIN.md`.
 - Abonnement: plannen `hybrid_maand` en `hybrid_jaar` (Stripe-lookup keys

@@ -5,12 +5,13 @@
      is extra gevoelig (plan §9). Het voorvoegsel "nexa:" valt buiten de sync
      en wordt gewist bij uitloggen met wissen. */
 import { movementById } from "./engine/movements.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { STORE_DEFAULT, normalizeStore, newId, localISO, mondayOf, dayNum, isoOfNum } from "./engine/model.js";
 import { generateWeek, applySuggestion } from "./engine/planner.js";
 import { mergeInbox } from "./engine/inbox.js";
 import { ensurePlanWeeks, dropFuture } from "./engine/weeks.js";
 import { blockHeader, freshBlock, itemLine } from "./engine/blocks.js";
+import { withLearnedDurations, stampPlanned, unlearn } from "../perf/duration.js";
 
 export const HYBRID_KEY = "macroverdeling:hybrid:v1";
 export const NEXA_KEY = "macroverdeling:v1";
@@ -93,8 +94,10 @@ export function useHybridStore() {
   }, [data, loaded]);
 
   const api = {
-    saveSession(s) {
+    saveSession(s0) {
       setData((d) => {
+        // geschatte duur en soort sessie bewaren: zo leert de app de werkelijke duur
+        const s = s0.planItemId && d.plan ? stampPlanned(s0, d.plan.items.find((x) => x.id === s0.planItemId)) : s0;
         const exists = d.sessions.some((x) => x.id === s.id);
         const sessions = exists ? d.sessions.map((x) => (x.id === s.id ? s : x)) : [...d.sessions, s];
         // vastgelegd vanuit het plan: die geplande sessie is gedaan
@@ -227,7 +230,8 @@ export function useHybridStore() {
     syncStrengthBlocks(map) {
       setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (map[x.id] ? { ...x, blocks: map[x.id] } : x)) } } : d));
     },
-    replacePlanItem(item) {
+    replacePlanItem(item0) {
+      const item = unlearn(item0);
       setData((d) => (d.plan ? { ...d, plan: { ...d.plan, items: d.plan.items.map((x) => (x.id === item.id ? { ...item, edited: true } : x)) } } : d));
     },
     applySuggestions(sugs, ctx, auto = false) {
@@ -252,5 +256,7 @@ export function useHybridStore() {
       }
     },
   };
-  return [data, api, loaded, nexa];
+  // geplande sessies met de duur van eerdere, soortgelijke trainingen (src/perf/duration.js)
+  const view = useMemo(() => withLearnedDurations(data), [data]);
+  return [view, api, loaded, nexa];
 }

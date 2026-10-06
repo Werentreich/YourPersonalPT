@@ -3,7 +3,8 @@ import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/Performa
 import { LiftDock } from "./perf/LiveLift.jsx";
 import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet, MessagesSheet } from "./perf/Team.jsx";
 import { savedLift } from "./perf/lift.js";
-import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten } from "./perf/bridge.js";
+import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten, warmupOf } from "./perf/bridge.js";
+import { learnedDayMinutes, learnedNote } from "./perf/duration.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -4380,6 +4381,7 @@ function buildSession({ program, day, D, T, rotPos = null, bw }) {
     readiness: null,
     light: false,
     note: "",
+    estMin: day ? estMinutes(day) : null, // schatting van nu, om de werkelijke duur te leren
     exercises: day ? day.slots.map((slot, k) => entryFromSlot(slot, counts[k], D, T, bw)) : [],
     rest: null,
   };
@@ -4499,6 +4501,14 @@ function estMinutes(day) {
     })
   );
   return Math.max(15, Math.round(sec / 60 / 5) * 5);
+}
+
+/* Geschatte duur, gecorrigeerd met de werkelijke duur van eerdere trainingen
+   van dezelfde dag (src/perf/duration.js). */
+function shownMinutes(day, sessions) {
+  const est = estMinutes(day);
+  const l = learnedDayMinutes(day, sessions, est);
+  return l ? { min: l.min, note: learnedNote(l.n) } : { min: est, note: null };
 }
 
 function programCheck(program, exIndex) {
@@ -6466,6 +6476,43 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
         )}
       </div>
 
+      {a.warmup && a.warmup.length > 0 && (
+        <div className="mb-4 px-4 py-3" style={{ background: C.panel, border: `1px solid ${a.warmupDone ? C.line : C.accent}`, borderRadius: R.card, boxShadow: C.shadow }} aria-label="Warming-up">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] uppercase tracking-wide" style={{ color: C.muted, fontWeight: 600 }}>
+                Warming-up{a.warmupDone ? " · gedaan" : ""}
+              </div>
+              {a.warmup.map((w, k) => (
+                <div key={k} className="mt-0.5">
+                  <div className="text-sm font-semibold" style={{ color: a.warmupDone ? C.muted : C.ink }}>
+                    {w.text}
+                  </div>
+                  {w.how && !a.warmupDone && (
+                    <div className="text-xs leading-relaxed" style={{ color: C.muted }}>
+                      {w.how}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!a.warmupDone && (
+                <div className="text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
+                  Daarna de opbouwsets (W) bij de hoofdoefeningen.
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => upd((x) => ({ ...x, warmupDone: !x.warmupDone }))}
+              className="tap shrink-0 px-3 py-2 text-xs font-semibold"
+              style={a.warmupDone ? { border: `1px solid ${C.line}`, borderRadius: R.field, color: C.muted } : { background: "var(--accent)", color: "var(--on-accent)", borderRadius: R.field }}
+              aria-pressed={!!a.warmupDone}
+            >
+              {a.warmupDone ? "Ongedaan" : "Gedaan"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {T.settings.readiness && !a.readiness && !anyDone && (
         <ReadinessCard onSave={(r) => upd((x) => ({ ...x, readiness: r }))} onSkip={() => upd((x) => ({ ...x, readiness: { skipped: true } }))} />
       )}
@@ -7460,7 +7507,8 @@ function TrainOverview({ T, setT, D, week, setWeek, onStart, go }) {
               </div>
               <div className="disp text-2xl font-bold uppercase leading-none">{plan.day.name}</div>
               <div className="text-xs mt-1 tnum" style={{ color: C.darkMuted }}>
-                {plan.day.slots.length} oefeningen · {sum(plannedSetsFor(plan.day, D))} werksets · ± {estMinutes(plan.day)} min
+                {plan.day.slots.length} oefeningen · {sum(plannedSetsFor(plan.day, D))} werksets · ± {shownMinutes(plan.day, T.sessions).min} min
+                {shownMinutes(plan.day, T.sessions).note ? ` (${shownMinutes(plan.day, T.sessions).note})` : ""}
               </div>
               <button
                 onClick={() => onStart(plan.day, plan.rotPos)}
@@ -8547,7 +8595,7 @@ function TrainSchema({ T, setT, D, week, setWeek, perf = false }) {
           {program.days.map((day) => {
             const n = sum(day.slots.map((x) => num(x.sets, 2)));
             return (
-              <Section key={day.id} title={day.name} sub={`${day.slots.length} oefeningen · ${n} werksets · ± ${estMinutes(day)} min`}>
+              <Section key={day.id} title={day.name} sub={`${day.slots.length} oefeningen · ${n} werksets · ± ${shownMinutes(day, T.sessions).min} min`}>
                 <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
                   <input
                     value={day.name}
@@ -11783,7 +11831,9 @@ function MacroApp() {
     primeAudio(T.settings);
     setT((t) => {
       if (t.active) return t;
-      let a = { ...buildSession({ program: perfProgram, day, D, T: t, bw: weight }), perfItemId: item.id };
+      // algemene warming-up uit het schema meenemen (de opbouwsets zitten al in de oefeningen)
+      const warm = warmupOf(item);
+      let a = { ...buildSession({ program: perfProgram, day, D, T: t, bw: weight }), perfItemId: item.id, ...(warm.length ? { warmup: warm, warmupDone: false } : {}) };
       if (isLight(item)) a = { ...a, exercises: lighten(a.exercises), volumeCut: true, phaseNote: "Lichtere sessie in uw hybride schema (herstel of taper): minder werksets, zelfde gewichten." };
       return { ...t, activeProgramId: perfProgram.id, active: a };
     });

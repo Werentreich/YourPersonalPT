@@ -12,6 +12,8 @@
    - een afgeronde Nexa-training naar een hybride sessie (belasting, schema
      op gedaan, voeding, coach) */
 
+import { blockHeader, itemLine } from "../hybrid/engine/blocks.js";
+
 /* Hybride beweging -> Nexa-oefening. Wat Nexa niet kent, wordt een eigen
    oefening (CUSTOM hieronder). */
 export const TO_NEXA = {
@@ -158,6 +160,19 @@ export function missingSlots(program, planItems) {
 }
 
 export const dayForItem = (program, item) => (program && item ? (program.days || []).find((d) => d.slot === item.slot) || null : null);
+
+/* Algemene warming-up van een geplande sessie, voor bovenaan de
+   Nexa-training: [{ text, how }]. De opbouwsets per oefening staan los
+   daarvan in het programma (warmups). */
+export function warmupOf(item) {
+  return ((item && item.blocks) || [])
+    .filter((b) => b.type !== "sets" && b.role === "warmup")
+    .map((b) => {
+      const head = blockHeader(b, { withName: false });
+      const lines = (b.items || []).map((it) => itemLine(it, b));
+      return { text: !lines.length || head === lines.join(" + ") ? head : `${head}: ${lines.join(", ")}`, how: b.intensity || "" };
+    });
+}
 
 /* Programmadag als blokken (voor het weekoverzicht, de agenda en de coach).
    De warming-up van het hybride schema blijft staan. */

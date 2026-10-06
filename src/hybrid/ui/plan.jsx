@@ -16,6 +16,7 @@ import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js"
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
 import { ItemFuel, WeekNutrition } from "./fuel.jsx";
 import { liftable } from "../../perf/lift.js";
+import { learnedNote } from "../../perf/duration.js";
 import { PlanLiftEditor } from "../../perf/PlanLiftEditor.jsx";
 
 const pillarOfKind = (k) => (k === "kracht" ? "kracht" : k === "duur" ? "duur" : k === "mobiliteit" ? "mobiliteit" : "conditie");
@@ -274,6 +275,7 @@ export function ItemSheet({ item, weekItems, settings, ctx, onClose, onLog, onGu
           <PillarDot pillar={pillarOfKind(item.kind)} />
           {dateLabel(item.date, { weekday: "long", day: "numeric", month: "long" })}
           {item.targetMin ? ` · ± ${item.targetMin} min` : ""}
+          {item.learned ? ` (${learnedNote(item.learned.n)})` : ""}
           {item.rpeTarget ? ` · inspanning ${item.rpeTarget}/10` : ""}
         </div>
         {item.note && (
