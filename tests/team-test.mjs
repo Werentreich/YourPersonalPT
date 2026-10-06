@@ -98,6 +98,16 @@ ok("bodybuilding: gekozen sport", A.clientIsBodybuilding({ discipline: "bodybuil
 ok("bodybuilding: geen sport en geen hybride schema = start van Nexa", A.clientIsBodybuilding({ discipline: null, plan: null }));
 ok("geen bodybuilding: hybride schema of andere sport", !A.clientIsBodybuilding({ discipline: null, plan: { settings: { goal: "hybride" } } }) && !A.clientIsBodybuilding({ discipline: "kracht", plan: null }) && !A.clientIsBodybuilding(null));
 ok("dagen bij 4 trainingen: ma, di, do, vr", A.bbDays(4).join() === "0,1,3,4" && A.bbDays(9).length === 6);
+// coach: verstuurde, nog niet geopende opdracht zichtbaar en als begin van het instelscherm
+const pend = [{ kind: "schema", payload: { settings: { goal: "hybride", days: [0, 1] } }, created_at: "2026-10-05T16:00:00Z" }, { kind: "schema", payload: { settings: { goal: "bodybuilding", days: [0, 2, 4, 5, 6], minutes: 75, experience: "ervaren", equipment: "basis" } }, created_at: "2026-10-06T12:29:36Z" }, { kind: "voeding", payload: { goal: "bulk", rate: 0.25 }, created_at: "2026-10-06T12:00:00Z" }];
+ok("verstuurd: nieuwste schema-opdracht", A.pendingOf(pend, "schema").payload.settings.goal === "bodybuilding" && A.pendingOf(pend, "voeding").payload.goal === "bulk" && A.pendingOf([], "schema") === null && A.pendingOf(undefined, "schema") === null);
+ok("verstuurd: oude server zonder inhoud geeft wel de opdracht", A.pendingOf([{ kind: "schema", created_at: "x" }], "schema").payload === undefined);
+ok("label: bodybuilding en hybride", A.schemaLabel({ goal: "bodybuilding", days: [0, 2, 4, 5, 6] }) === "Bodybuilding · 5 dagen per week" && A.schemaLabel({ goal: "hybride", days: [0, 1, 3] }, { hybride: { label: "Algemeen hybride" } }) === "Algemeen hybride · 3 dagen per week" && A.schemaLabel(null) === "");
+const DEF = { days: [0, 1, 3, 5, 6], equipment: "gym", exp: { kracht: "gevorderd", duur: "gevorderd" } };
+const st = A.sheetStart(pend[1].payload.settings, DEF);
+ok("instelscherm begint op het verstuurde bodybuildingschema", st.goal === "bodybuilding" && st.days.join() === "0,2,4,5,6" && st.bbMinutes === 75 && st.exp.kracht === "ervaren" && st.exp.duur === "gevorderd" && st.equipment === "basis", JSON.stringify(st));
+ok("instelscherm begint op verstuurd hybride schema, exp aangevuld", A.sheetStart({ goal: "kracht", days: [0, 1], exp: { kracht: "beginner" } }, DEF).exp.duur === "gevorderd");
+ok("tijdstip: vandaag of datum", A.sentAt("2026-10-06T12:29:36Z", new Date("2026-10-06T15:00:00Z")).startsWith("vandaag ") && /okt/.test(A.sentAt("2026-10-05T16:03:00Z", new Date("2026-10-06T15:00:00Z"))) && A.sentAt("onzin") === "");
 const psum = T.programSummary({ activeProgramId: "p2", programs: [{ id: "p1", name: "Oud", days: [] }, { id: "p2", name: "Kracht", perf: true, days: [{ id: "d1", name: "A", slots: [{ exId: "hyb_x", sets: 3, repMin: 5, repMax: 5, rest: 180 }] }] }], customEx: [{ id: "hyb_x", name: "Smith bankdrukken" }] });
 ok("programmaoverzicht: actief programma met eigen oefennamen", psum.id === "p2" && psum.perf && psum.days[0].slots[0].name === "Smith bankdrukken");
 ok("programmaoverzicht: zonder programma null", T.programSummary(null) === null && T.programSummary({ programs: [] }) === null);

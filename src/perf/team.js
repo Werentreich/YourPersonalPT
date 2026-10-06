@@ -92,6 +92,35 @@ export function applyPlan(a, cur) {
    schema is dat zo: Nexa begint met bodybuilding. */
 export const clientIsBodybuilding = (basis) => !!basis && (basis.discipline === "bodybuilding" || (!basis.discipline && !basis.plan));
 
+/* Nog niet toegepaste opdracht van deze soort (de nieuwste), zoals de
+   server hem bij "view" meegeeft. */
+export const pendingOf = (pending, kind) =>
+  (pending || []).filter((p) => p && p.kind === kind).sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))[0] || null;
+
+/* Schema-instellingen als korte regel: "Bodybuilding · 5 dagen per week". */
+export function schemaLabel(settings, goals = {}) {
+  if (!settings || !settings.goal) return "";
+  const name = settings.goal === "bodybuilding" ? "Bodybuilding" : (goals[settings.goal] || {}).label || settings.goal;
+  const n = (settings.days || []).length;
+  return `${name}${n ? ` · ${n} ${n === 1 ? "dag" : "dagen"} per week` : ""}`;
+}
+
+/* Instelscherm van de coach opnieuw openen op wat hij net verstuurde. */
+export function sheetStart(settings, defaults) {
+  if (!settings) return {};
+  if (settings.goal === "bodybuilding")
+    return { goal: "bodybuilding", days: settings.days || defaults.days, bbMinutes: settings.minutes || 60, exp: { ...defaults.exp, kracht: settings.experience || defaults.exp.kracht }, equipment: settings.equipment || defaults.equipment };
+  return { ...settings, exp: { ...defaults.exp, ...(settings.exp || {}) } };
+}
+
+/* Tijdstip van versturen, kort: "vandaag 14:29" of "5 okt 18:03". */
+export function sentAt(iso, now = new Date()) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const t = d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === now.toDateString() ? `vandaag ${t}` : `${d.toLocaleDateString("nl-NL", { day: "numeric", month: "short" })} ${t}`;
+}
+
 /* Gangbare trainingsdagen bij een aantal dagen (ma = 0), als begin voor de coach. */
 export const bbDays = (n) => ({ 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4], 6: [0, 1, 2, 3, 4, 5] })[Math.max(1, Math.min(6, n))];
 

@@ -8,7 +8,7 @@ import { C, R, Section, Row, Sheet, TBtn, EXERCISES, MUSCLES } from "../App.jsx"
 import { SETTINGS_DEFAULT, GOALS } from "../hybrid/engine/planner.js";
 import { PlanSheet } from "../hybrid/ui/plan.jsx";
 import { DISCIPLINES, disciplineOfGoal } from "./theme.js";
-import { SCOPES, DEFAULT_SCOPES, INVITE_KEY, teamCall, inviteUrl, takeInviteFromUrl, applyPlan, assignmentText, readTeamCache, writeTeamCache, readSeen, writeSeen, newActivity, activityText, clientIsBodybuilding, bbDays } from "./team.js";
+import { SCOPES, DEFAULT_SCOPES, INVITE_KEY, teamCall, inviteUrl, takeInviteFromUrl, applyPlan, assignmentText, readTeamCache, writeTeamCache, readSeen, writeSeen, newActivity, activityText, clientIsBodybuilding, bbDays, pendingOf, schemaLabel, sheetStart, sentAt } from "./team.js";
 
 const inputStyle = () => ({ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink });
 const dayLabel = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" });
@@ -553,6 +553,12 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
   }, [link.id]);
   const s = d && d.summary;
   const sc = (d && d.link && d.link.scopes) || link.scopes;
+  // verstuurd maar nog niet toegepast: de app van de sporter past het toe bij openen
+  const pendSchema = d && pendingOf(d.pending, "schema");
+  const sentSchema = pendSchema && pendSchema.payload && pendSchema.payload.settings ? pendSchema.payload.settings : null;
+  const pendFood = d && pendingOf(d.pending, "voeding");
+  const sentFood = pendFood && pendFood.payload && pendFood.payload.goal ? pendFood.payload : null;
+  const waitText = (p) => `Verstuurd${p.created_at ? ` ${sentAt(p.created_at)}` : ""}; wordt toegepast zodra ${link.clientName} de app opent.`;
   const assign = async (kind, payload) => {
     setMsg(null);
     try {
@@ -573,7 +579,11 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
     const bbClient = s && clientIsBodybuilding(s.basis);
     return (
       <PlanSheet
-        initial={{ ...SETTINGS_DEFAULT, ...(cur || {}), ...(bbClient ? { goal: "bodybuilding", ...(s.program && s.program.days.length ? { days: bbDays(s.program.days.length) } : {}) } : cur ? {} : disc ? { goal: DISCIPLINES[disc].goal } : {}) }}
+        initial={
+          sentSchema
+            ? { ...SETTINGS_DEFAULT, ...(cur || {}), ...sheetStart(sentSchema, SETTINGS_DEFAULT) } // verstuurd maar nog niet geopend: daar verder
+            : { ...SETTINGS_DEFAULT, ...(cur || {}), ...(bbClient ? { goal: "bodybuilding", ...(s.program && s.program.days.length ? { days: bbDays(s.program.days.length) } : {}) } : cur ? {} : disc ? { goal: DISCIPLINES[disc].goal } : {}) }
+        }
         goals={null}
         bodybuilding
         onClose={() => setPlan(false)}
@@ -613,11 +623,17 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
                 <div className="flex-1 text-sm">
                   <strong>Trainingsschema</strong>
                   <span className="block text-xs" style={{ color: C.muted }}>
+                    {sentSchema ? "Nu: " : ""}
                     {clientIsBodybuilding(s.basis)
                       ? `Bodybuilding${s.program && s.program.days.length ? ` · ${s.program.days.length} trainingsdagen` : ""}`
-                      : s.basis.plan ? `${(GOALS[s.basis.plan.settings.goal] || {}).label || s.basis.plan.settings.goal} · ${(s.basis.plan.settings.days || []).length} dagen per week` : "Nog geen schema"}
-                    {(d.pending || []).some((p) => p.kind === "schema") ? " · nieuw schema nog niet geopend" : ""}
+                      : s.basis.plan ? schemaLabel(s.basis.plan.settings, GOALS) : "Nog geen schema"}
+                    {pendSchema && !sentSchema ? " · nieuw schema nog niet geopend" : ""}
                   </span>
+                  {sentSchema && (
+                    <span className="block text-xs mt-1" style={{ color: C.accent }} role="status">
+                      <strong>Nieuw: {schemaLabel(sentSchema, GOALS)}</strong>. {waitText(pendSchema)}
+                    </span>
+                  )}
                 </div>
                 <TBtn small disabled={!sc.schema} onClick={() => setPlan(true)}>
                   {s.basis.plan || (clientIsBodybuilding(s.basis) && s.program) ? "Aanpassen" : "Maken"}
@@ -628,8 +644,17 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
                   <strong>Voedingsdoel</strong>
                   <span className="block text-xs" style={{ color: C.muted }}>
                     {s.basis.voeding.goal ? `${GOAL_LABEL[s.basis.voeding.goal] || s.basis.voeding.goal}${s.basis.voeding.goal !== "onderhoud" && s.basis.voeding.rate != null ? `, ${String(Math.abs(s.basis.voeding.rate)).replace(".", ",")}% per week` : ""}` : "Nog niet ingesteld"}
-                    {(d.pending || []).some((p) => p.kind === "voeding") ? " · nieuw doel nog niet geopend" : ""}
+                    {pendFood && !sentFood ? " · nieuw doel nog niet geopend" : ""}
                   </span>
+                  {sentFood && (
+                    <span className="block text-xs mt-1" style={{ color: C.accent }} role="status">
+                      <strong>
+                        Nieuw: {GOAL_LABEL[sentFood.goal] || sentFood.goal}
+                        {sentFood.goal !== "onderhoud" && sentFood.rate != null ? `, ${String(Math.abs(sentFood.rate)).replace(".", ",")}% per week` : ""}
+                      </strong>
+                      . {waitText(pendFood)}
+                    </span>
+                  )}
                 </div>
                 <TBtn small disabled={!sc.voeding} onClick={() => setFood(!food)}>
                   Instellen
@@ -659,7 +684,7 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
                 </div>
               )}
               {progEdit && s.program && <CoachProgramEditor program={s.program} clientName={link.clientName} onClose={() => setProgEdit(false)} onSend={(payload) => assign("programma", payload)} />}
-              {food && <FoodGoalForm initial={s.basis.voeding} onSave={async (p) => (await assign("voeding", p)) && setFood(false)} />}
+              {food && <FoodGoalForm initial={sentFood ? { ...s.basis.voeding, ...sentFood } : s.basis.voeding} onSave={async (p) => (await assign("voeding", p)) && setFood(false)} />}
               {(!sc.schema || !sc.voeding) && (
                 <p className="text-[11px]" style={{ color: C.muted }}>
                   {link.clientName} gaf geen toestemming voor {[!sc.schema && "het schema", !sc.voeding && "het voedingsdoel"].filter(Boolean).join(" en ")}.

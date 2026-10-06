@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
         const l = await linkById(body.linkId);
         if (!l || l.coach_id !== me || l.status !== "actief") return bad("Koppeling niet gevonden.", 404, "onbekend");
         const rows = (await sb(`nexa_data?user_id=eq.${l.client_id}&key=in.(${enc('"macroverdeling:hybrid:v1"')},${enc('"macroverdeling:v1"')},${enc('"macroverdeling:training:v1"')})&select=key,value`)) || [];
-        const pending = (await sb(`coach_assignments?link_id=eq.${l.id}&applied_at=is.null&select=kind,created_at`)) || [];
+        const pending = (await sb(`coach_assignments?link_id=eq.${l.id}&applied_at=is.null&select=kind,payload,created_at&order=created_at.desc`)) || [];
         return json(200, { ok: true, link: linkView(l, me), summary: clientSummary(rows, cleanScopes(l.scopes)), pending });
       }
       case "assign": {

@@ -84,6 +84,12 @@ Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify
 - Coach: een sporter zonder gekozen sport en zonder hybride schema traint
   bodybuilding (`clientIsBodybuilding` in `src/perf/team.js`); het
   schema-instelscherm begint dan op Bodybuilding.
+- Coach: een opdracht wordt pas toegepast als de app van de sporter opent
+  (bij openen, terugkeren en elke 5 min). Tot dan toont het coachscherm
+  "Nu: …" en "Nieuw: …, verstuurd …" (`pendingOf`, `schemaLabel` in
+  `src/perf/team.js`; `view` in de Edge Function `team` geeft de open
+  opdrachten mét inhoud) en begint het instelscherm op de verstuurde keuze
+  (`sheetStart`).
 - Geschatte duur leert van de werkelijke duur (`src/perf/duration.js`):
   mediaan van de verhouding werkelijk/geschat over de laatste vijf
   soortgelijke trainingen (zelfde sessie, anders zelfde soort vanaf twee).
