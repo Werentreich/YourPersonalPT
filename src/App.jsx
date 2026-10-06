@@ -11197,7 +11197,48 @@ function MacroApp() {
   const [accountOpen, setAccountOpen] = useState(null);
 
   /* gezin en coaching: koppelingen, opdrachten van een coach */
-  const team = useTeam(nx, { perfApi: perfStore[1], perfData, f, setF });
+  const team = useTeam(nx, {
+    perfApi: perfStore[1],
+    perfData,
+    f,
+    setF,
+    /* Coach stelt bodybuilding in: schema op maat met de bestaande schemamaker. */
+    applyBodybuilding: (st, beforeDiscipline) => {
+      const prefs = { days: [...st.days].sort((a, b) => a - b), minutes: st.minutes || 60, start: "18:00", wake: f.wake || null, experience: st.experience || "gevorderd", focus: [], focusMuscles: [], equipment: st.equipment || "gym", complaints: [], sleepHours: sleepHoursOf(f.sleep, f.wake), age: num(f.age, null), goal: f.goal || null };
+      const res = buildCustomPlan(prefs, D.exIndex);
+      const program = { ...res.program, custom: { ...res.program.custom, why: explainCustomPlan(res, prefs, D.exIndex) } };
+      const prevActive = T.activeProgramId;
+      const prevWeek = week;
+      setT((t) => ({ ...t, programs: [...t.programs, program], activeProgramId: program.id, bbProgramId: program.id }));
+      perfStore[1].setDiscipline("bodybuilding");
+      setWeek(syncNutritionWeek(week, program));
+      return () => {
+        setT((t) => ({ ...t, programs: t.programs.filter((p) => p.id !== program.id), activeProgramId: prevActive, bbProgramId: prevActive }));
+        if (beforeDiscipline) perfStore[1].setDiscipline(beforeDiscipline);
+        setWeek(prevWeek);
+      };
+    },
+    /* Coach past het krachtprogramma aan: oefeningen, sets, bereik, rust. */
+    applyProgram: (programId, days) => {
+      const prog = T.programs.find((p) => p.id === programId) || T.programs.find((p) => p.id === T.activeProgramId);
+      if (!prog) return null;
+      const before = prog.days;
+      const next = prog.days.map((d) => {
+        const nd = days.find((x) => x.id === d.id);
+        if (!nd) return d;
+        return {
+          ...d,
+          slots: nd.slots.map((x, k) => {
+            const old = d.slots.find((o) => o.exId === x.exId) || null;
+            const ex = D.exIndex[x.exId];
+            return { ...(old || {}), id: old ? old.id : uid(), exId: x.exId, sets: x.sets, repMin: x.repMin, repMax: x.repMax, rest: x.rest, note: x.note || "", ss: x.ss || undefined, warmups: old ? old.warmups : ex && ex.kind === "compound" && k < 3 ? 2 : 0, rir: old ? old.rir : null };
+          }),
+        };
+      });
+      setT((t) => ({ ...t, programs: t.programs.map((p) => (p.id === prog.id ? { ...p, days: next } : p)) }));
+      return () => setT((t) => ({ ...t, programs: t.programs.map((p) => (p.id === prog.id ? { ...p, days: before } : p)) }));
+    },
+  });
   const [clientOpen, setClientOpen] = useState(null);
 
   /* abonnement (een gekoppelde sporter valt onder het abonnement van de coach) */

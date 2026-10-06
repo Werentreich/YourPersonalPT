@@ -4,7 +4,7 @@
    - Sporter: uitnodiging accepteren; opdrachten van de coach worden
      toegepast met een melding en "Ongedaan maken". */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { C, R, Section, Row, Sheet, TBtn } from "../App.jsx";
+import { C, R, Section, Row, Sheet, TBtn, EXERCISES, MUSCLES } from "../App.jsx";
 import { SETTINGS_DEFAULT, GOALS } from "../hybrid/engine/planner.js";
 import { PlanSheet } from "../hybrid/ui/plan.jsx";
 import { DISCIPLINES, disciplineOfGoal } from "./theme.js";
@@ -18,7 +18,7 @@ const kg = (v) => (v == null ? "–" : `${String(Math.round(v * 10) / 10).replac
 
 /* Koppelingen ophalen (na inloggen, bij terugkomen in de app en elke 5 min)
    en openstaande opdrachten van een coach toepassen. */
-export function useTeam(nx, { perfApi, perfData, f, setF }) {
+export function useTeam(nx, { perfApi, perfData, f, setF, applyBodybuilding, applyProgram }) {
   const [team, setTeam] = useState(() => readTeamCache());
   const [notice, setNotice] = useState(null); // { text, undo }
   const [error, setError] = useState(null);
@@ -27,21 +27,32 @@ export function useTeam(nx, { perfApi, perfData, f, setF }) {
   const [seen, setSeen] = useState(() => readSeen());
   const [msgOpen, setMsgOpen] = useState(null);
   const ctx = useRef({});
-  ctx.current = { perfApi, perfData, f, setF };
+  ctx.current = { perfApi, perfData, f, setF, applyBodybuilding, applyProgram };
   const loggedIn = !!(nx && nx.user);
 
   const apply = useCallback((list) => {
-    const { perfApi, perfData, f, setF } = ctx.current;
+    const { perfApi, perfData, f, setF, applyBodybuilding, applyProgram } = ctx.current;
     const done = [];
     const undos = [];
     const texts = [];
     for (const a of list) {
-      const p = applyPlan(a, { planSettings: perfData.plan ? perfData.plan.settings : null, discipline: perfData.discipline, f });
+      const p = applyPlan(a, { planSettings: perfData.plan ? perfData.plan.settings : null, planItems: perfData.plan ? perfData.plan.items : [], discipline: perfData.discipline, f });
       if (!p) {
         done.push(a.id);
         continue;
       }
-      if (p.kind === "schema") {
+      if (p.kind === "bodybuilding") {
+        if (!applyBodybuilding) continue; // later opnieuw proberen
+        const undo = applyBodybuilding(p.settings, p.beforeDiscipline);
+        if (undo) undos.push(undo);
+      } else if (p.kind === "programma") {
+        if (!applyProgram) continue;
+        const undo = applyProgram(p.programId, p.days);
+        if (undo) undos.push(undo);
+      } else if (p.kind === "verplaats") {
+        perfApi.updatePlanItem(p.itemId, p.patch);
+        undos.push(() => perfApi.updatePlanItem(p.itemId, p.before));
+      } else if (p.kind === "schema") {
         perfApi.setPlan({ ...SETTINGS_DEFAULT, ...p.settings });
         perfApi.setDiscipline(disciplineOfGoal(p.settings.goal));
         undos.push(() => {
@@ -529,6 +540,7 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
   const [err, setErr] = useState(null);
   const [plan, setPlan] = useState(false);
   const [food, setFood] = useState(false);
+  const [progEdit, setProgEdit] = useState(false);
   const [msg, setMsg] = useState(null);
   const load = useCallback(() => {
     teamCall("view", { linkId: link.id })
@@ -559,8 +571,9 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
     const disc = s && s.basis.discipline && DISCIPLINES[s.basis.discipline] && DISCIPLINES[s.basis.discipline].goals ? s.basis.discipline : null;
     return (
       <PlanSheet
-        initial={{ ...SETTINGS_DEFAULT, ...(cur || {}), ...(cur ? {} : disc ? { goal: DISCIPLINES[disc].goal } : {}) }}
+        initial={{ ...SETTINGS_DEFAULT, ...(cur || {}), ...(s && s.basis.discipline === "bodybuilding" ? { goal: "bodybuilding" } : cur ? {} : disc ? { goal: DISCIPLINES[disc].goal } : {}) }}
         goals={null}
+        bodybuilding
         onClose={() => setPlan(false)}
         onSave={async (settings) => {
           if (await assign("schema", { settings })) setPlan(false);
@@ -627,6 +640,21 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
                   Mijn eigen schema-instellingen aan {link.clientName} geven
                 </button>
               )}
+              {s.program && sc.schema && (
+                <div className="px-3 py-3 flex items-center gap-3" style={{ background: C.surface2, borderRadius: R.field }}>
+                  <div className="flex-1 text-sm">
+                    <strong>Krachtprogramma</strong>
+                    <span className="block text-xs" style={{ color: C.muted }}>
+                      {s.program.days.map((d) => `${d.name} (${d.slots.length})`).join(", ")}
+                      {(d.pending || []).some((p) => p.kind === "programma") ? " · wijziging nog niet geopend" : ""}
+                    </span>
+                  </div>
+                  <TBtn small onClick={() => setProgEdit(!progEdit)}>
+                    {progEdit ? "Sluiten" : "Bewerken"}
+                  </TBtn>
+                </div>
+              )}
+              {progEdit && s.program && <CoachProgramEditor program={s.program} clientName={link.clientName} onClose={() => setProgEdit(false)} onSend={(payload) => assign("programma", payload)} />}
               {food && <FoodGoalForm initial={s.basis.voeding} onSave={async (p) => (await assign("voeding", p)) && setFood(false)} />}
               {(!sc.schema || !sc.voeding) && (
                 <p className="text-[11px]" style={{ color: C.muted }}>
@@ -636,7 +664,7 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
             </div>
 
             {sc.voortgang ? (
-              <ClientProgress s={s} onReact={team ? (x) => team.setMsgOpen({ ...link, _ref: { sessionId: x.id, title: x.title || x.sport || x.kind || "training", date: x.date } }) : null} />
+              <ClientProgress s={s} onMove={sc.schema ? (x, toDate, skip) => assign("verplaats", { itemId: x.id, toDate, skip, title: x.title }) : null} onReact={team ? (x) => team.setMsgOpen({ ...link, _ref: { sessionId: x.id, title: x.title || x.sport || x.kind || "training", date: x.date } }) : null} />
             ) : (
               <p className="text-xs" style={{ color: C.muted }}>
                 {link.clientName} deelt de voortgang niet.
@@ -655,6 +683,11 @@ function FoodGoalForm({ initial, onSave }) {
   const [protein, setProtein] = useState(initial.proteinPerKg ?? "");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [more, setMore] = useState(false);
+  const [fat, setFat] = useState(initial.fatPercent ?? "");
+  const [meals, setMeals] = useState(initial.meals ?? null);
+  const [activity, setActivity] = useState(initial.activity ?? null);
+  const [cycling, setCycling] = useState(initial.cycling ?? null);
   const rates = goal === "cut" ? [0.25, 0.5, 0.75, 1] : [0.1, 0.25, 0.5];
   return (
     <div className="px-3 py-3 space-y-3" style={{ border: `1px solid ${C.line}`, borderRadius: R.field }}>
@@ -685,6 +718,64 @@ function FoodGoalForm({ initial, onSave }) {
         </span>
         <input type="number" inputMode="decimal" step="0.1" min="1.2" max="3" value={protein} onChange={(e) => setProtein(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm tnum" style={inputStyle()} aria-label="Eiwit per kilo" />
       </label>
+      {!more ? (
+        <button onClick={() => setMore(true)} className="tap text-xs" style={{ color: C.accent, fontWeight: 600 }}>
+          + Vet, maaltijden, activiteit en koolhydraatcycli
+        </button>
+      ) : (
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-xs" style={{ color: C.muted }}>
+              Vet, % van de calorieën (leeg = standaard 25%)
+            </span>
+            <input type="number" inputMode="numeric" min="15" max="40" value={fat} onChange={(e) => setFat(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm tnum" style={inputStyle()} aria-label="Vet in procent" />
+          </label>
+          <div>
+            <div className="text-xs mb-1" style={{ color: C.muted }}>
+              Maaltijden per dag
+            </div>
+            <div className="flex gap-1.5">
+              {[3, 4, 5, 6].map((m) => (
+                <button key={m} onClick={() => setMeals(meals === m ? null : m)} className="tap flex-1 py-2 text-sm tnum" style={{ borderRadius: R.field, border: `1px solid ${meals === m ? C.accent : C.line}`, background: meals === m ? C.accent : C.panel, color: meals === m ? C.onAccent : C.ink, fontWeight: 600 }}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs mb-1" style={{ color: C.muted }}>
+              Dagelijkse activiteit (buiten de training)
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                ["zittend", "Zittend, weinig beweging"],
+                ["licht", "Zittend, dagelijks wandelen"],
+                ["actief", "Staand of lopend werk"],
+                ["zwaar", "Fysiek zwaar werk"],
+              ].map(([k, l]) => (
+                <button key={k} onClick={() => setActivity(activity === k ? null : k)} className="tap px-2 py-2 text-xs text-left" style={{ borderRadius: R.field, border: `1px solid ${activity === k ? C.accent : C.line}`, background: activity === k ? C.accent : C.panel, color: activity === k ? C.onAccent : C.ink, fontWeight: 600 }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs mb-1" style={{ color: C.muted }}>
+              Koolhydraatcycli (meer op trainingsdagen, minder op rustdagen)
+            </div>
+            <div className="flex gap-1.5">
+              {[
+                [true, "Aan"],
+                [false, "Uit"],
+              ].map(([v, l]) => (
+                <button key={l} onClick={() => setCycling(cycling === v ? null : v)} className="tap flex-1 py-2 text-sm" style={{ borderRadius: R.field, border: `1px solid ${cycling === v ? C.accent : C.line}`, background: cycling === v ? C.accent : C.panel, color: cycling === v ? C.onAccent : C.ink, fontWeight: 600 }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <label className="block">
         <span className="text-xs" style={{ color: C.muted }}>
           Korte toelichting (optioneel)
@@ -697,7 +788,17 @@ function FoodGoalForm({ initial, onSave }) {
         onClick={async () => {
           setBusy(true);
           const p = protein === "" ? null : Number(protein);
-          await onSave({ goal, rate: goal === "onderhoud" ? 0 : goal === "cut" ? -rate : rate, proteinPerKg: Number.isFinite(p) ? p : null, note: note || null });
+          const fp = fat === "" ? null : Number(fat);
+          await onSave({
+            goal,
+            rate: goal === "onderhoud" ? 0 : goal === "cut" ? -rate : rate,
+            proteinPerKg: Number.isFinite(p) ? p : null,
+            note: note || null,
+            ...(Number.isFinite(fp) ? { fatPercent: fp } : {}),
+            ...(meals != null ? { meals } : {}),
+            ...(activity != null ? { activity } : {}),
+            ...(cycling != null ? { cycling } : {}),
+          });
           setBusy(false);
         }}
       >
@@ -707,7 +808,8 @@ function FoodGoalForm({ initial, onSave }) {
   );
 }
 
-function ClientProgress({ s, onReact }) {
+function ClientProgress({ s, onReact, onMove }) {
+  const [moving, setMoving] = useState(null);
   const today = new Date().toISOString().slice(0, 10);
   const week = (s.week || []).filter((x) => x.date >= today.slice(0, 8) + "01" || true);
   const done = (s.week || []).filter((x) => x.status === "gedaan" && x.date <= today).length;
@@ -738,8 +840,45 @@ function ClientProgress({ s, onReact }) {
                 <span className="text-xs shrink-0" style={{ color: x.status === "gedaan" ? C.carb : x.status === "overgeslagen" ? C.train : C.muted, fontWeight: 600 }}>
                   {x.status === "gedaan" ? "✓ gedaan" : x.status === "overgeslagen" ? "overgeslagen" : x.date < today ? "gemist" : "gepland"}
                 </span>
+                {onMove && x.id && x.status === "gepland" && x.date >= today && (
+                  <button onClick={() => setMoving(moving === x.id ? null : x.id)} className="tap text-xs shrink-0" style={{ color: C.accent, fontWeight: 600 }}>
+                    {moving === x.id ? "Sluiten" : "Verplaats"}
+                  </button>
+                )}
               </div>
-            ))}
+            )).flatMap((row, i) => {
+              const x = week[i];
+              if (moving !== x.id) return [row];
+              const days = Array.from({ length: 8 }, (_, k) => new Date(Date.now() + k * 86400000).toISOString().slice(0, 10)).filter((d) => d !== x.date);
+              return [
+                row,
+                <div key={`m${i}`} className="px-3 py-2 flex flex-wrap gap-1.5" style={{ background: C.surface2, borderBottom: `1px solid ${C.lineSoft}` }}>
+                  {days.map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => {
+                        onMove(x, d, false);
+                        setMoving(null);
+                      }}
+                      className="tap px-2.5 py-1 text-xs"
+                      style={{ borderRadius: 999, border: `1px solid ${C.line}`, background: C.panel, color: C.ink, fontWeight: 600 }}
+                    >
+                      {dayLabel(d)}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      onMove(x, null, true);
+                      setMoving(null);
+                    }}
+                    className="tap px-2.5 py-1 text-xs"
+                    style={{ borderRadius: 999, border: `1px solid ${C.train}`, color: C.train, background: C.panel, fontWeight: 600 }}
+                  >
+                    Schrappen
+                  </button>
+                </div>,
+              ];
+            })}
           </div>
         ) : (
           <p className="text-xs" style={{ color: C.muted }}>
@@ -977,6 +1116,136 @@ function ShareSchema({ team, mySettings }) {
         </TBtn>
         <TBtn small kind="ghost" onClick={() => setOpen(false)}>
           Sluiten
+        </TBtn>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- coach: krachtprogramma van de sporter ---------------- */
+
+const exName = (x) => (x.name || ((EXERCISES || []).find((e) => e.id === x.exId) || {}).name || x.exId);
+const mmssR = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+
+function NexaExPicker({ current, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  const cur = (EXERCISES || []).find((e) => e.id === current);
+  const muscle = cur && cur.pri && cur.pri[0];
+  const list = (EXERCISES || []).filter((e) => e.id !== current && (q.trim() ? e.name.toLowerCase().includes(q.trim().toLowerCase()) : muscle ? e.pri && e.pri[0] === muscle : true)).slice(0, 12);
+  return (
+    <div className="mt-2 p-2 space-y-1.5" style={{ border: `1px solid ${C.accent}`, borderRadius: R.field, background: C.panel }}>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Oefening zoeken" className="w-full px-2.5 py-2 text-sm" style={inputStyle()} aria-label="Oefening zoeken" />
+      {!q.trim() && muscle && MUSCLES[muscle] && (
+        <div className="text-[11px] uppercase tracking-wide" style={{ color: C.muted, fontWeight: 600 }}>
+          {MUSCLES[muscle].label}
+        </div>
+      )}
+      {list.map((e) => (
+        <button key={e.id} onClick={() => onPick(e)} className="tap block w-full text-left px-2 py-1.5 text-sm" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+          {e.name}
+        </button>
+      ))}
+      <button onClick={onClose} className="tap text-xs" style={{ color: C.muted }}>
+        Annuleren
+      </button>
+    </div>
+  );
+}
+
+export function CoachProgramEditor({ program, clientName, onSend, onClose }) {
+  const [days, setDays] = useState(() => JSON.parse(JSON.stringify(program.days || [])));
+  const [pick, setPick] = useState(null); // `${di}:${si}` of `${di}:+`
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const upd = (di, si, patch) => setDays((ds) => ds.map((d, k) => (k !== di ? d : { ...d, slots: d.slots.map((x, n) => (n === si ? { ...x, ...patch } : x)) })));
+  const remove = (di, si) => setDays((ds) => ds.map((d, k) => (k !== di ? d : { ...d, slots: d.slots.filter((_, n) => n !== si) })));
+  const add = (di, e) => setDays((ds) => ds.map((d, k) => (k !== di ? d : { ...d, slots: [...d.slots, { exId: e.id, name: e.name, sets: 3, repMin: e.repMin || 8, repMax: e.repMax || 12, rest: e.kind === "compound" ? 150 : 90, note: "", ss: false }] })));
+  return (
+    <div className="space-y-4">
+      <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+        {program.name}. Wijzig oefeningen, sets, herhalingen, rust en notities; {clientName} krijgt het als voorstel dat direct wordt toegepast en ongedaan kan worden gemaakt.
+      </p>
+      {days.map((d, di) => (
+        <div key={d.id} className="space-y-1.5">
+          <div className="text-sm font-semibold">{d.name}</div>
+          {d.slots.map((x, si) => (
+            <div key={si} className="px-3 py-2.5 space-y-2" style={{ background: C.surface2, borderRadius: R.field }}>
+              <div className="flex items-center gap-2">
+                <span className="flex-1 text-sm font-semibold truncate">{exName(x)}</span>
+                <button onClick={() => setPick(pick === `${di}:${si}` ? null : `${di}:${si}`)} className="tap text-xs" style={{ color: C.accent, fontWeight: 600 }}>
+                  Wisselen
+                </button>
+                <button onClick={() => remove(di, si)} className="tap text-xs" style={{ color: C.muted }} aria-label={`${exName(x)} weghalen`}>
+                  Weg
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 text-xs">
+                <label>
+                  <span style={{ color: C.muted }}>Sets</span>
+                  <input type="number" min="1" max="10" value={x.sets} onChange={(e) => upd(di, si, { sets: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} className="w-full mt-0.5 px-2 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: sets`} />
+                </label>
+                <label>
+                  <span style={{ color: C.muted }}>Herh. van–tot</span>
+                  <div className="flex gap-1 mt-0.5">
+                    <input type="number" min="1" max="60" value={x.repMin} onChange={(e) => upd(di, si, { repMin: Math.max(1, Number(e.target.value) || 1), repMax: Math.max(x.repMax, Number(e.target.value) || 1) })} className="w-full px-1 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: herhalingen vanaf`} />
+                    <input type="number" min="1" max="60" value={x.repMax} onChange={(e) => upd(di, si, { repMax: Math.max(x.repMin, Number(e.target.value) || x.repMin) })} className="w-full px-1 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: herhalingen tot`} />
+                  </div>
+                </label>
+                <label>
+                  <span style={{ color: C.muted }}>Rust</span>
+                  <select value={x.rest} onChange={(e) => upd(di, si, { rest: Number(e.target.value) })} className="w-full mt-0.5 px-1 py-1.5 text-sm" style={inputStyle()} aria-label={`${exName(x)}: rust`}>
+                    {[30, 45, 60, 75, 90, 120, 150, 180, 240].map((r) => (
+                      <option key={r} value={r}>
+                        {mmssR(r)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <input value={x.note || ""} onChange={(e) => upd(di, si, { note: e.target.value.slice(0, 200) })} placeholder="Notitie, bijv. smalle grip" className="w-full px-2.5 py-1.5 text-xs" style={inputStyle()} aria-label={`${exName(x)}: notitie`} />
+              {pick === `${di}:${si}` && (
+                <NexaExPicker
+                  current={x.exId}
+                  onClose={() => setPick(null)}
+                  onPick={(e) => {
+                    upd(di, si, { exId: e.id, name: e.name });
+                    setPick(null);
+                  }}
+                />
+              )}
+            </div>
+          ))}
+          {pick === `${di}:+` ? (
+            <NexaExPicker
+              current={null}
+              onClose={() => setPick(null)}
+              onPick={(e) => {
+                add(di, e);
+                setPick(null);
+              }}
+            />
+          ) : (
+            <button onClick={() => setPick(`${di}:+`)} className="tap text-xs" style={{ color: C.accent, fontWeight: 600 }}>
+              + Oefening toevoegen
+            </button>
+          )}
+        </div>
+      ))}
+      <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 280))} placeholder="Toelichting voor de sporter (optioneel)" className="w-full px-3 py-2 text-sm" style={inputStyle()} aria-label="Toelichting" />
+      <div className="flex gap-2">
+        <TBtn
+          disabled={busy || days.some((d) => !d.slots.length)}
+          onClick={async () => {
+            setBusy(true);
+            const ok = await onSend({ programId: program.id, note: note || null, days: days.map((d) => ({ id: d.id, slots: d.slots.map(({ exId, sets, repMin, repMax, rest, note, ss }) => ({ exId, sets, repMin, repMax, rest, note: note || "", ss: !!ss })) })) });
+            setBusy(false);
+            if (ok) onClose();
+          }}
+        >
+          {busy ? "Even geduld…" : "Programma versturen"}
+        </TBtn>
+        <TBtn kind="ghost" onClick={onClose}>
+          Annuleren
         </TBtn>
       </div>
     </div>

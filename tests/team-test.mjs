@@ -78,4 +78,35 @@ ok("ref: training met titel en datum", JSON.stringify(T.cleanRef({ sessionId: "s
 ok("ref: ongeldig wordt null", T.cleanRef({ title: "x", date: "gisteren" }) === null && T.cleanRef(null) === null && T.cleanRef({ date: "2026-10-05" }) === null);
 ok("overzicht: training heeft id voor een reactie", T.clientSummary([{ key: "macroverdeling:hybrid:v1", value: JSON.stringify({ sessions: [{ id: "abc", date: "2026-10-05" }] }) }], { voortgang: true }, now).sessions[0].id === "abc");
 
+// ---------- coach: bodybuilding, voeding+, verplaatsen, programma ----------
+const bb = T.cleanSchema({ settings: { goal: "bodybuilding", days: [5, 1, 3, 3], minutes: 75, experience: "ervaren", equipment: "raar", evil: 1 }, note: "Push" });
+ok("bodybuilding: dagen gesorteerd, onbekende uitrusting wordt gym", JSON.stringify(bb.payload.settings) === JSON.stringify({ goal: "bodybuilding", days: [1, 3, 5], minutes: 75, experience: "ervaren", equipment: "gym" }));
+ok("bodybuilding: zonder dagen geweigerd", !!T.cleanSchema({ settings: { goal: "bodybuilding", days: [] } }).error);
+ok("bodybuilding: één dag mag", !T.cleanSchema({ settings: { goal: "bodybuilding", days: [2] } }).error);
+const vx = T.cleanVoeding({ goal: "cut", rate: -0.5, fatPercent: 25, meals: 4, activity: "actief", cycling: true }).payload;
+ok("voeding: vet, maaltijden, activiteit en cycli", vx.fatPercent === 25 && vx.meals === 4 && vx.activity === "actief" && vx.cycling === true);
+const vbad = T.cleanVoeding({ goal: "cut", rate: -0.5, fatPercent: 80, meals: 12, activity: "x" }).payload;
+ok("voeding: ongeldige extra's vallen weg", vbad.fatPercent === undefined && vbad.meals === undefined && vbad.activity === undefined);
+ok("verplaats: naar een dag", JSON.stringify(T.cleanMove({ itemId: "i1", toDate: "2026-10-09", title: "Kracht A" }).payload) === JSON.stringify({ itemId: "i1", toDate: "2026-10-09", title: "Kracht A" }));
+ok("verplaats: schrappen", T.cleanMove({ itemId: "i1", skip: true }).payload.skip === true);
+ok("verplaats: zonder dag of training geweigerd", !!T.cleanMove({ itemId: "i1", toDate: "morgen" }).error && !!T.cleanMove({ toDate: "2026-10-09" }).error);
+const pr = T.cleanProgram({ programId: "p1", days: [{ id: "d1", slots: [{ exId: "bench_press", sets: 4, repMin: 6, repMax: 8, rest: 150, note: "pauze onderin" }, { exId: "DROP TABLE", sets: 3 }, { exId: "row", sets: 99, repMin: 10, repMax: 5, rest: 5 }] }] });
+ok("programma: rommel-id eruit, grenzen bewaakt", pr.payload.days[0].slots.length === 2 && pr.payload.days[0].slots[0].rest === 150 && pr.payload.days[0].slots[1].sets === 3 && pr.payload.days[0].slots[1].repMax === 10 && pr.payload.days[0].slots[1].rest === 120);
+ok("programma: lege dag geweigerd", !!T.cleanProgram({ days: [{ id: "d1", slots: [] }] }).error && !!T.cleanProgram({ days: [] }).error);
+const psum = T.programSummary({ activeProgramId: "p2", programs: [{ id: "p1", name: "Oud", days: [] }, { id: "p2", name: "Kracht", perf: true, days: [{ id: "d1", name: "A", slots: [{ exId: "hyb_x", sets: 3, repMin: 5, repMax: 5, rest: 180 }] }] }], customEx: [{ id: "hyb_x", name: "Smith bankdrukken" }] });
+ok("programmaoverzicht: actief programma met eigen oefennamen", psum.id === "p2" && psum.perf && psum.days[0].slots[0].name === "Smith bankdrukken");
+ok("programmaoverzicht: zonder programma null", T.programSummary(null) === null && T.programSummary({ programs: [] }) === null);
+
+const curP = { planItems: [{ id: "i1", date: "2026-10-08", status: "gepland" }, { id: "i2", status: "gedaan" }], f: { goal: "bulk", rate: 0.25, meals: 3 }, discipline: "hybride" };
+const mv = A.applyPlan({ kind: "verplaats", payload: { itemId: "i1", toDate: "2026-10-10" } }, curP);
+ok("toepassen verplaats: nieuwe datum met terugzetwaarde", mv.patch.date === "2026-10-10" && mv.before.date === "2026-10-08");
+ok("toepassen schrappen: overgeslagen", A.applyPlan({ kind: "verplaats", payload: { itemId: "i1", skip: true } }, curP).patch.status === "overgeslagen");
+ok("toepassen: gedane training niet verplaatsen", A.applyPlan({ kind: "verplaats", payload: { itemId: "i2", toDate: "2026-10-10" } }, curP) === null);
+ok("toepassen bodybuilding", A.applyPlan({ kind: "schema", payload: bb.payload }, curP).kind === "bodybuilding");
+const vp = A.applyPlan({ kind: "voeding", payload: vx }, curP);
+ok("toepassen voeding: extra's met terugzetwaarden", vp.patch.meals === 4 && vp.before.meals === 3 && vp.patch.cycling === true && vp.before.cycling === null);
+ok("toepassen programma", A.applyPlan({ kind: "programma", payload: pr.payload }, curP).days.length === 1);
+ok("tekst bodybuilding", A.assignmentText({ kind: "schema", coachName: "Wouter", payload: bb.payload }).includes("3 trainingen per week"));
+ok("tekst verplaats", A.assignmentText({ kind: "verplaats", coachName: "Wouter", payload: { title: "Kracht A", toDate: "2026-10-09" } }) === 'Wouter heeft "Kracht A" verplaatst naar vrijdag.');
+
 if (fails) process.exit(1);

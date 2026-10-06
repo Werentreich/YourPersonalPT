@@ -27,20 +27,31 @@ export const guidable = (item) => item && item.kind === "duur" && item.status ==
 /* Live te starten: begeleid (duur) of set voor set afvinken (kracht). */
 export const startable = (item) => guidable(item) || liftable(item);
 
-export function PlanSheet({ initial, onSave, onStop, onClose, goals = null }) {
-  const [s, setS] = useState({ ...SETTINGS_DEFAULT, ...(initial || {}) });
+export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, bodybuilding = false }) {
+  const [s, setS] = useState({ ...SETTINGS_DEFAULT, bbMinutes: 60, ...(initial || {}) });
   const set = (p) => setS((x) => ({ ...x, ...p }));
   const toggleDay = (d) => {
     const days = s.days.includes(d) ? s.days.filter((x) => x !== d) : [...s.days, d].sort((a, b) => a - b);
     set({ days, longDay: days.includes(s.longDay) ? s.longDay : days[days.length - 1] });
   };
   const toggleCardio = (k) => set({ cardio: s.cardio.includes(k) ? s.cardio.filter((x) => x !== k) : [...s.cardio, k] });
-  const valid = s.days.length >= 2 && s.cardio.length >= 1;
+  const bb = bodybuilding && s.goal === "bodybuilding";
+  const valid = bb ? s.days.length >= 1 && s.days.length <= 6 : s.days.length >= 2 && s.cardio.length >= 1;
   return (
     <Sheet title={initial ? "Schema aanpassen" : "Uw schema"} onClose={onClose}>
       <div className="space-y-5 pb-2">
         <Field label="Doel">
           <div className="space-y-1.5">
+            {bodybuilding && (
+              <button type="button" onClick={() => set({ goal: "bodybuilding" })} className="tap w-full text-left px-3 py-2" style={{ ...chip(s.goal === "bodybuilding"), borderRadius: R.field }} aria-pressed={s.goal === "bodybuilding"}>
+                <span className="block text-sm" style={{ fontWeight: 600 }}>
+                  Bodybuilding / hypertrofie
+                </span>
+                <span className="block text-xs" style={{ color: C.muted, fontWeight: 400 }}>
+                  spieropbouw: schema op maat met progressie per oefening
+                </span>
+              </button>
+            )}
             {Object.entries(GOALS).filter(([k]) => !goals || goals.includes(k)).map(([k, g]) => (
               <button key={k} type="button" onClick={() => set({ goal: k })} className="tap w-full text-left px-3 py-2" style={{ ...chip(s.goal === k), borderRadius: R.field }} aria-pressed={s.goal === k}>
                 <span className="block text-sm" style={{ fontWeight: 600 }}>
@@ -53,6 +64,35 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null }) {
             ))}
           </div>
         </Field>
+        {bb ? (
+          <>
+            <Field label="Op welke dagen traint u?" hint={`${s.days.length} trainingen per week (1 tot 6)`}>
+              <div className="flex gap-1.5">
+                {DAY_NAMES.map((n, d) => (
+                  <button key={d} type="button" onClick={() => toggleDay(d)} className="tap flex-1 py-2 text-sm" style={{ ...chip(s.days.includes(d)), borderRadius: R.field }} aria-pressed={s.days.includes(d)}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Tijd per training">
+              <Choice options={[45, 60, 75, 90].map((m) => ({ value: m, label: `${m} min` }))} value={s.bbMinutes || 60} onChange={(v) => set({ bbMinutes: v })} ariaLabel="Tijd per training" />
+            </Field>
+            <Field label="Ervaring">
+              <Choice options={Object.entries(EXPERIENCE).map(([value, label]) => ({ value, label }))} value={s.exp.kracht} onChange={(v) => set({ exp: { ...s.exp, kracht: v } })} ariaLabel="Ervaring" />
+            </Field>
+            <Field label="Materiaal">
+              <Choice options={[{ value: "gym", label: "Volledige sportschool" }, { value: "basis", label: "Stang, dumbbells en bank" }, { value: "thuis", label: "Thuis met dumbbells" }]} value={s.equipment} onChange={(v) => set({ equipment: v })} ariaLabel="Materiaal" />
+            </Field>
+            <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+              De app maakt er een schema op maat van (indeling, oefeningen, sets per spiergroep), met progressievoorstellen per oefening. De oefeningen en sets kunt u daarna per oefening aanpassen.
+            </p>
+            <TBtn full disabled={!valid} onClick={() => onSave({ goal: "bodybuilding", days: s.days, minutes: s.bbMinutes || 60, experience: s.exp.kracht || "gevorderd", equipment: s.equipment || "gym" })}>
+              Bodybuildingschema maken
+            </TBtn>
+          </>
+        ) : (
+          <>
         <Field label="Datum van de wedstrijd of het doel (optioneel)" hint="Met een datum bouwt het schema op naar een piek en een taper.">
           <div className="flex gap-2">
             <input
@@ -138,6 +178,8 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null }) {
         <TBtn full disabled={!valid} onClick={() => onSave(s)}>
           {initial ? "Opslaan en week opnieuw plannen" : "Schema maken"}
         </TBtn>
+          </>
+        )}
         {initial && onStop && (
           <button type="button" onClick={onStop} className="tap text-sm" style={{ color: C.train }}>
             Schema stoppen
