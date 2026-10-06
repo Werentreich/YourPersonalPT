@@ -8,7 +8,7 @@ import { C, R, Section, Row, Sheet, TBtn, EXERCISES, MUSCLES } from "../App.jsx"
 import { SETTINGS_DEFAULT, GOALS } from "../hybrid/engine/planner.js";
 import { PlanSheet } from "../hybrid/ui/plan.jsx";
 import { DISCIPLINES, disciplineOfGoal } from "./theme.js";
-import { SCOPES, DEFAULT_SCOPES, INVITE_KEY, teamCall, inviteUrl, takeInviteFromUrl, applyPlan, assignmentText, readTeamCache, writeTeamCache, readSeen, writeSeen, newActivity, activityText } from "./team.js";
+import { SCOPES, DEFAULT_SCOPES, INVITE_KEY, teamCall, inviteUrl, takeInviteFromUrl, applyPlan, assignmentText, readTeamCache, writeTeamCache, readSeen, writeSeen, newActivity, activityText, clientIsBodybuilding, bbDays } from "./team.js";
 
 const inputStyle = () => ({ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink });
 const dayLabel = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("nl-NL", { weekday: "short", day: "numeric", month: "short" });
@@ -569,9 +569,11 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
   if (plan) {
     const cur = s && s.basis.plan ? s.basis.plan.settings : null;
     const disc = s && s.basis.discipline && DISCIPLINES[s.basis.discipline] && DISCIPLINES[s.basis.discipline].goals ? s.basis.discipline : null;
+    // sporter zonder gekozen sport en zonder hybride schema traint bodybuilding (de start van Nexa)
+    const bbClient = s && clientIsBodybuilding(s.basis);
     return (
       <PlanSheet
-        initial={{ ...SETTINGS_DEFAULT, ...(cur || {}), ...(s && s.basis.discipline === "bodybuilding" ? { goal: "bodybuilding" } : cur ? {} : disc ? { goal: DISCIPLINES[disc].goal } : {}) }}
+        initial={{ ...SETTINGS_DEFAULT, ...(cur || {}), ...(bbClient ? { goal: "bodybuilding", ...(s.program && s.program.days.length ? { days: bbDays(s.program.days.length) } : {}) } : cur ? {} : disc ? { goal: DISCIPLINES[disc].goal } : {}) }}
         goals={null}
         bodybuilding
         onClose={() => setPlan(false)}
@@ -611,12 +613,14 @@ export function ClientSheet({ link, onClose, team, mySettings }) {
                 <div className="flex-1 text-sm">
                   <strong>Trainingsschema</strong>
                   <span className="block text-xs" style={{ color: C.muted }}>
-                    {s.basis.plan ? `${(GOALS[s.basis.plan.settings.goal] || {}).label || s.basis.plan.settings.goal} · ${(s.basis.plan.settings.days || []).length} dagen per week` : "Nog geen schema"}
+                    {clientIsBodybuilding(s.basis)
+                      ? `Bodybuilding${s.program && s.program.days.length ? ` · ${s.program.days.length} trainingsdagen` : ""}`
+                      : s.basis.plan ? `${(GOALS[s.basis.plan.settings.goal] || {}).label || s.basis.plan.settings.goal} · ${(s.basis.plan.settings.days || []).length} dagen per week` : "Nog geen schema"}
                     {(d.pending || []).some((p) => p.kind === "schema") ? " · nieuw schema nog niet geopend" : ""}
                   </span>
                 </div>
                 <TBtn small disabled={!sc.schema} onClick={() => setPlan(true)}>
-                  {s.basis.plan ? "Aanpassen" : "Maken"}
+                  {s.basis.plan || (clientIsBodybuilding(s.basis) && s.program) ? "Aanpassen" : "Maken"}
                 </TBtn>
               </div>
               <div className="px-3 py-3 flex items-center gap-3" style={{ background: C.surface2, borderRadius: R.field }}>

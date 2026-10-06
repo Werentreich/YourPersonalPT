@@ -37,7 +37,8 @@ export const GOALS = {
   "10k": { label: "10 km", sub: "drempel en uithoudingsvermogen", slots: ["D_INT", "D_LONG", "K_FULL", "D_EASY", "D_TEMPO", "D_EASY", "K_FULL"], taper: 1, run: true, raceKm: 10 },
   halve: { label: "Halve marathon", sub: "duur en tempo", slots: ["D_INT", "D_LONG", "K_FULL", "D_EASY", "D_TEMPO", "D_EASY", "K_FULL"], taper: 2, run: true, raceKm: 21.1 },
   marathon: { label: "Marathon", sub: "lange duur centraal", slots: ["D_LONG", "D_INT", "K_FULL", "D_EASY", "D_TEMPO", "D_EASY", "D_EASY"], taper: 2, run: true, raceKm: 42.2 },
-  kracht: { label: "Kracht eerst", sub: "sterker worden, conditie onderhouden", slots: ["K_LOWER", "K_UPPER", "D_EASY", "K_LOWER", "K_UPPER", "D_INT", "C_METCON"], taper: 1, run: false },
+  // vier dagen: vier keer kracht (onder/boven), conditie via de afsluiter; duur vanaf vijf dagen
+  kracht: { label: "Kracht eerst", sub: "sterker worden, conditie onderhouden", slots: ["K_LOWER", "K_UPPER", "K_LOWER", "K_UPPER", "D_EASY", "D_INT", "C_METCON"], taper: 1, run: false },
   conditie: { label: "Conditie / functional fitness", sub: "metcons, motor en kracht", slots: ["C_METCON", "K_FULL", "D_EASY", "C_METCON", "K_FULL", "D_INT", "D_LONG"], taper: 1, run: false },
 };
 
@@ -700,11 +701,39 @@ export function weekAdjust(settings, ctx, mondayISO) {
    trainen (volledig lichaam, afwisselend A/B/C). Upper/lower pas vanaf vier
    krachtdagen, dan ook 2× per spiergroep (Schoenfeld e.a. 2016, Sports Med
    46(11); Schoenfeld e.a. 2019, J Sports Sci 37(11)). */
-export function strengthSplit(slots) {
+/* Indeling van de krachtdagen. Bij gelijk volume maakt full body of split
+   weinig uit voor spiergroei en kracht (Schoenfeld e.a. 2019, J Sports Sci;
+   Ramos-Campo e.a. 2024, JSCR); wat telt is elke spier minstens 2× per week
+   (Schoenfeld e.a. 2016, Sports Med) met genoeg herstel. Tot drie dagen is
+   full body de enige manier om dat te halen; vanaf vier dagen geeft
+   onder/boven per sessie meer ruimte voor sets per spier, kortere sessies en
+   48–72 uur herstel per spiergroep, en worden de benen geen vier keer per
+   week zwaar belast (belangrijk naast hardlopen).
+   `extra`: krachtsessies die later in de week nog bijkomen (bovenlichaam
+   's avonds bij twee trainingen per dag); die tellen mee. */
+export function strengthSplit(slots, extra = 0) {
   const n = slots.filter((x) => SLOTS[x].kind === "kracht").length;
-  const plan = n >= 4 ? ["K_LOWER", "K_UPPER", "K_LOWER", "K_UPPER", "K_FULL_A", "K_FULL_B"] : n === 3 ? ["K_FULL_A", "K_FULL_B", "K_FULL_C"] : ["K_FULL_A", "K_FULL_B"];
+  const plan =
+    n >= 4 ? ["K_LOWER", "K_UPPER", "K_LOWER", "K_UPPER", "K_FULL_A", "K_FULL_B"]
+    : n === 3 && extra > 0 ? ["K_LOWER", "K_UPPER", "K_LOWER"] // + bovenlichaam 's avonds = 2× onder, 2× boven
+    : n === 3 ? ["K_FULL_A", "K_FULL_B", "K_FULL_C"]
+    : ["K_FULL_A", "K_FULL_B"];
   let k = 0;
   return slots.map((x) => (SLOTS[x].kind === "kracht" ? plan[k++] : x));
+}
+
+/* Korte weekindeling voor in het instelscherm, bijvoorbeeld
+   "4× kracht (onder, boven, onder, boven) · 1× duur". */
+const SPLIT_WORD = { K_LOWER: "onder", K_UPPER: "boven", K_PUMP: "boven extra", K_FULL: "full body", K_FULL_A: "full body", K_FULL_B: "full body", K_FULL_C: "full body" };
+export function weekSummary(settings, mondayISO) {
+  const days = (settings.days || []).length;
+  if (!days) return "";
+  const wk = generateWeek({ ...settings, startDate: settings.startDate || mondayISO }, { sessions: [], profile: {} }, mondayISO);
+  const its = wk.items.filter((x) => !x.optional && x.slot !== "RACE");
+  const k = its.filter((x) => x.kind === "kracht");
+  const d = its.filter((x) => x.kind === "duur").length;
+  const c = its.filter((x) => x.kind === "wod" || x.kind === "hyrox").length;
+  return [k.length ? `${k.length}× kracht (${k.map((x) => SPLIT_WORD[x.slot] || "kracht").join(", ")})` : null, d ? `${d}× duur` : null, c ? `${c}× conditie` : null].filter(Boolean).join(" · ");
 }
 
 export function generateWeek(settingsIn, ctx, mondayISO) {
@@ -715,7 +744,12 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   if (adj.forceDeload && !ph.deload && ph.phase !== "taper" && ph.phase !== "wedstrijd") ph = { ...ph, deload: true, phase: "herstel", forced: true };
   const factor = volumeFactor(ph, settings.goal) * adj.factor;
   const days = [...new Set((settings.days || []).filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
-  let slots = strengthSplit(baseSlots(settings, days.length));
+  // komt er later een bovenlichaamsessie bij (twee per dag, voorrang kracht)? Dan telt die mee in de indeling.
+  const base = baseSlots(settings, days.length);
+  const light0 = ph.deload || ["herstel", "taper", "wedstrijd", "na"].includes(ph.phase);
+  const prio0 = settings.goal === "kracht" ? "kracht" : goal.run ? "duur" : settings.priority || "gelijk";
+  const pumpLater = settings.doubles && !light0 && prio0 === "kracht" && base.some((x) => ["D_EASY", "D_INT", "D_TEMPO", "D_LONG"].includes(x));
+  let slots = strengthSplit(base, pumpLater ? 1 : 0);
   // wedstrijdweek: alleen kort en scherp, de wedstrijd zelf op de doeldag
   const raceDay = settings.goalDate && ph.phase === "wedstrijd" ? dayNum(settings.goalDate) - dayNum(mondayISO) : null;
   let arr = arrangeWeek(slots, days, settings);

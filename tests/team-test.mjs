@@ -93,6 +93,11 @@ ok("verplaats: zonder dag of training geweigerd", !!T.cleanMove({ itemId: "i1", 
 const pr = T.cleanProgram({ programId: "p1", days: [{ id: "d1", slots: [{ exId: "bench_press", sets: 4, repMin: 6, repMax: 8, rest: 150, note: "pauze onderin" }, { exId: "DROP TABLE", sets: 3 }, { exId: "row", sets: 99, repMin: 10, repMax: 5, rest: 5 }] }] });
 ok("programma: rommel-id eruit, grenzen bewaakt", pr.payload.days[0].slots.length === 2 && pr.payload.days[0].slots[0].rest === 150 && pr.payload.days[0].slots[1].sets === 3 && pr.payload.days[0].slots[1].repMax === 10 && pr.payload.days[0].slots[1].rest === 120);
 ok("programma: lege dag geweigerd", !!T.cleanProgram({ days: [{ id: "d1", slots: [] }] }).error && !!T.cleanProgram({ days: [] }).error);
+// coach: sporter in bodybuilding (ook zonder gekozen sport) krijgt Bodybuilding als begin
+ok("bodybuilding: gekozen sport", A.clientIsBodybuilding({ discipline: "bodybuilding", plan: { settings: { goal: "hybride" } } }));
+ok("bodybuilding: geen sport en geen hybride schema = start van Nexa", A.clientIsBodybuilding({ discipline: null, plan: null }));
+ok("geen bodybuilding: hybride schema of andere sport", !A.clientIsBodybuilding({ discipline: null, plan: { settings: { goal: "hybride" } } }) && !A.clientIsBodybuilding({ discipline: "kracht", plan: null }) && !A.clientIsBodybuilding(null));
+ok("dagen bij 4 trainingen: ma, di, do, vr", A.bbDays(4).join() === "0,1,3,4" && A.bbDays(9).length === 6);
 const psum = T.programSummary({ activeProgramId: "p2", programs: [{ id: "p1", name: "Oud", days: [] }, { id: "p2", name: "Kracht", perf: true, days: [{ id: "d1", name: "A", slots: [{ exId: "hyb_x", sets: 3, repMin: 5, repMax: 5, rest: 180 }] }] }], customEx: [{ id: "hyb_x", name: "Smith bankdrukken" }] });
 ok("programmaoverzicht: actief programma met eigen oefennamen", psum.id === "p2" && psum.perf && psum.days[0].slots[0].name === "Smith bankdrukken");
 ok("programmaoverzicht: zonder programma null", T.programSummary(null) === null && T.programSummary({ programs: [] }) === null);

@@ -76,6 +76,14 @@ Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify
   de algemene warming-up van de geplande sessie (`warmupOf` in
   `src/perf/bridge.js`) staat als kaart boven de training, met "Gedaan";
   de opbouwsets (W) zitten in de oefeningen.
+- Krachtindeling (`strengthSplit` in `planner.js`): tot drie krachtdagen
+  full body, vanaf vier onder/boven. "Kracht eerst" met vier dagen = 4×
+  kracht (onder/boven), duur pas vanaf vijf dagen. Een extra
+  bovenlichaamsessie bij twee trainingen per dag telt mee in de indeling.
+  `weekSummary` toont de week vooraf in het instelscherm.
+- Coach: een sporter zonder gekozen sport en zonder hybride schema traint
+  bodybuilding (`clientIsBodybuilding` in `src/perf/team.js`); het
+  schema-instelscherm begint dan op Bodybuilding.
 - Geschatte duur leert van de werkelijke duur (`src/perf/duration.js`):
   mediaan van de verhouding werkelijk/geschat over de laatste vijf
   soortgelijke trainingen (zelfde sessie, anders zelfde soort vanaf twee).

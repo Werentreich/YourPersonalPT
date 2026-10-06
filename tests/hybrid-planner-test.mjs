@@ -168,8 +168,15 @@ ok("herstelweek heet ook zo", Array.from({ length: 9 }, (_, i) => P.phaseFor(fre
   const groups = (x) => new Set(MB(x).items.map((it) => it.moveId));
   ok("A en B: beide met een onder- en bovenlichaam-hoofdoefening", two.every((x) => MB(x).items[0].sets.length === MB(x).items[1].sets.length && MB(x).items[1].restSec === 150));
   ok("A en B: verschillende oefeningen", [...groups(two[0])].some((m) => !groups(two[1]).has(m)));
-  ok("3 krachtdagen: A, B en C", split([0, 1, 3, 4]).sort().join() === "K_FULL_A,K_FULL_B,K_FULL_C", split([0, 1, 3, 4]).join());
+  ok("3 krachtdagen: A, B en C", split([0, 2, 4]).sort().join() === "K_FULL_A,K_FULL_B,K_FULL_C", split([0, 2, 4]).join());
+  ok("kracht eerst, 4 dagen: 4× kracht als upper/lower (geen 4× full body)", split([0, 1, 3, 4]).sort().join() === "K_LOWER,K_LOWER,K_UPPER,K_UPPER", split([0, 1, 3, 4]).join());
   ok("4 krachtdagen: upper/lower, elk 2×", split([0, 1, 2, 3, 4]).sort().join() === "K_LOWER,K_LOWER,K_UPPER,K_UPPER", split([0, 1, 2, 3, 4]).join());
+  const dbl = (goal, prio, days) => P.generateWeek({ ...S, goal, priority: prio, doubles: true, days }, ctx0, MON).items.filter((x) => x.kind === "kracht").map((x) => x.slot);
+  const d1 = dbl("hybride", "kracht", [0, 1, 3, 4]);
+  ok("twee per dag + voorrang kracht: extra bovenlichaam telt mee, onder/boven 2× in plaats van 3× full body + extra", d1.sort().join() === "K_LOWER,K_LOWER,K_PUMP,K_UPPER", d1.join());
+  const d2 = dbl("kracht", "gelijk", [0, 1, 2, 3, 4]);
+  ok("kracht eerst, 5 dagen, twee per dag: geen full body", d2.every((x) => !x.startsWith("K_FULL")), d2.join());
+  ok("weekoverzicht in het instelscherm", P.weekSummary({ ...S, goal: "kracht", days: [0, 1, 3, 4] }, MON) === "4× kracht (onder, boven, onder, boven)", P.weekSummary({ ...S, goal: "kracht", days: [0, 1, 3, 4] }, MON));
   ok("1 krachtdag: volledig lichaam", P.strengthSplit(["K_LOWER", "D_EASY"]).join() === "K_FULL_A,D_EASY");
   ok("thuis en basis: volledig lichaam zonder halter", ["thuis", "basis"].every((eq) => P.generateWeek({ ...S, equipment: eq }, ctx0, MON).items.filter((x) => x.kind === "kracht").every((x) => x.slot.startsWith("K_FULL_") && ALLK(x).length >= 6 && ALLK(x).every((it) => !["back_squat", "bench_press", "trap_bar_dl", "bb_row"].includes(it.moveId)))));
 }

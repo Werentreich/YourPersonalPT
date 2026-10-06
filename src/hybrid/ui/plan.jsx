@@ -10,7 +10,7 @@ import { platform } from "../native/platform.js";
 import { C, R, Sheet, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
 import { SPORTS, localISO, mondayOf, dayNum, isoOfNum, fmtDuration, num } from "../engine/model.js";
-import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, PRIORITIES, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
+import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, PRIORITIES, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, weekSummary, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
 import { blockHeader, itemLine, BLOCK_TYPES, ROLES } from "../engine/blocks.js";
 import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js";
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
@@ -38,6 +38,15 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
   const toggleCardio = (k) => set({ cardio: s.cardio.includes(k) ? s.cardio.filter((x) => x !== k) : [...s.cardio, k] });
   const bb = bodybuilding && s.goal === "bodybuilding";
   const valid = bb ? s.days.length >= 1 && s.days.length <= 6 : s.days.length >= 2 && s.cardio.length >= 1;
+  // voorbeeld van de week, zodat vooraf te zien is welke indeling de app kiest
+  const summary = useMemo(() => {
+    if (bb || !valid) return "";
+    try {
+      return weekSummary(s, mondayOf(localISO()));
+    } catch (e) {
+      return "";
+    }
+  }, [bb, valid, s.goal, s.days.join(), s.priority, s.doubles, s.exp.duur, s.exp.kracht, s.goalDate, s.cardio.join()]);
   return (
     <Sheet title={initial ? "Schema aanpassen" : "Uw schema"} onClose={onClose}>
       <div className="space-y-5 pb-2">
@@ -64,6 +73,11 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
               </button>
             ))}
           </div>
+          {bodybuilding && (
+            <p className="text-xs mt-1.5 leading-relaxed" style={{ color: C.muted }}>
+              Voor spieropbouw is Bodybuilding de beste keuze: meer sets per spiergroep en een indeling op maat. De andere doelen combineren kracht met duur of conditie.
+            </p>
+          )}
         </Field>
         {bb ? (
           <>
@@ -85,6 +99,9 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
             <Field label="Materiaal">
               <Choice options={[{ value: "gym", label: "Volledige sportschool" }, { value: "basis", label: "Stang, dumbbells en bank" }, { value: "thuis", label: "Thuis met dumbbells" }]} value={s.equipment} onChange={(v) => set({ equipment: v })} ariaLabel="Materiaal" />
             </Field>
+            <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+              Indeling: {s.days.length <= 2 ? "full body, zodat elke spiergroep toch twee keer per week traint" : s.days.length === 3 ? "full body of upper/lower/full body, afhankelijk van de dagen" : s.days.length === 4 ? "upper/lower, elke spiergroep twee keer per week" : s.days.length === 5 ? "upper/lower met push/pull/legs" : "push/pull/legs of upper/lower, twee of drie keer"}.
+            </p>
             <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
               De app maakt er een schema op maat van (indeling, oefeningen, sets per spiergroep), met progressievoorstellen per oefening. De oefeningen en sets kunt u daarna per oefening aanpassen.
             </p>
@@ -176,6 +193,11 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
         <Field label="Bijsturen" hint="Bij een voorstel beslist u zelf; automatisch past de app het schema direct aan en laat zien wat er veranderde.">
           <Choice options={[{ value: false, label: "Voorstel eerst" }, { value: true, label: "Automatisch" }]} value={!!s.auto} onChange={(v) => set({ auto: v })} ariaLabel="Bijsturen" />
         </Field>
+        {summary && (
+          <p className="text-xs px-3 py-2 leading-relaxed" style={{ background: C.surface2, borderRadius: R.field, color: C.ink }} aria-live="polite">
+            <strong>Week:</strong> {summary}
+          </p>
+        )}
         <TBtn full disabled={!valid} onClick={() => onSave(s)}>
           {initial ? "Opslaan en week opnieuw plannen" : "Schema maken"}
         </TBtn>

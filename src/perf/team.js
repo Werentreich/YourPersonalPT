@@ -88,6 +88,13 @@ export function applyPlan(a, cur) {
   return null;
 }
 
+/* Traint de sporter bodybuilding? Zonder gekozen sport en zonder hybride
+   schema is dat zo: Nexa begint met bodybuilding. */
+export const clientIsBodybuilding = (basis) => !!basis && (basis.discipline === "bodybuilding" || (!basis.discipline && !basis.plan));
+
+/* Gangbare trainingsdagen bij een aantal dagen (ma = 0), als begin voor de coach. */
+export const bbDays = (n) => ({ 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4], 6: [0, 1, 2, 3, 4, 5] })[Math.max(1, Math.min(6, n))];
+
 const GOAL_TEXT = { cut: "afvallen", onderhoud: "gewicht houden", bulk: "spiermassa opbouwen" };
 const DAYS_NL = ["zondag", "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag"];
 export function assignmentText(a) {
