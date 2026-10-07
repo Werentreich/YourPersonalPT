@@ -13,6 +13,7 @@
      op gedaan, voeding, coach) */
 
 import { blockHeader, itemLine } from "../hybrid/engine/blocks.js";
+import { finisherBlock } from "../hybrid/engine/planner.js";
 
 /* Hybride beweging -> Nexa-oefening. Wat Nexa niet kent, wordt een eigen
    oefening (CUSTOM hieronder). */
@@ -164,20 +165,31 @@ export const dayForItem = (program, item) => (program && item ? (program.days ||
 /* Algemene warming-up van een geplande sessie, voor bovenaan de
    Nexa-training: [{ text, how }]. De opbouwsets per oefening staan los
    daarvan in het programma (warmups). */
-export function warmupOf(item) {
+export const warmupOf = (item) => extraOf(item, "warmup");
+
+/* Afsluiter (conditie) en cooling-down na de krachtoefeningen, zelfde vorm. */
+export const finisherOf = (item) => [...extraOf(item, "afsluiter"), ...extraOf(item, "cooldown")];
+
+const isExtra = (b, role) => b.type !== "sets" && b.role === role;
+function extraOf(item, role) {
   return ((item && item.blocks) || [])
-    .filter((b) => b.type !== "sets" && b.role === "warmup")
+    .filter((b) => isExtra(b, role))
     .map((b) => {
       const head = blockHeader(b, { withName: false });
       const lines = (b.items || []).map((it) => itemLine(it, b));
-      return { text: !lines.length || head === lines.join(" + ") ? head : `${head}: ${lines.join(", ")}`, how: b.intensity || "" };
+      const how = b.intensity || (b.type === "emom" && b.emomMode === "wissel" ? "Elke minuut start u de volgende oefening; de rest van de minuut is rust." : b.type === "emom" ? "Elke minuut alles uit de ronde; de rest van de minuut is rust." : b.type === "amrap" ? "Zoveel mogelijk rondes in deze tijd, in een tempo dat u volhoudt." : "");
+      return { text: !lines.length || head === lines.join(" + ") ? head : `${head}: ${lines.join(", ")}`, how };
     });
 }
 
 /* Programmadag als blokken (voor het weekoverzicht, de agenda en de coach).
-   De warming-up van het hybride schema blijft staan. */
-export function blocksFromDay(day, exIndex, item) {
-  const warm = (item.blocks || []).filter((b) => b.type !== "sets" && b.role === "warmup");
+   De warming-up, de afsluiter en de cooling-down van het hybride schema
+   blijven staan. Was de afsluiter al weggevallen (oudere versie) terwijl de
+   titel hem noemt, dan komt hij terug (`equipment` uit de planinstellingen). */
+export function blocksFromDay(day, exIndex, item, equipment) {
+  const warm = (item.blocks || []).filter((b) => isExtra(b, "warmup"));
+  let after = (item.blocks || []).filter((b) => isExtra(b, "afsluiter") || isExtra(b, "cooldown"));
+  if (!after.some((b) => b.role === "afsluiter") && /\+ afsluiter/.test(item.title || "") && equipment !== undefined) after = [finisherBlock(equipment), ...after];
   const groups = [];
   let cur = null;
   for (const s of day.slots || []) {
@@ -207,19 +219,19 @@ export function blocksFromDay(day, exIndex, item) {
     }),
     result: {},
   }));
-  return [...warm, ...blocks];
+  return [...warm, ...blocks, ...after];
 }
 
 const strip = (blocks) => JSON.stringify((blocks || []).map((b) => (b.type === "sets" ? (b.items || []).map((i) => [i.moveId, i.sets.length, i.repRange, i.restSec, i.note || ""]) : b.role)));
 
 /* Geplande krachtsessies die moeten meebewegen met het programma. */
-export function itemsToSync(planItems, program, exIndex, today) {
+export function itemsToSync(planItems, program, exIndex, today, equipment) {
   const out = {};
   for (const x of planItems || []) {
     if (x.kind !== "kracht" || x.status !== "gepland" || x.date < today) continue;
     const day = dayForItem(program, x);
     if (!day) continue;
-    const blocks = blocksFromDay(day, exIndex, x);
+    const blocks = blocksFromDay(day, exIndex, x, equipment);
     if (strip(blocks) !== strip(x.blocks)) out[x.id] = blocks;
   }
   return out;

@@ -722,6 +722,14 @@ export function strengthSplit(slots, extra = 0) {
   return slots.map((x) => (SLOTS[x].kind === "kracht" ? plan[k++] : x));
 }
 
+/* Korte afsluiter voor de conditie na een krachtsessie (8 minuten). */
+export function finisherBlock(equipment) {
+  const I = newItem;
+  return equipment === "thuis"
+    ? newBlock("amrap", { role: "afsluiter", capSec: 480, items: [I("burpees", { reps: 8 }), I("air_squats", { reps: 12 }), I("push_ups", { reps: 8 })] })
+    : newBlock("emom", { role: "afsluiter", durationSec: 480, everySec: 60, emomMode: "wissel", items: [I(equipment === "gym" || !equipment ? "row" : "kb_swings", equipment === "gym" || !equipment ? { cal: 12 } : { reps: 15 }), I("burpees", { reps: 8 })] });
+}
+
 /* Korte weekindeling voor in het instelscherm, bijvoorbeeld
    "4× kracht (onder, boven, onder, boven) · 1× duur". */
 const SPLIT_WORD = { K_LOWER: "onder", K_UPPER: "boven", K_PUMP: "boven extra", K_FULL: "full body", K_FULL_A: "full body", K_FULL_B: "full body", K_FULL_C: "full body" };
@@ -806,11 +814,7 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   if (goal.slots.includes("C_METCON") && !items.some((x) => x.kind === "wod" || x.kind === "hyrox") && !ph.deload && ph.phase !== "taper" && ph.phase !== "wedstrijd") {
     const host = items.find((x) => x.slot === "K_UPPER") || items.find((x) => x.slot === "K_FULL_B") || items.find((x) => x.kind === "kracht");
     if (host) {
-      const I = newItem;
-      const fin = settings.equipment === "thuis"
-        ? newBlock("amrap", { role: "afsluiter", capSec: 480, items: [I("burpees", { reps: 8 }), I("air_squats", { reps: 12 }), I("push_ups", { reps: 8 })] })
-        : newBlock("emom", { role: "afsluiter", durationSec: 480, everySec: 60, emomMode: "wissel", items: [I(settings.equipment === "gym" ? "row" : "kb_swings", settings.equipment === "gym" ? { cal: 12 } : { reps: 15 }), I("burpees", { reps: 8 })] });
-      host.blocks = [...host.blocks, fin];
+      host.blocks = [...host.blocks, finisherBlock(settings.equipment)];
       host.targetMin += 10;
       host.title = `${host.title} + afsluiter`;
       host.note = `${host.note} Daarna een korte afsluiter voor de conditie.`;

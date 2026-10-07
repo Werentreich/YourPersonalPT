@@ -63,5 +63,22 @@ ok("warming-up: blijft na synchroniseren met het programma", B.warmupOf(synced).
 ok("warming-up: rondes met oefeningen uitgeschreven", /2 rondes: .*roeien/.test(B.warmupOf({ blocks: [{ type: "rondes", role: "warmup", rounds: 2, items: [{ moveId: "row", distanceM: 250 }, { moveId: "air_squats", reps: 10 }] }] })[0].text), JSON.stringify(B.warmupOf({ blocks: [{ type: "rondes", role: "warmup", rounds: 2, items: [{ moveId: "row", distanceM: 250 }, { moveId: "air_squats", reps: 10 }] }] })));
 ok("warming-up: geen warming-up, lege lijst", B.warmupOf({ blocks: [{ type: "sets", items: [] }] }).length === 0 && B.warmupOf(null).length === 0);
 
+// afsluiter: blijft na synchroniseren met het programma en staat bij de start klaar
+const S2 = { ...P.SETTINGS_DEFAULT, goal: "hybride", startDate: "2026-10-05", days: [0, 2, 4] };
+const wk2 = P.generateWeek(S2, { sessions: [], profile: {} }, "2026-10-05");
+const kF = wk2.items.find((x) => /\+ afsluiter/.test(x.title));
+const fo = B.finisherOf(kF);
+ok("afsluiter: uit de krachtsessie met uitleg", fo.length === 1 && /EMOM 8 min: .*roeien.*burpees/.test(fo[0].text) && /minuut/.test(fo[0].how), JSON.stringify(fo));
+const r2 = B.programFromPlan(wk2.items, new Set(["squat", "bankdrukken"]), () => `v${++n}`, "2026-10-05");
+const dayF = r2.program.days.find((d) => d.slot === kF.slot);
+const synced2 = B.blocksFromDay(dayF, {}, kF, "gym");
+ok("afsluiter: blijft na synchroniseren, achteraan", synced2[synced2.length - 1].role === "afsluiter" && synced2[0].role === "warmup");
+const lost = { ...kF, blocks: kF.blocks.filter((b) => b.role !== "afsluiter") };
+const back2 = B.blocksFromDay(dayF, {}, lost, "thuis");
+ok("afsluiter: weggevallen (oude versie) maar titel noemt hem: komt terug", back2.some((b) => b.role === "afsluiter" && b.type === "amrap"));
+ok("afsluiter: zonder titel geen afsluiter erbij", !B.blocksFromDay(dayF, {}, { ...lost, title: "Kracht A" }, "gym").some((b) => b.role === "afsluiter"));
+const sync2 = B.itemsToSync([{ ...lost, status: "gepland", date: "2026-10-09" }], r2.program, {}, "2026-10-05", "gym");
+ok("afsluiter: synchroniseren herstelt hem in het schema", (sync2[lost.id] || []).some((b) => b.role === "afsluiter"));
+
 if (fails) { console.log(`\n${fails} FOUT`); process.exit(1); }
 console.log("\nalles goed");

@@ -75,7 +75,11 @@ Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify
 - Krachtsessie uit het schema starten (`startPerfStrength` in `App.jsx`):
   de algemene warming-up van de geplande sessie (`warmupOf` in
   `src/perf/bridge.js`) staat als kaart boven de training, met "Gedaan";
-  de opbouwsets (W) zitten in de oefeningen.
+  de opbouwsets (W) zitten in de oefeningen. De afsluiter (conditie) en
+  cooling-down (`finisherOf`) staan als kaart onderaan. `blocksFromDay`
+  houdt warming-up, afsluiter en cooling-down vast bij het synchroniseren
+  met het programma en zet een eerder weggevallen afsluiter terug als de
+  titel "+ afsluiter" noemt (`finisherBlock` in `planner.js`).
 - Krachtindeling (`strengthSplit` in `planner.js`): tot drie krachtdagen
   full body, vanaf vier onder/boven. "Kracht eerst" met vier dagen = 4×
   kracht (onder/boven), duur pas vanaf vijf dagen. Een extra

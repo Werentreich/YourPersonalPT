@@ -3,7 +3,7 @@ import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/Performa
 import { LiftDock } from "./perf/LiveLift.jsx";
 import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet, MessagesSheet } from "./perf/Team.jsx";
 import { savedLift } from "./perf/lift.js";
-import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten, warmupOf } from "./perf/bridge.js";
+import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten, warmupOf, finisherOf } from "./perf/bridge.js";
 import { learnedDayMinutes, learnedNote } from "./perf/duration.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
@@ -6844,6 +6844,43 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
         </div>
       ) : null}
 
+      {a.finisher && a.finisher.length > 0 && (
+        <div className="mb-4 px-4 py-3" style={{ background: C.panel, border: `1px solid ${a.finisherDone ? C.line : C.accent}`, borderRadius: R.card, boxShadow: C.shadow }} aria-label="Afsluiter">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] uppercase tracking-wide" style={{ color: C.muted, fontWeight: 600 }}>
+                Afsluiter{a.finisherDone ? " · gedaan" : ""}
+              </div>
+              {a.finisher.map((w, k) => (
+                <div key={k} className="mt-0.5">
+                  <div className="text-sm font-semibold" style={{ color: a.finisherDone ? C.muted : C.ink }}>
+                    {w.text}
+                  </div>
+                  {w.how && !a.finisherDone && (
+                    <div className="text-xs leading-relaxed" style={{ color: C.muted }}>
+                      {w.how}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {!a.finisherDone && (
+                <div className="text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
+                  Na de laatste oefening, voor de conditie. Stevig maar beheerst.
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => upd((x) => ({ ...x, finisherDone: !x.finisherDone }))}
+              className="tap shrink-0 px-3 py-2 text-xs font-semibold"
+              style={a.finisherDone ? { border: `1px solid ${C.line}`, borderRadius: R.field, color: C.muted } : { background: "var(--accent)", color: "var(--on-accent)", borderRadius: R.field }}
+              aria-pressed={!!a.finisherDone}
+            >
+              {a.finisherDone ? "Ongedaan" : "Gedaan"}
+            </button>
+          </div>
+        </div>
+      )}
+
       <TBtn full onClick={finish} className="disp text-xl uppercase">
         Training afronden
       </TBtn>
@@ -11812,7 +11849,7 @@ function MacroApp() {
   /* Geplande krachtsessies tonen wat er in het programma staat. */
   useEffect(() => {
     if (!perfProgram || !perfData.plan || discipline === "bodybuilding") return;
-    const map = itemsToSync(perfData.plan.items, perfProgram, D.exIndex, trainToday);
+    const map = itemsToSync(perfData.plan.items, perfProgram, D.exIndex, trainToday, perfData.plan.settings.equipment || "gym");
     if (Object.keys(map).length) perfStore[1].syncStrengthBlocks(map);
   }, [perfProgram, perfData.plan && perfData.plan.items, D.exIndex, discipline]);
 
@@ -11833,7 +11870,8 @@ function MacroApp() {
       if (t.active) return t;
       // algemene warming-up uit het schema meenemen (de opbouwsets zitten al in de oefeningen)
       const warm = warmupOf(item);
-      let a = { ...buildSession({ program: perfProgram, day, D, T: t, bw: weight }), perfItemId: item.id, ...(warm.length ? { warmup: warm, warmupDone: false } : {}) };
+      const fin = finisherOf(item); // afsluiter (conditie) na de oefeningen
+      let a = { ...buildSession({ program: perfProgram, day, D, T: t, bw: weight }), perfItemId: item.id, ...(warm.length ? { warmup: warm, warmupDone: false } : {}), ...(fin.length ? { finisher: fin, finisherDone: false } : {}) };
       if (isLight(item)) a = { ...a, exercises: lighten(a.exercises), volumeCut: true, phaseNote: "Lichtere sessie in uw hybride schema (herstel of taper): minder werksets, zelfde gewichten." };
       return { ...t, activeProgramId: perfProgram.id, active: a };
     });
