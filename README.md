@@ -426,6 +426,18 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
 - **Aanpassingen deze week**: overgeslagen of verplaatste trainingen van eerdere
   dagen staan op Vandaag, elk met "Ongedaan maken" (`undoAdjAt`).
 
+## Maaltijden per dag
+
+Per maaltijd kiest de gebruiker bij Bewerken op welke dagen een wijziging
+geldt (`src/mealScope.js`, test `tests/mealscope-test.mjs`). Standaard staan de
+dagen van hetzelfde type (trainings- of rustdagen) aan die de maaltijd nu
+delen; een dag aanzetten neemt de maaltijd daar over, uitgezette dagen
+veranderen nooit mee. Opslag in lagen (`mealPlans`): alle dagen (`def`),
+dagtype (`training`/`rust`) en per dag (0–6). Precies alle dagen van één type
+gaat naar de typelaag (volgt als de trainingsdagen veranderen), alle zeven
+naar `def`, elke andere keuze naar daglagen. Alleen de producten worden
+gedeeld; de grammen volgen per dag uit de macro's van die dag.
+
 ## Schema op maat
 
 Training → (geen schema) of Schema → nieuw: `PlanBuilder` vraagt dagen, tijd per

@@ -5,6 +5,7 @@ import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientShe
 import { savedLift } from "./perf/lift.js";
 import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten, warmupOf, finisherOf } from "./perf/bridge.js";
 import { learnedDayMinutes, learnedNote } from "./perf/duration.js";
+import { sharedDays, writeDays, daysLabel } from "./mealScope.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -11225,6 +11226,7 @@ function MacroApp() {
   const [onboarding, setOnboarding] = useState(null);
   const [obTrain, setObTrain] = useState({ type: "kracht", minutes: 75, start: "18:00" });
   const [editMeal, setEditMeal] = useState(null);
+  const [applyDays, setApplyDays] = useState([]); // dagen waarop een wijziging aan deze maaltijd geldt
   const [log, setLog] = useState([]);
   const [checkins, setCheckins] = useState([]);
   const [weekAdj, setWeekAdj] = useState(null);
@@ -11520,8 +11522,6 @@ function MacroApp() {
       defaultItems(label, i)
     );
   };
-  const scopeOf = (day, i) =>
-    mealPlans[day] && mealPlans[day][i] ? "dag" : mealPlans[dayType(day)] && mealPlans[dayType(day)][i] ? "type" : "alle";
 
     /* Safari negeert user-scalable=no sinds iOS 10. Knijpen loopt daar via
      eigen gesture-events en meervingerige touchmoves; die houden we tegen. */
@@ -12007,6 +12007,10 @@ function MacroApp() {
     return w;
   }, [energy, macros, meals, weight, week]);
 
+  const dayTypes = DAYS.map((_, d) => dayType(d)); // na core: wk bestaat dan
+  /* producten van maaltijd i op dag d (met het maaltijdtype van die dag) */
+  const itemsOfMeal = (i) => (d) => itemsFor(d, i, (dayPlan.all[d] && dayPlan.all[d].meals[i] && dayPlan.all[d].meals[i].label) || "normaal");
+
   const portionPlan = useMemo(() => {
     if (!showPortions) return null;
     return meals.map((m, i) => {
@@ -12020,47 +12024,39 @@ function MacroApp() {
       return {
         ...built,
         items,
-        scope: scopeOf(selDay, i),
+        shared: sharedDays(itemsOfMeal(i), selDay),
         alts: showAlts
           ? built.portions.map((pp) => (pp.food === "groente" ? [] : alternativesFor(pp.food, pp.grams, foodIndex, 2)))
           : null,
       };
     });
-  }, [meals, mealPlans, vegGrams, showPortions, foodIndex, selDay, week, showAlts]);
+  }, [meals, mealPlans, vegGrams, showPortions, foodIndex, selDay, week, showAlts, dayPlan]);
 
-  /* Schrijft naar het niveau waarop deze maaltijd al bestaat; is dat nergens,
-     dan naar het profiel van het huidige dagtype. */
+  /* Bij openen van een maaltijd: de dagen van hetzelfde type waarop hij nu hetzelfde is. */
+  useEffect(() => {
+    if (editMeal == null) return;
+    // standaard alleen dagen van hetzelfde type (trainings- of rustdagen) die hem nu delen; uitbreiden kan
+    setApplyDays(sharedDays(itemsOfMeal(editMeal), selDay).filter((d) => dayTypes[d] === dayTypes[selDay]));
+  }, [editMeal, selDay]);
+
+  /* Wijziging aan een maaltijd: geldt alleen op de gekozen dagen (src/mealScope.js).
+     Dagen die niet gekozen zijn, blijven zoals ze waren. */
+  const editDays = () => (applyDays.includes(selDay) ? applyDays : [selDay, ...applyDays]);
   const setItems = (mealIndex, fn) =>
     setMealPlans((s) => {
-      const t = dayType(selDay);
-      const scope = s[selDay] && s[selDay][mealIndex] ? selDay : t;
       const cur = itemsFor(selDay, mealIndex, meals[mealIndex] ? meals[mealIndex].label : "normaal");
-      return { ...s, [scope]: { ...(s[scope] || {}), [mealIndex]: fn(cur) } };
+      return writeDays(s, dayTypes, mealIndex, editDays(), fn(cur));
     });
 
-  const setScope = (mealIndex, target) =>
+  /* Andere dagen kiezen: gekozen dagen krijgen deze maaltijd zoals hij nu is. */
+  const chooseDays = (mealIndex, days) => {
+    const set = [...new Set([selDay, ...days])].sort((a, b) => a - b);
+    setApplyDays(set);
     setMealPlans((s) => {
-      const t = dayType(selDay);
-      const cur = itemsFor(selDay, mealIndex, meals[mealIndex] ? meals[mealIndex].label : "normaal").map((x) => ({ ...x }));
-      const out = { ...s };
-      const strip = (key) => {
-        if (!out[key]) return;
-        const c = { ...out[key] };
-        delete c[mealIndex];
-        out[key] = c;
-      };
-      if (target === "dag") {
-        out[selDay] = { ...(out[selDay] || {}), [mealIndex]: cur };
-      } else if (target === "type") {
-        strip(selDay);
-        out[t] = { ...(out[t] || {}), [mealIndex]: cur };
-      } else {
-        strip(selDay);
-        strip(t);
-        out.def = { ...(out.def || {}), [mealIndex]: cur };
-      }
-      return out;
+      const cur = itemsFor(selDay, mealIndex, meals[mealIndex] ? meals[mealIndex].label : "normaal");
+      return writeDays(s, dayTypes, mealIndex, set, cur);
     });
+  };
 
   /* Neemt het volledige schema van dit dagtype over naar het andere. */
   /* Zet het dagritme van deze dag op alle dagen van hetzelfde type. */
@@ -13835,9 +13831,8 @@ function MacroApp() {
             style={{ borderBottom: `1px solid ${C.lineSoft}`, background: C.surface2 }}
           >
             <div className="text-xs leading-snug" style={{ color: C.muted }}>
-              U bewerkt het profiel voor <strong style={{ color: C.ink }}>{TYPE_LABEL[dayType(selDay)]}</strong>:{" "}
-              {DAYS.filter((_, k) => dayType(k) === dayType(selDay)).join(", ")}. Wijzigingen gelden meteen voor al die
-              dagen.
+              Bij <strong style={{ color: C.ink }}>Bewerken</strong> kiest u per maaltijd op welke dagen een wijziging geldt. De
+              producten gaan mee; de grammen passen zich aan de calorieën van elke dag aan.
             </div>
             <button onClick={copyToOtherType} className="tap text-xs underline shrink-0" style={{ color: C.accent }}>
               Kopieer naar {TYPE_LABEL[dayType(selDay) === "training" ? "rust" : "training"]}
@@ -13901,13 +13896,7 @@ function MacroApp() {
                             className="text-xs px-2 py-0.5 rounded-full"
                             style={{ background: C.surface2, color: C.muted, border: `1px solid ${C.lineSoft}` }}
                           >
-                            {portionPlan[e.index].scope === "dag"
-                              ? `Alleen ${DAY_FULL[selDay].toLowerCase()}`
-                              : portionPlan[e.index].scope === "alle"
-                              ? "Alle dagen"
-                              : dayType(selDay) === "training"
-                              ? "Trainingsdagen"
-                              : "Rustdagen"}
+                            {daysLabel(portionPlan[e.index].shared, dayTypes, selDay, DAYS, DAY_FULL)}
                           </span>
                           <button
                             onClick={() => setEditMeal(e.index)}
@@ -13946,32 +13935,62 @@ function MacroApp() {
                       ) : (
                         <div>
                           <div className="mt-2 px-2.5 py-2" style={{ background: C.surface2, border: `1px solid ${C.lineSoft}`, borderRadius: R.field }}>
-                        <div className="flex items-center gap-1 pb-1.5 mb-1" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
-                          <span className="text-xs shrink-0 mr-1" style={{ color: C.muted }}>
-                            Geldt voor
-                          </span>
-                          {[
-                            { id: "type", label: dayType(selDay) === "training" ? "Trainingsdagen" : "Rustdagen" },
-                            { id: "alle", label: "Alle dagen" },
-                            { id: "dag", label: DAYS[selDay] },
-                          ].map((o) => {
-                            const on = portionPlan[e.index].scope === o.id;
-                            return (
-                              <button
-                                key={o.id}
-                                onClick={() => setScope(e.index, o.id)}
-                                className="tap text-xs px-2 py-0.5 rounded-full"
-                                style={{
-                                  background: on ? C.accent : "transparent",
-                                  color: on ? C.onAccent : C.muted,
-                                  border: `1px solid ${on ? C.accent : C.line}`,
-                                  fontWeight: on ? 600 : 400,
-                                }}
-                              >
-                                {o.label}
-                              </button>
-                            );
-                          })}
+                        <div className="pb-2 mb-1" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-xs" style={{ color: C.muted }}>
+                              Wijzigingen gelden voor
+                            </span>
+                            <span className="text-xs font-semibold" style={{ color: C.ink }}>
+                              {daysLabel(applyDays.length ? applyDays : [selDay], dayTypes, selDay, DAYS, DAY_FULL)}
+                            </span>
+                          </div>
+                          <div className="flex gap-1 mt-1.5" role="group" aria-label="Dagen waarop deze maaltijd geldt">
+                            {DAYS.map((dn, d) => {
+                              const on = d === selDay || applyDays.includes(d);
+                              return (
+                                <button
+                                  key={dn}
+                                  onClick={() => d !== selDay && chooseDays(e.index, on ? applyDays.filter((x) => x !== d) : [...applyDays, d])}
+                                  disabled={d === selDay}
+                                  aria-pressed={on}
+                                  aria-label={`${DAY_FULL[d]} (${dayTypes[d] === "training" ? "trainingsdag" : "rustdag"})`}
+                                  className="tap flex-1 py-1 text-xs relative"
+                                  style={{
+                                    borderRadius: 8,
+                                    background: on ? C.accent : "transparent",
+                                    color: on ? C.onAccent : C.muted,
+                                    border: `1px solid ${on ? C.accent : C.line}`,
+                                    fontWeight: on ? 600 : 400,
+                                    opacity: d === selDay ? 0.85 : 1,
+                                  }}
+                                >
+                                  {dn}
+                                  <span
+                                    aria-hidden="true"
+                                    className="block mx-auto mt-0.5"
+                                    style={{ width: 5, height: 5, borderRadius: 3, background: dayTypes[d] === "training" ? (on ? C.onAccent : C.train) : "transparent", border: dayTypes[d] === "training" ? "none" : `1px solid ${on ? C.onAccent : C.line}` }}
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs">
+                            {[
+                              { label: "Trainingsdagen", days: DAYS.map((_, d) => d).filter((d) => dayTypes[d] === "training"), show: dayTypes[selDay] === "training" },
+                              { label: "Rustdagen", days: DAYS.map((_, d) => d).filter((d) => dayTypes[d] === "rust"), show: dayTypes[selDay] === "rust" },
+                              { label: "Alle dagen", days: [0, 1, 2, 3, 4, 5, 6], show: true },
+                              { label: `Alleen ${DAYS[selDay]}`, days: [selDay], show: true },
+                            ]
+                              .filter((o) => o.show)
+                              .map((o) => (
+                                <button key={o.label} onClick={() => (o.days.length === 1 ? setApplyDays([selDay]) : chooseDays(e.index, o.days))} className="tap underline" style={{ color: C.accent }}>
+                                  {o.label}
+                                </button>
+                              ))}
+                          </div>
+                          <p className="text-[11px] mt-1 leading-snug" style={{ color: C.muted }}>
+                            Een dag aanzetten neemt deze maaltijd daar over. Uitgezette dagen veranderen niet mee. Stip = trainingsdag.
+                          </p>
                         </div>
                         {portionPlan[e.index].portions.map((pp, k) => (
                           <div key={`${pp.food}-${k}`} className="flex items-center gap-1.5 py-1">
