@@ -11190,6 +11190,7 @@ function MacroApp() {
   const [showAlts, setShowAlts] = useState(true);
   const [showViewOpts, setShowViewOpts] = useState(false);
   const [mealPlans, setMealPlans] = useState({});
+  const [vegPlans, setVegPlans] = useState({}); // groente aan/uit per maaltijd, in dezelfde lagen als mealPlans
   const [customFoods, setCustomFoods] = useState([]);
   const [savedMeals, setSavedMeals] = useState([]);
   const [savingMeal, setSavingMeal] = useState(null);
@@ -11513,6 +11514,14 @@ function MacroApp() {
   const dayType = (d) => (wk[d].session ? "training" : "rust");
   const TYPE_LABEL = { training: "trainingsdagen", rust: "rustdagen" };
 
+  /* Groente bij deze maaltijd? Zelfde lagen als de producten; standaard bij
+     elke maaltijd behalve de eerste. */
+  const vegOn = (day, i) => {
+    for (const k of [day, dayType(day), "def"]) if (vegPlans[k] && vegPlans[k][i] !== undefined) return !!vegPlans[k][i];
+    return i !== 0;
+  };
+  const vegOf = (day, i) => (vegOn(day, i) ? vegGrams : 0);
+
   const itemsFor = (day, i, label) => {
     const t = dayType(day);
     return (
@@ -11628,6 +11637,7 @@ function MacroApp() {
             setMealPlans(conv);
           }
           if (typeof d.vegGrams === "number") setVegGrams(d.vegGrams);
+          if (d.vegPlans && typeof d.vegPlans === "object") setVegPlans(d.vegPlans);
         }
         if (alive) {
           setStorage("aan");
@@ -11656,14 +11666,14 @@ function MacroApp() {
       try {
         window.storage.set(
           STORE_KEY,
-          JSON.stringify({ f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
+          JSON.stringify({ f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
         );
       } catch (e) {
         setStorage("uit");
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
+  }, [f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
 
   /* ---------------- rekenwerk ---------------- */
 
@@ -12009,7 +12019,7 @@ function MacroApp() {
 
   const dayTypes = DAYS.map((_, d) => dayType(d)); // na core: wk bestaat dan
   /* producten van maaltijd i op dag d (met het maaltijdtype van die dag) */
-  const itemsOfMeal = (i) => (d) => itemsFor(d, i, (dayPlan.all[d] && dayPlan.all[d].meals[i] && dayPlan.all[d].meals[i].label) || "normaal");
+  const itemsOfMeal = (i) => (d) => ({ items: itemsFor(d, i, (dayPlan.all[d] && dayPlan.all[d].meals[i] && dayPlan.all[d].meals[i].label) || "normaal"), veg: vegOn(d, i) });
 
   const portionPlan = useMemo(() => {
     if (!showPortions) return null;
@@ -12018,7 +12028,7 @@ function MacroApp() {
       const built = buildMealPortions({
         target: { p: m.protein, c: m.carbs, f: m.fat },
         items,
-        veg: i === 0 ? 0 : vegGrams,
+        veg: vegOf(selDay, i),
         index: foodIndex,
       });
       return {
@@ -12030,7 +12040,7 @@ function MacroApp() {
           : null,
       };
     });
-  }, [meals, mealPlans, vegGrams, showPortions, foodIndex, selDay, week, showAlts, dayPlan]);
+  }, [meals, mealPlans, vegPlans, vegGrams, showPortions, foodIndex, selDay, week, showAlts, dayPlan]);
 
   /* Bij openen van een maaltijd: de dagen van hetzelfde type waarop hij nu hetzelfde is. */
   useEffect(() => {
@@ -12056,6 +12066,14 @@ function MacroApp() {
       const cur = itemsFor(selDay, mealIndex, meals[mealIndex] ? meals[mealIndex].label : "normaal");
       return writeDays(s, dayTypes, mealIndex, set, cur);
     });
+    const v = vegOn(selDay, mealIndex);
+    setVegPlans((s) => writeDays(s, dayTypes, mealIndex, set, v));
+  };
+
+  /* Groente bij deze maaltijd aan of uit, op de gekozen dagen. */
+  const toggleVeg = (mealIndex) => {
+    const v = !vegOn(selDay, mealIndex);
+    setVegPlans((s) => writeDays(s, dayTypes, mealIndex, editDays(), v));
   };
 
   /* Neemt het volledige schema van dit dagtype over naar het andere. */
@@ -12087,7 +12105,7 @@ function MacroApp() {
         const built = buildMealPortions({
           target: { p: m.protein, c: m.carbs, f: m.fat },
           items,
-          veg: i === 0 ? 0 : vegGrams,
+          veg: vegOf(dayIdx, i),
           index: foodIndex,
         });
         built.portions.forEach((pp) => {
@@ -12107,7 +12125,7 @@ function MacroApp() {
           ? `${(t.grams / 1000).toFixed(2)} kg`
           : `${Math.round(t.grams)} g`,
       }));
-  }, [dayPlan, mealPlans, vegGrams, showList, foodIndex, week]);
+  }, [dayPlan, mealPlans, vegPlans, vegGrams, showList, foodIndex, week]);
 
   const trend = useMemo(() => weightTrend(log), [log]);
   /* De coach beslist over bijsturen; zie coachState. Het daggemiddelde wordt
@@ -12313,7 +12331,7 @@ function MacroApp() {
             const built = buildMealPortions({
               target: { p: m.protein, c: m.carbs, f: m.fat },
               items: itemsFor(d, i, m.label),
-              veg: i === 0 ? 0 : vegGrams,
+              veg: vegOf(d, i),
               index: foodIndex,
             });
             return { fib: built.actual.fib, _portions: built.portions };
@@ -12332,7 +12350,7 @@ function MacroApp() {
         return { type: t, days, kcal: dp.kcal, macros: dp.macros, rows, session: wk[d].session, fib };
       })
       .filter(Boolean);
-  }, [printView, dayPlan, mealPlans, vegGrams, foodIndex, week, showAlts]);
+  }, [printView, dayPlan, mealPlans, vegPlans, vegGrams, foodIndex, week, showAlts]);
 
   const doPrint = () => {
     setPrintHint(null);
@@ -12394,7 +12412,7 @@ function MacroApp() {
         const built = buildMealPortions({
           target: { p: m.protein, c: m.carbs, f: m.fat },
           items: itemsFor(dayIdx, i, m.label),
-          veg: i === 0 ? 0 : vegGrams,
+          veg: vegOf(dayIdx, i),
           index: foodIndex,
         });
         built.portions.forEach((pp) => {
@@ -12410,7 +12428,7 @@ function MacroApp() {
     const out = {};
     Object.entries(sets).forEach(([k, m]) => (out[k] = [...m.values()]));
     return out;
-  }, [dayPlan, mealPlans, vegGrams, foodIndex, week]);
+  }, [dayPlan, mealPlans, vegPlans, vegGrams, foodIndex, week]);
 
   /* Slaapanalyse per dag: tijd in bed, laatste maaltijd, cafeïnegrens en
      de afstand tussen training en bedtijd. */
@@ -12575,7 +12593,7 @@ function MacroApp() {
 
   const mealTarget = (i) => {
     const m = meals[i];
-    const veg = i === 0 ? 0 : vegGrams;
+    const veg = vegOf(selDay, i);
     const vg = foodIndex.groente;
     return {
       p: Math.max(0, m.protein - (vg.p * veg) / 100),
@@ -14004,9 +14022,14 @@ function MacroApp() {
                               ) : null}
                             </span>
                             {pp.food === "groente" ? (
-                              <span className="text-xs tnum w-20 text-right" style={{ color: C.muted }}>
-                                {Math.round(pp.grams)} g vast
-                              </span>
+                              <>
+                                <span className="text-xs tnum w-20 text-right" style={{ color: C.muted }}>
+                                  {Math.round(pp.grams)} g vast
+                                </span>
+                                <button onClick={() => toggleVeg(e.index)} className="text-xs px-1" style={{ color: C.muted }} aria-label="Groente bij deze maaltijd weghalen">
+                                  &times;
+                                </button>
+                              </>
                             ) : (
                               <>
                                 <input
@@ -14124,6 +14147,11 @@ function MacroApp() {
                           );
                         })()}
 
+                        {!vegOn(selDay, e.index) && (
+                          <button onClick={() => toggleVeg(e.index)} className="tap mt-2 text-xs underline" style={{ color: C.accent }}>
+                            + Groente bij deze maaltijd ({vegGrams} g)
+                          </button>
+                        )}
                         <select
                           value=""
                           onChange={(ev) => {

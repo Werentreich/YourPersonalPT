@@ -37,6 +37,14 @@ ok("terug naar alle trainingsdagen: eigen daglagen van di/do opgeruimd", !(q[1] 
 ok("kopie, geen gedeeld object", (() => { const r = M.writeDays({}, types, 0, [1, 3], C); r[1][0][0].food = "x"; return r[3][0][0].food === "aardappel"; })());
 ok("lege selectie: niets", JSON.stringify(M.writeDays({ a: 1 }, types, 0, [], C)) === '{"a":1}');
 
+// groente aan/uit per maaltijd, dezelfde lagen (ook met false)
+const vread = (pl, i) => (d) => { for (const k of [d, types[d], "def"]) if (pl[k] && pl[k][i] !== undefined) return pl[k][i]; return i !== 0; };
+let v = M.writeDays({}, types, 3, [1, 3, 4, 5, 6], false);
+ok("groente uit op alle trainingsdagen (laatste maaltijd): rustdagen houden groente", [1, 3, 4, 5, 6].every((d) => vread(v, 3)(d) === false) && [0, 2].every((d) => vread(v, 3)(d) === true) && v.training[3] === false);
+v = M.writeDays(v, types, 3, [5], true);
+ok("groente weer aan op alleen zaterdag", vread(v, 3)(5) === true && vread(v, 3)(4) === false);
+ok("gedeeld: maaltijd met groente-instelling telt mee", M.sharedDays((d) => ({ items: A, veg: vread(v, 3)(d) }), 1).join() === "1,3,4,6");
+
 const S = ["ma", "di", "wo", "do", "vr", "za", "zo"], F = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"];
 ok("labels", M.daysLabel([0, 1, 2, 3, 4, 5, 6], types, 1, S, F) === "Alle dagen" && M.daysLabel([1, 3, 4, 5, 6], types, 1, S, F) === "Alle trainingsdagen" && M.daysLabel([0, 2], types, 0, S, F) === "Alle rustdagen" && M.daysLabel([3], types, 3, S, F) === "Alleen donderdag" && M.daysLabel([1, 3], types, 1, S, F) === "di, do");
 

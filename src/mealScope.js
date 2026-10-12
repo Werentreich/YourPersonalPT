@@ -12,13 +12,13 @@
    - precies alle dagen van één dagtype -> laag van dat type, daglagen van die
      dagen weg (zo volgt het schema als de trainingsdagen veranderen)
    - elke andere selectie    -> een eigen laag per gekozen dag
-   Dagen die niet gekozen zijn, veranderen nooit. */
+   Dagen die niet gekozen zijn, veranderen nooit. Dezelfde lagen gebruikt de
+   app voor groente aan/uit per maaltijd (vegPlans). */
 
-const clean = (items) => JSON.stringify((items || []).map((x) => x));
-export const sameItems = (a, b) => clean(a) === clean(b);
+export const sameItems = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /* Dagen (0–6) waarop deze maaltijd nu hetzelfde is als op `day`.
-   `itemsOf(d)`: de producten van deze maaltijd op dag d. */
+   `itemsOf(d)`: de maaltijd op dag d (producten, eventueel met groente aan/uit). */
 export function sharedDays(itemsOf, day) {
   const ref = itemsOf(day);
   return [0, 1, 2, 3, 4, 5, 6].filter((d) => d === day || sameItems(itemsOf(d), ref));
@@ -30,7 +30,8 @@ const drop = (out, key, i) => {
   delete c[i];
   out[key] = c;
 };
-const copy = (items) => (items || []).map((x) => ({ ...x }));
+// producten worden gekopieerd; andere waarden (bijv. groente aan/uit) gaan zoals ze zijn
+const copy = (v) => (Array.isArray(v) ? v.map((x) => ({ ...x })) : v);
 
 /* Maaltijd `i` met `items` op precies deze dagen zetten. `types`: dagtype
    per dag ("training" of "rust"). Geeft nieuwe lagen terug. */
