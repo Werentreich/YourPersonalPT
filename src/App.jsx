@@ -5,7 +5,7 @@ import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientShe
 import { savedLift } from "./perf/lift.js";
 import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten, warmupOf, finisherOf } from "./perf/bridge.js";
 import { learnedDayMinutes, learnedNote } from "./perf/duration.js";
-import { sharedDays, writeDays, daysLabel } from "./mealScope.js";
+import { sharedDays, writeDays, daysLabel, regroup, startDays } from "./mealScope.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -11191,6 +11191,7 @@ function MacroApp() {
   const [showViewOpts, setShowViewOpts] = useState(false);
   const [mealPlans, setMealPlans] = useState({});
   const [vegPlans, setVegPlans] = useState({}); // groente aan/uit per maaltijd, in dezelfde lagen als mealPlans
+  const [mealDays, setMealDays] = useState({}); // onthouden dagkeuze per maaltijd (src/mealScope.js)
   const [customFoods, setCustomFoods] = useState([]);
   const [savedMeals, setSavedMeals] = useState([]);
   const [savingMeal, setSavingMeal] = useState(null);
@@ -11634,10 +11635,11 @@ function MacroApp() {
                 { food: c.fat, grams: null },
               ];
             });
-            setMealPlans(conv);
+            setMealPlans({ def: conv });
           }
           if (typeof d.vegGrams === "number") setVegGrams(d.vegGrams);
           if (d.vegPlans && typeof d.vegPlans === "object") setVegPlans(d.vegPlans);
+          if (d.mealDays && typeof d.mealDays === "object") setMealDays(d.mealDays);
         }
         if (alive) {
           setStorage("aan");
@@ -11666,14 +11668,14 @@ function MacroApp() {
       try {
         window.storage.set(
           STORE_KEY,
-          JSON.stringify({ f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
+          JSON.stringify({ f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegPlans, mealDays, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, onboarded: true })
         );
       } catch (e) {
         setStorage("uit");
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegPlans, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
+  }, [f, week, log, kcalAdjust, coach, phaseCfg, mealPlans, vegPlans, mealDays, vegGrams, customFoods, savedMeals, autopilot, lastSeen, checkins, compAnchor, weekAdj, loaded, storage]);
 
   /* ---------------- rekenwerk ---------------- */
 
@@ -12042,11 +12044,11 @@ function MacroApp() {
     });
   }, [meals, mealPlans, vegPlans, vegGrams, showPortions, foodIndex, selDay, week, showAlts, dayPlan]);
 
-  /* Bij openen van een maaltijd: de dagen van hetzelfde type waarop hij nu hetzelfde is. */
+  /* Bij openen van een maaltijd: welke dagen staan aan (onthouden keuze). */
   useEffect(() => {
     if (editMeal == null) return;
-    // standaard alleen dagen van hetzelfde type (trainings- of rustdagen) die hem nu delen; uitbreiden kan
-    setApplyDays(sharedDays(itemsOfMeal(editMeal), selDay).filter((d) => dayTypes[d] === dayTypes[selDay]));
+    // de eerder gekozen dagen (als de maaltijd daar nog gelijk is); anders dagen van hetzelfde type die hem delen
+    setApplyDays(startDays(mealDays, editMeal, selDay, sharedDays(itemsOfMeal(editMeal), selDay), dayTypes));
   }, [editMeal, selDay]);
 
   /* Wijziging aan een maaltijd: geldt alleen op de gekozen dagen (src/mealScope.js).
@@ -12061,13 +12063,22 @@ function MacroApp() {
   /* Andere dagen kiezen: gekozen dagen krijgen deze maaltijd zoals hij nu is. */
   const chooseDays = (mealIndex, days) => {
     const set = [...new Set([selDay, ...days])].sort((a, b) => a - b);
+    const prev = editDays();
     setApplyDays(set);
+    setMealDays((m) => regroup(m, mealIndex, set, prev));
     setMealPlans((s) => {
       const cur = itemsFor(selDay, mealIndex, meals[mealIndex] ? meals[mealIndex].label : "normaal");
       return writeDays(s, dayTypes, mealIndex, set, cur);
     });
     const v = vegOn(selDay, mealIndex);
     setVegPlans((s) => writeDays(s, dayTypes, mealIndex, set, v));
+  };
+
+  /* Alleen deze dag: niets overnemen, de andere dagen blijven samen. */
+  const onlyThisDay = (mealIndex) => {
+    const prev = editDays();
+    setApplyDays([selDay]);
+    setMealDays((m) => regroup(m, mealIndex, [selDay], prev));
   };
 
   /* Groente bij deze maaltijd aan of uit, op de gekozen dagen. */
@@ -12084,16 +12095,14 @@ function MacroApp() {
     setWeek((w) => w.map((d, k) => (dayType(k) === t ? { ...d, ...cfg } : d)));
   };
 
+  /* Neemt alle maaltijden van deze dag over op alle dagen van het andere
+     type, ook op dagen met een eigen maaltijd (die zou anders voorgaan). */
   const copyToOtherType = () => {
-    const from = dayType(selDay);
-    const to = from === "training" ? "rust" : "training";
-    setMealPlans((s) => {
-      const src = {};
-      meals.forEach((m, i) => {
-        src[i] = itemsFor(selDay, i, m.label).map((x) => ({ ...x }));
-      });
-      return { ...s, [to]: { ...(s[to] || {}), ...src } };
-    });
+    const to = dayType(selDay) === "training" ? "rust" : "training";
+    const days = DAYS.map((_, d) => d).filter((d) => dayTypes[d] === to);
+    if (!days.length) return;
+    setMealPlans((s) => meals.reduce((acc, m, i) => writeDays(acc, dayTypes, i, days, itemsFor(selDay, i, m.label)), s));
+    setVegPlans((s) => meals.reduce((acc, m, i) => writeDays(acc, dayTypes, i, days, vegOn(selDay, i)), s));
   };
 
   const shoppingList = useMemo(() => {
@@ -12816,9 +12825,12 @@ function MacroApp() {
   const removeFood = (id) => {
     if (editingFood === id) cancelEditFood();
     setCustomFoods((l) => l.filter((x) => x.id !== id));
+    // per laag (alle dagen, dagtype, dag) en per maaltijd het product weghalen
     setMealPlans((s) => {
       const out = {};
-      Object.entries(s).forEach(([k, items]) => (out[k] = items.filter((it) => it.food !== id)));
+      Object.entries(s || {}).forEach(([k, layer]) => {
+        out[k] = Object.fromEntries(Object.entries(layer || {}).map(([i, items]) => [i, Array.isArray(items) ? items.filter((it) => it.food !== id) : items]));
+      });
       return out;
     });
     setConfirmFood(null);
@@ -14001,7 +14013,7 @@ function MacroApp() {
                             ]
                               .filter((o) => o.show)
                               .map((o) => (
-                                <button key={o.label} onClick={() => (o.days.length === 1 ? setApplyDays([selDay]) : chooseDays(e.index, o.days))} className="tap underline" style={{ color: C.accent }}>
+                                <button key={o.label} onClick={() => (o.days.length === 1 ? onlyThisDay(e.index) : chooseDays(e.index, o.days))} className="tap underline" style={{ color: C.accent }}>
                                   {o.label}
                                 </button>
                               ))}

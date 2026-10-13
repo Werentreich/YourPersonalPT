@@ -437,6 +437,10 @@ dagtype (`training`/`rust`) en per dag (0–6). Precies alle dagen van één typ
 gaat naar de typelaag (volgt als de trainingsdagen veranderen), alle zeven
 naar `def`, elke andere keuze naar daglagen. Alleen de producten worden
 gedeeld; de grammen volgen per dag uit de macro's van die dag.
+De dagkeuze wordt per maaltijd onthouden (`mealDays`, `regroup`/`startDays`):
+bij openen staan de eerder gekozen dagen weer aan, zolang de maaltijd daar
+nog gelijk is. "Kopieer naar rust-/trainingsdagen" schrijft via `writeDays`,
+zodat ook dagen met een eigen maaltijd meegaan.
 Groente aan/uit per maaltijd (`vegPlans`, zelfde lagen en dagkeuze;
 standaard aan behalve bij de eerste maaltijd): × bij de groenteregel of
 "+ Groente bij deze maaltijd" bij Bewerken. Zonder groente gaan de macro's

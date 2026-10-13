@@ -69,3 +69,27 @@ export function daysLabel(days, types, selDay, short, full) {
   }
   return set.map((d) => short[d]).join(", ");
 }
+
+/* De gekozen dagen per maaltijd onthouden: groups[i][dag] = dagen die samen
+   gaan. Na een nieuwe keuze vormen de gekozen dagen één groep; dagen die uit
+   de vorige groep zijn gehaald, blijven samen een eigen groep. */
+export function regroup(groups, i, set, prev) {
+  const s = [...new Set(set)].sort((a, b) => a - b);
+  const rest = [...new Set(prev || [])].filter((d) => !s.includes(d)).sort((a, b) => a - b);
+  const g = { ...((groups && groups[i]) || {}) };
+  for (const d of s) g[d] = s;
+  for (const d of rest) g[d] = rest;
+  return { ...(groups || {}), [i]: g };
+}
+
+/* Dagen die bij openen aan staan: de onthouden groep (alleen dagen waar de
+   maaltijd nog hetzelfde is), anders de dagen van hetzelfde type die hem
+   delen. */
+export function startDays(groups, i, day, shared, types) {
+  const g = groups && groups[i] && groups[i][day];
+  if (Array.isArray(g) && g.length) {
+    const ok = g.filter((d) => d === day || shared.includes(d));
+    return ok.includes(day) ? ok : [day, ...ok].sort((a, b) => a - b);
+  }
+  return shared.filter((d) => types[d] === types[day]);
+}

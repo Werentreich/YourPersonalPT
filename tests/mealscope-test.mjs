@@ -45,6 +45,15 @@ v = M.writeDays(v, types, 3, [5], true);
 ok("groente weer aan op alleen zaterdag", vread(v, 3)(5) === true && vread(v, 3)(4) === false);
 ok("gedeeld: maaltijd met groente-instelling telt mee", M.sharedDays((d) => ({ items: A, veg: vread(v, 3)(d) }), 1).join() === "1,3,4,6");
 
+// gekozen dagen onthouden (ook dagen van een ander type)
+let g = M.regroup({}, 2, [0, 1, 2, 6], [1, 3, 4, 5]);
+ok("onthouden: gekozen dagen één groep, weggehaalde dagen samen", g[2][1].join() === "0,1,2,6" && g[2][0].join() === "0,1,2,6" && g[2][3].join() === "3,4,5");
+ok("bij openen: onthouden groep, ook de rustdagen", M.startDays(g, 2, 1, [0, 1, 2, 3, 4, 5, 6], types).join() === "0,1,2,6");
+ok("bij openen: dag die inmiddels anders is valt weg", M.startDays(g, 2, 1, [1, 2, 6], types).join() === "1,2,6");
+ok("bij openen zonder keuze: dagen van hetzelfde type die hem delen", M.startDays({}, 2, 1, [0, 1, 2, 3, 4, 5, 6], types).join() === "1,3,4,5,6");
+g = M.regroup(g, 2, [1], [0, 1, 2, 6]);
+ok("alleen deze dag: de anderen blijven samen", g[2][1].join() === "1" && g[2][0].join() === "0,2,6");
+
 const S = ["ma", "di", "wo", "do", "vr", "za", "zo"], F = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"];
 ok("labels", M.daysLabel([0, 1, 2, 3, 4, 5, 6], types, 1, S, F) === "Alle dagen" && M.daysLabel([1, 3, 4, 5, 6], types, 1, S, F) === "Alle trainingsdagen" && M.daysLabel([0, 2], types, 0, S, F) === "Alle rustdagen" && M.daysLabel([3], types, 3, S, F) === "Alleen donderdag" && M.daysLabel([1, 3], types, 1, S, F) === "di, do");
 
