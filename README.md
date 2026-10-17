@@ -426,6 +426,18 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
 - **Aanpassingen deze week**: overgeslagen of verplaatste trainingen van eerdere
   dagen staan op Vandaag, elk met "Ongedaan maken" (`undoAdjAt`).
 
+## Getallen en tijden invoeren
+
+Geen `type="number"` meer: iOS laat daarin vaak geen komma toe of wist het
+getal. Getalvelden zijn tekstvelden met een cijfertoetsenbord
+(`DecimalField` en `Num` in `App.jsx`, `NumInput` in `src/hybrid/ui/kit.jsx`)
+die komma en punt accepteren en tijdens het typen de tekst vasthouden.
+Tijden (`DurationInput`, `parseDuration`) accepteren ook komma, punt of
+spatie als scheiding: "36,54" = 36:54. Loop-wandeltrainingen tonen met een
+5 km-tijd het zone 2-tempo als richtlijn (`starterPace`; ook voor al
+geplande trainingen via `withStarterPace` in `src/hybrid/store.js`).
+Test: `tests/input-test.mjs`.
+
 ## Maaltijden per dag
 
 Per maaltijd kiest de gebruiker bij Bewerken op welke dagen een wijziging

@@ -4,7 +4,7 @@
    Opslaan zet de training op "zelf aangepast", zodat de planner hem laat
    staan als de week opnieuw wordt berekend. */
 import React, { useState } from "react";
-import { C, R, Sheet, TBtn } from "../App.jsx";
+import { C, R, Sheet, TBtn, DecimalField } from "../App.jsx";
 import { num } from "../hybrid/engine/model.js";
 import { blockHeader } from "../hybrid/engine/blocks.js";
 import { ExercisePicker, muscleOf } from "./LiveLift.jsx";
@@ -120,13 +120,9 @@ export function PlanLiftEditor({ item, sessions, onSave, onSwapAlways, onClose }
                             <span className="text-[11px]" style={{ color: C.muted }}>
                               kg
                             </span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              step="0.5"
-                              min="0"
+                            <DecimalField
                               value={kg ? kg.kg : ""}
-                              onChange={(e) => upd(bi, ii, (x) => setKg(x, e.target.value === "" ? null : Number(e.target.value)))}
+                              onValue={(v) => upd(bi, ii, (x) => setKg(x, v))}
                               placeholder="vorige"
                               className="w-full mt-1 px-2 py-2 text-sm text-center tnum"
                               style={inputStyle()}

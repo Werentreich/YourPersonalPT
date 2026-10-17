@@ -102,11 +102,16 @@ export const num = (v, f = null) => {
   return Number.isFinite(n) ? n : f;
 };
 
-/* Tijd invoeren als "45", "45:30" of "1:02:15". Minuten bij één getal. */
+/* Tijd invoeren als "45", "45:30" of "1:02:15". Minuten bij één getal.
+   Ook met komma, punt of spatie als scheiding ("36,54", "36.54", "1.02.15"):
+   op een cijfertoetsenbord staat geen dubbele punt. */
 export function parseDuration(text) {
   if (text == null || text === "") return null;
   if (typeof text === "number") return text;
-  const parts = String(text).trim().split(":").map((x) => num(x));
+  const t = String(text).trim();
+  if (!/^[0-9]+([:.,\s]+[0-9]+){0,2}$/.test(t)) return null;
+  const parts = t.split(/[:.,\s]+/).map((x) => Number(x));
+  if (parts.length > 1 && parts.slice(1).some((x) => x >= 60)) return null;
   if (parts.some((x) => x == null || x < 0)) return null;
   if (parts.length === 1) return parts[0] * 60;
   if (parts.length === 2) return parts[0] * 60 + parts[1];

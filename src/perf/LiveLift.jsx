@@ -2,7 +2,7 @@
    afwerken, in de stijl van de Nexa-krachttraining. Afvinken start de rust;
    aan het eind van de rust een piep, trilling en de volgende oefening. */
 import React, { useEffect, useRef, useState } from "react";
-import { C, R, TBtn, EXERCISES } from "../App.jsx";
+import { C, R, TBtn, EXERCISES, DecimalField } from "../App.jsx";
 import { num } from "../hybrid/engine/model.js";
 import { blockHeader, ROLES } from "../hybrid/engine/blocks.js";
 import { unlockCues, beep, buzz, speak } from "../hybrid/ui/cues.js";
@@ -410,37 +410,33 @@ export function LiveLift({ live, setLive, sessions, onSave, onEdit, onDiscard })
                             <span className="disp text-sm font-bold text-center" style={{ color: warm ? C.muted : C.ink }}>
                               {n}
                             </span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              step="0.5"
-                              min="0"
+                            <DecimalField
                               value={s.kg ?? ""}
                               placeholder="kg"
-                              onChange={(ev) => setLive((x) => setField(x, bi, ii, j, "kg", ev.target.value === "" ? null : Number(ev.target.value)))}
+                              onValue={(v) => setLive((x) => setField(x, bi, ii, j, "kg", v))}
                               className="w-full px-1 py-2 text-sm text-center tnum"
                               style={inputStyle()}
                               aria-label={`${it.name} set ${n} kilogram`}
                             />
                             <input
-                              type="number"
+                              type="text" autoComplete="off"
                               inputMode="numeric"
                               min="0"
                               value={(timed ? s.sec : s.reps) ?? ""}
                               placeholder={timed ? String(tg.sec || "") : tg.repsMax ? `${tg.reps}-${tg.repsMax}` : String(tg.reps || "")}
-                              onChange={(ev) => setLive((x) => setField(x, bi, ii, j, timed ? "sec" : "reps", ev.target.value === "" ? null : Number(ev.target.value)))}
+                              onChange={(ev) => setLive((x) => setField(x, bi, ii, j, timed ? "sec" : "reps", ev.target.value === "" ? null : Number(String(ev.target.value).replace(",", "."))))}
                               className="w-full px-1 py-2 text-sm text-center tnum"
                               style={inputStyle()}
                               aria-label={`${it.name} set ${n} ${timed ? "seconden" : "herhalingen"}`}
                             />
                             <input
-                              type="number"
+                              type="text" autoComplete="off"
                               inputMode="numeric"
                               min="0"
                               max="10"
                               value={s.rir ?? ""}
                               placeholder={tg.rir != null ? String(tg.rir) : "–"}
-                              onChange={(ev) => setLive((x) => setField(x, bi, ii, j, "rir", ev.target.value === "" ? null : Number(ev.target.value)))}
+                              onChange={(ev) => setLive((x) => setField(x, bi, ii, j, "rir", ev.target.value === "" ? null : Number(String(ev.target.value).replace(",", "."))))}
                               className="w-full px-1 py-2 text-sm text-center tnum"
                               style={inputStyle()}
                               aria-label={`${it.name} set ${n} herhalingen in reserve`}

@@ -7,7 +7,7 @@
 import { movementById } from "./engine/movements.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STORE_DEFAULT, normalizeStore, newId, localISO, mondayOf, dayNum, isoOfNum } from "./engine/model.js";
-import { generateWeek, applySuggestion } from "./engine/planner.js";
+import { generateWeek, applySuggestion, starterPace, STARTER_PACE } from "./engine/planner.js";
 import { mergeInbox } from "./engine/inbox.js";
 import { ensurePlanWeeks, dropFuture } from "./engine/weeks.js";
 import { blockHeader, freshBlock, itemLine } from "./engine/blocks.js";
@@ -20,6 +20,21 @@ const SAVE_DELAY = 600;
 /* Versie van de planner: hoger = weken die met een oudere versie gemaakt zijn
    worden bij openen voor de komende dagen opnieuw berekend. */
 export const PLAN_V = 6;
+
+/* Loop-wandeltrainingen die al gepland stonden voordat de 5 km-tijd bekend
+   was, tonen het tempo ook (alleen in de weergave). */
+export function withStarterPace(data) {
+  if (!data || !data.plan || !Array.isArray(data.plan.items)) return data;
+  const pace = starterPace(data.profile);
+  if (pace === STARTER_PACE) return data;
+  let changed = false;
+  const items = data.plan.items.map((x) => {
+    if (x.status !== "gepland" || !(x.blocks || []).some((b) => b.intensity === STARTER_PACE)) return x;
+    changed = true;
+    return { ...x, blocks: x.blocks.map((b) => (b.intensity === STARTER_PACE ? { ...b, intensity: pace } : b)) };
+  });
+  return changed ? { ...data, plan: { ...data.plan, items } } : data;
+}
 
 export function useHybridStore() {
   const [data, setData] = useState(STORE_DEFAULT);
@@ -257,6 +272,6 @@ export function useHybridStore() {
     },
   };
   // geplande sessies met de duur van eerdere, soortgelijke trainingen (src/perf/duration.js)
-  const view = useMemo(() => withLearnedDurations(data), [data]);
+  const view = useMemo(() => withStarterPace(withLearnedDurations(data)), [data]);
   return [view, api, loaded, nexa];
 }

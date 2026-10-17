@@ -96,17 +96,27 @@ export function TextInput({ value, onChange, placeholder, inputMode, multiline, 
 }
 
 /* Getal met eenheid; leeg = null. */
+/* Getal met komma of punt (type="text": iOS laat in type="number" vaak geen
+   komma toe). Tijdens het typen blijft de tekst staan, dus "79," verdwijnt niet. */
 export function NumInput({ value, onChange, unit, placeholder, step = "any", ariaLabel }) {
+  const [draft, setDraft] = useState(null);
   return (
     <div className="flex items-center" style={{ ...inputStyleOf(), paddingRight: unit ? 10 : 0 }}>
       <input
-        type="number"
-        inputMode="decimal"
-        step={step}
-        value={value ?? ""}
+        type="text"
+        inputMode={step === "1" ? "numeric" : "decimal"}
+        autoComplete="off"
+        value={draft ?? (value ?? "")}
         placeholder={placeholder}
         aria-label={ariaLabel}
-        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        onBlur={() => setDraft(null)}
+        onChange={(e) => {
+          const t = e.target.value.replace(/[^0-9.,-]/g, "");
+          setDraft(t);
+          if (t === "") return onChange(null);
+          const n = Number(t.replace(",", "."));
+          if (Number.isFinite(n)) onChange(n);
+        }}
         className="w-full px-3 py-2.5 text-sm tnum bg-transparent"
         style={{ color: C.ink, outline: "none" }}
       />
@@ -123,10 +133,12 @@ export function NumInput({ value, onChange, unit, placeholder, step = "any", ari
 export function DurationInput({ value, onChange, placeholder = "u:mm:ss", ariaLabel }) {
   const [text, setText] = useState(value ? fmtDuration(value) : "");
   const [bad, setBad] = useState(false);
+  // decimal-toetsenbord: heeft een komma/punt; "36,54", "36.54" en "36:54" betekenen allemaal 36 min 54 s
   return (
     <input
       type="text"
-      inputMode="numeric"
+      inputMode="decimal"
+      autoComplete="off"
       value={text}
       placeholder={placeholder}
       aria-label={ariaLabel}

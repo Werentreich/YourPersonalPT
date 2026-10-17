@@ -30,9 +30,40 @@ import { useHybridStore } from "./hybrid/store.js";
 /* Eén plek voor het opvangen van lege of ongeldige invoer. Rekenfuncties
    horen niet om te vallen op een veld dat de gebruiker even leeggemaakt heeft. */
 const num = (v, fallback) => {
-  const n = Number(v);
+  const n = Number(typeof v === "string" ? v.replace(",", ".") : v);
   return Number.isFinite(n) ? n : fallback;
 };
+/* Getal uit een invoerveld: komma of punt (Nederlands toetsenbord). */
+const toNum = (v) => Number(String(v).trim().replace(",", "."));
+
+/* Getalveld dat een komma accepteert. type="text" inputMode="numeric"
+ autoComplete="off" laat op iOS een komma
+   vaak niet toe of wist het getal; dit veld is tekst met een cijfertoetsenbord
+   en houdt tijdens het typen de tekst vast ("79," blijft staan). onValue
+   krijgt een getal of null (leeg). */
+function DecimalField({ value, onValue, inputMode = "decimal", onBlur, ...rest }) {
+  const [draft, setDraft] = useState(null);
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode={inputMode}
+      autoComplete="off"
+      value={draft ?? (value ?? "")}
+      onChange={(e) => {
+        const t = e.target.value.replace(/[^0-9.,-]/g, "");
+        setDraft(t);
+        if (t === "") return onValue(null);
+        const n = toNum(t);
+        if (Number.isFinite(n)) onValue(n);
+      }}
+      onBlur={(e) => {
+        setDraft(null);
+        if (onBlur) onBlur(e);
+      }}
+    />
+  );
+}
 
 const toMin = (hhmm) => {
   const [h, m] = String(hhmm).split(":").map(Number);
@@ -2518,23 +2549,21 @@ function Num({ value, onChange, step = 1, min, max, suffix }) {
   return (
     <div className="flex items-center gap-1">
       <input
-        type="number"
+        type="text"
         inputMode="decimal"
+        autoComplete="off"
         value={draft ?? value ?? ""}
-        step={step}
-        min={min}
-        max={max}
         onChange={(e) => {
-          const t = e.target.value;
+          const t = e.target.value.replace(/[^0-9.,-]/g, "");
           setDraft(t);
-          if (t !== "" && inRange(Number(t))) onChange(Number(t));
+          if (t !== "" && inRange(toNum(t))) onChange(toNum(t));
         }}
         onBlur={() => {
           if (draft == null) return;
           const t = draft;
           setDraft(null);
           if (t === "") return onChange("");
-          const n = Number(t);
+          const n = toNum(t);
           if (!Number.isFinite(n)) return;
           const c = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n));
           if (c !== num(value, NaN)) onChange(c);
@@ -6648,22 +6677,18 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                       <span className="disp text-sm font-bold text-center" style={{ color: warm ? C.muted : sub ? C.accent : C.ink }}>
                         {label}
                       </span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        step="0.5"
-                        min="0"
+                      <DecimalField
                         value={s.weight ?? ""}
                         placeholder={warm ? "opw." : "kg"}
-                        onChange={(ev) => setField(i, j, "weight", ev.target.value === "" ? null : Number(ev.target.value))}
+                        onValue={(v) => setField(i, j, "weight", v)}
                         className="w-full px-1 py-2 text-sm text-center tnum"
                         style={inputStyle}
                         aria-label={`Gewicht set ${label}`}
                       />
                       <input
-                        type="number"
+                        type="text"
                         inputMode="numeric"
-                        min="0"
+                        autoComplete="off"
                         value={s.reps ?? ""}
                         placeholder={sub ? TECH[s.type].reps : `${e.repMin}-${e.repMax}`}
                         onChange={(ev) => setField(i, j, "reps", ev.target.value === "" ? null : Number(ev.target.value))}
@@ -10063,7 +10088,8 @@ function StepsPicker({ f, setF, dark = false }) {
         <label className="flex items-center gap-2 mt-2 text-xs" style={{ color: muted }}>
           Of precies:
           <input
-            type="number"
+            type="text"
+ autoComplete="off"
             inputMode="numeric"
             min={0}
             max={40000}
@@ -10353,7 +10379,8 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
       )}
       <div className="flex items-center gap-2 mt-1">
         <input
-          type="number"
+          type="text"
+ autoComplete="off"
           inputMode="decimal"
           step="0.1"
           min={min}
@@ -10419,7 +10446,8 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
             {x.method && (
               <>
                 <input
-                  type="number"
+                  type="text"
+ autoComplete="off"
                   inputMode="decimal"
                   step="0.1"
                   value={x.bf}
@@ -10441,7 +10469,8 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
             Uit de app van uw telefoon of horloge. Zo blijft uw verbruik actueel.
           </span>
           <input
-            type="number"
+            type="text"
+ autoComplete="off"
             inputMode="numeric"
             step="500"
             value={x.steps}
@@ -12758,18 +12787,18 @@ function MacroApp() {
 
   const addFood = () => {
     const label = newFood.label.trim();
-    const p = Number(newFood.p) || 0;
-    const c = Number(newFood.c) || 0;
-    const fa = Number(newFood.f) || 0;
-    const unitGrams = Number(newFood.unitGrams) || 0;
+    const p = toNum(newFood.p) || 0;
+    const c = toNum(newFood.c) || 0;
+    const fa = toNum(newFood.f) || 0;
+    const unitGrams = toNum(newFood.unitGrams) || 0;
     if (!label) return setFoodError("Geef het product een naam.");
     if (p + c + fa <= 0) return setFoodError("Vul minstens een van de drie macro's in.");
-    if (p > 100 || c > 100 || fa > 100 || Number(newFood.fib) > 100) return setFoodError("Per 100 g kan geen enkele waarde boven 100 g uitkomen.");
+    if (p > 100 || c > 100 || fa > 100 || toNum(newFood.fib) > 100) return setFoodError("Per 100 g kan geen enkele waarde boven 100 g uitkomen.");
     if (p + c + fa > 100) return setFoodError("Eiwit, koolhydraten en vet samen kunnen niet meer dan 100 g per 100 g zijn.");
     if (unitGrams && !newFood.unitLabel.trim())
       return setFoodError("Vul ook in hoe u een stuk noemt, bijvoorbeeld reep.");
     const unitLabel = newFood.unitLabel.trim();
-    const fib = Math.max(0, Number(newFood.fib) || 0);
+    const fib = Math.max(0, toNum(newFood.fib) || 0);
     const record = {
       label,
       cat: newFood.cat,
@@ -13068,12 +13097,9 @@ function MacroApp() {
                         <div className="text-xs mb-1" style={{ color: C.darkMuted }}>
                           {x.label}
                         </div>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          step={x.step}
+                        <DecimalField
                           value={f[x.k]}
-                          onChange={(ev) => set(x.k, ev.target.value === "" ? "" : Number(ev.target.value))}
+                          onValue={(v) => set(x.k, v == null ? "" : v)}
                           className="w-full px-3 py-2.5 disp text-2xl font-bold tnum" data-field
                           style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${C.darkLine}`, color: C.darkInk }}
                           aria-label={x.label}
@@ -13191,7 +13217,8 @@ function MacroApp() {
                   <div className="grid grid-cols-2 gap-2">
                     <ObRow label="Duur per sessie">
                       <input
-                        type="number"
+                        type="text" inputMode="numeric"
+ autoComplete="off"
                         step={5}
                         value={obTrain.minutes}
                         onChange={(ev) => {
@@ -13283,7 +13310,8 @@ function MacroApp() {
                     </ObRow>
                     <ObRow label="Maaltijden">
                       <input
-                        type="number"
+                        type="text" inputMode="numeric"
+ autoComplete="off"
                         min={2}
                         max={7}
                         value={f.meals}
@@ -14045,7 +14073,8 @@ function MacroApp() {
                             ) : (
                               <>
                                 <input
-                                  type="number"
+                                  type="text"
+ autoComplete="off"
                                   inputMode="numeric"
                                   value={Math.round(pp.grams)}
                                   onChange={(ev) =>
@@ -14921,7 +14950,8 @@ function MacroApp() {
                     {m.label}
                   </div>
                   <input
-                    type="number"
+                    type="text"
+ autoComplete="off"
                     inputMode="decimal"
                     step="0.1"
                     value={newFood[m.k]}
@@ -14939,7 +14969,8 @@ function MacroApp() {
                 Vezels (optioneel)
               </div>
               <input
-                type="number"
+                type="text"
+ autoComplete="off"
                 inputMode="decimal"
                 step="0.1"
                 value={newFood.fib}
@@ -14952,7 +14983,7 @@ function MacroApp() {
             </div>
             <p className="text-xs mt-1.5 tnum" style={{ color: C.muted }}>
               Per 100 g. Dat komt neer op{" "}
-              {Math.round((Number(newFood.p) || 0) * 4 + (Number(newFood.c) || 0) * 4 + (Number(newFood.f) || 0) * 9)} kcal;
+              {Math.round((toNum(newFood.p) || 0) * 4 + (toNum(newFood.c) || 0) * 4 + (toNum(newFood.f) || 0) * 9)} kcal;
               vergelijk dat met het etiket als controle.
             </p>
 
@@ -14962,7 +14993,8 @@ function MacroApp() {
                   Gewicht per stuk (optioneel)
                 </div>
                 <input
-                  type="number"
+                  type="text"
+ autoComplete="off"
                   inputMode="numeric"
                   value={newFood.unitGrams}
                   onChange={(ev) => setNewFood((s) => ({ ...s, unitGrams: ev.target.value }))}
@@ -16622,4 +16654,4 @@ function MacroApp() {
    dus een "export" vóór een functie zou daar breken. Alle kleuren lopen via
    CSS-variabelen, zodat deze onderdelen in Hybrid vanzelf de Hybrid-kleuren
    krijgen. */
-export { STYLE, C, R, Section, Row, Seg, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur, EXERCISES, MUSCLES, calcBMR, recommendedProtein, ACTIVITY, activityFactorOf, stepsOf };
+export { STYLE, C, R, Section, Row, Seg, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur, EXERCISES, MUSCLES, calcBMR, recommendedProtein, ACTIVITY, activityFactorOf, stepsOf, DecimalField, toNum };

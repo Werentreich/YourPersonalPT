@@ -745,7 +745,7 @@ function FoodGoalForm({ initial, onSave }) {
         <span className="text-xs" style={{ color: C.muted }}>
           Eiwit per kg (leeg = advies van Nexa)
         </span>
-        <input type="number" inputMode="decimal" step="0.1" min="1.2" max="3" value={protein} onChange={(e) => setProtein(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm tnum" style={inputStyle()} aria-label="Eiwit per kilo" />
+        <input type="text" autoComplete="off" inputMode="decimal" step="0.1" min="1.2" max="3" value={protein} onChange={(e) => setProtein(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm tnum" style={inputStyle()} aria-label="Eiwit per kilo" />
       </label>
       {!more ? (
         <button onClick={() => setMore(true)} className="tap text-xs" style={{ color: C.accent, fontWeight: 600 }}>
@@ -757,7 +757,7 @@ function FoodGoalForm({ initial, onSave }) {
             <span className="text-xs" style={{ color: C.muted }}>
               Vet, % van de calorieën (leeg = standaard 25%)
             </span>
-            <input type="number" inputMode="numeric" min="15" max="40" value={fat} onChange={(e) => setFat(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm tnum" style={inputStyle()} aria-label="Vet in procent" />
+            <input type="text" autoComplete="off" inputMode="numeric" min="15" max="40" value={fat} onChange={(e) => setFat(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm tnum" style={inputStyle()} aria-label="Vet in procent" />
           </label>
           <div>
             <div className="text-xs mb-1" style={{ color: C.muted }}>
@@ -816,8 +816,8 @@ function FoodGoalForm({ initial, onSave }) {
         disabled={busy}
         onClick={async () => {
           setBusy(true);
-          const p = protein === "" ? null : Number(protein);
-          const fp = fat === "" ? null : Number(fat);
+          const p = protein === "" ? null : Number(String(protein).replace(",", "."));
+          const fp = fat === "" ? null : Number(String(fat).replace(",", "."));
           await onSave({
             goal,
             rate: goal === "onderhoud" ? 0 : goal === "cut" ? -rate : rate,
@@ -1211,18 +1211,18 @@ export function CoachProgramEditor({ program, clientName, onSend, onClose }) {
               <div className="grid grid-cols-3 gap-1.5 text-xs">
                 <label>
                   <span style={{ color: C.muted }}>Sets</span>
-                  <input type="number" min="1" max="10" value={x.sets} onChange={(e) => upd(di, si, { sets: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} className="w-full mt-0.5 px-2 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: sets`} />
+                  <input type="text" inputMode="numeric" autoComplete="off" min="1" max="10" value={x.sets} onChange={(e) => upd(di, si, { sets: Math.max(1, Math.min(10, Number(String(e.target.value).replace(",", ".")) || 1)) })} className="w-full mt-0.5 px-2 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: sets`} />
                 </label>
                 <label>
                   <span style={{ color: C.muted }}>Herh. van–tot</span>
                   <div className="flex gap-1 mt-0.5">
-                    <input type="number" min="1" max="60" value={x.repMin} onChange={(e) => upd(di, si, { repMin: Math.max(1, Number(e.target.value) || 1), repMax: Math.max(x.repMax, Number(e.target.value) || 1) })} className="w-full px-1 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: herhalingen vanaf`} />
-                    <input type="number" min="1" max="60" value={x.repMax} onChange={(e) => upd(di, si, { repMax: Math.max(x.repMin, Number(e.target.value) || x.repMin) })} className="w-full px-1 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: herhalingen tot`} />
+                    <input type="text" inputMode="numeric" autoComplete="off" min="1" max="60" value={x.repMin} onChange={(e) => upd(di, si, { repMin: Math.max(1, Number(String(e.target.value).replace(",", ".")) || 1), repMax: Math.max(x.repMax, Number(String(e.target.value).replace(",", ".")) || 1) })} className="w-full px-1 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: herhalingen vanaf`} />
+                    <input type="text" inputMode="numeric" autoComplete="off" min="1" max="60" value={x.repMax} onChange={(e) => upd(di, si, { repMax: Math.max(x.repMin, Number(String(e.target.value).replace(",", ".")) || x.repMin) })} className="w-full px-1 py-1.5 text-sm text-center tnum" style={inputStyle()} aria-label={`${exName(x)}: herhalingen tot`} />
                   </div>
                 </label>
                 <label>
                   <span style={{ color: C.muted }}>Rust</span>
-                  <select value={x.rest} onChange={(e) => upd(di, si, { rest: Number(e.target.value) })} className="w-full mt-0.5 px-1 py-1.5 text-sm" style={inputStyle()} aria-label={`${exName(x)}: rust`}>
+                  <select value={x.rest} onChange={(e) => upd(di, si, { rest: Number(String(e.target.value).replace(",", ".")) })} className="w-full mt-0.5 px-1 py-1.5 text-sm" style={inputStyle()} aria-label={`${exName(x)}: rust`}>
                     {[30, 45, 60, 75, 90, 120, 150, 180, 240].map((r) => (
                       <option key={r} value={r}>
                         {mmssR(r)}

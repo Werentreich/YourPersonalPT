@@ -236,12 +236,20 @@ export function starterLevel(settings, sessions, mondayISO) {
 
 const walk = (min, role, text) => newBlock("doorlopend", { role, intensity: text, items: [newItem("walk", { timeSec: min * 60 })] });
 
+/* Tempo voor het hardloopdeel van een loop-wandeltraining: met een 5 km-tijd
+   het zone 2-tempo als richtlijn; het praattempo blijft leidend. */
+export const STARTER_PACE = "rustig hardlopen, praattempo";
+export function starterPace(profile) {
+  return profile && num(profile.run5k) ? `rustig hardlopen, ${intensityText(profile, "hardlopen", "rustig")}` : STARTER_PACE;
+}
+
 /* Een loop-wandeltraining op niveau lvl (0-gebaseerd). */
-export function starterSession(lvl) {
+export function starterSession(lvl, profile) {
   const [run, rest, reps] = STARTER_LEVELS[Math.max(0, Math.min(lvl, STARTER_LEVELS.length - 1))];
+  const pace = starterPace(profile);
   const main = rest
-    ? newBlock("interval", { name: "Loop-wandel", rounds: reps, restSec: rest, restLabel: "Wandelen", intensity: "rustig hardlopen, praattempo", items: [newItem("run", { timeSec: run })] })
-    : newBlock("doorlopend", { intensity: "rustig hardlopen, praattempo", items: [newItem("run", { timeSec: run })] });
+    ? newBlock("interval", { name: "Loop-wandel", rounds: reps, restSec: rest, restLabel: "Wandelen", intensity: pace, items: [newItem("run", { timeSec: run })] })
+    : newBlock("doorlopend", { intensity: pace, items: [newItem("run", { timeSec: run })] });
   const blocks = [walk(5, "warmup", "stevig wandelen"), main, walk(5, "cooldown", "rustig uitwandelen")];
   const fmt = (x) => (x % 60 ? fmtDuration(x) : `${x / 60} min`);
   const title = rest ? `Loop-wandel: ${reps} × ${fmt(run)} hardlopen` : `${run / 60} minuten hardlopen aan één stuk`;
@@ -254,7 +262,7 @@ export function starterSession(lvl) {
     starterLevel: lvl + 1,
     blocks,
     note: rest
-      ? `Afwisselend ${fmt(run)} rustig hardlopen en ${fmt(rest)} wandelen. Zo rustig dat u kunt praten. Te zwaar? Geef een hoge inspanning op, dan herhaalt de app dit niveau.`
+      ? `Afwisselend ${fmt(run)} rustig hardlopen en ${fmt(rest)} wandelen. Zo rustig dat u kunt praten${pace !== STARTER_PACE ? "; het tempo is een richtlijn, kunt u niet praten, ga dan langzamer" : ""}. Te zwaar? Geef een hoge inspanning op, dan herhaalt de app dit niveau.`
       : "Rustig en gelijkmatig. Wandelen mag altijd even; liever langzaam dan stoppen.",
   };
 } // minuten duur per week als vertrekpunt
@@ -799,7 +807,7 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
     let p;
     if (S.kind === "duur" && starter) {
       p = starterRun.has(x)
-        ? starterSession(ph.deload ? Math.max(0, lvl - 1) : lvl)
+        ? starterSession(ph.deload ? Math.max(0, lvl - 1) : lvl, ctx.profile)
         : { sport: crossSport, type: "rustig", targetMin: 30, rpeTarget: 3, blocks: [newBlock("doorlopend", { intensity: "rustig, u kunt praten", items: [newItem(SPORT_MOVE[crossSport], { timeSec: 30 * 60 })] })], note: "Rustig bewegen zonder de impact van hardlopen. Goed voor uw conditie en herstel." };
       return { id: newId(), planned: true, status: "gepland", date, slot: x.slot, kind: S.kind, hard: false, key: false, ...p, title: p.title || (crossSport === "wandelen" ? "Stevig wandelen" : `Rustig ${SPORTS[crossSport].label.toLowerCase()}`) };
     }
