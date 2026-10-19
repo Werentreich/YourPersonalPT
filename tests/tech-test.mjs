@@ -87,4 +87,28 @@ ok("voorstel: borst+rug en triceps+biceps", sg && sg.pairs.length === 2 && sg.sl
 const day2 = { slots: ["sq", "h"].map((id) => ({ id, exId: id, sets: 2 })) };
 ok("voorstel: squat met stang niet in superset", L.suggestSupersets(day2, idx) === null);
 
+// back-off sets
+const bo = L.normTech({ type: "backoff" });
+ok("back-off standaard: 2 sets, 10% lichter, +2 reps, nooit op elke set", bo.n === 2 && bo.pct === 10 && bo.plus === 2 && bo.all === false, JSON.stringify(bo));
+ok("back-off grenzen: 1–4 sets, 5–20%, 0–6 reps", (() => { const x = L.normTech({ type: "backoff", n: 9, pct: 40, plus: 10, all: true }); const y = L.normTech({ type: "backoff", n: 0, pct: 1, plus: -3 }); return x.n === 4 && x.pct === 20 && x.plus === 6 && !x.all && y.n === 1 && y.pct === 5 && y.plus === 0; })());
+ok("drop houdt eigen standaard (20%)", L.normTech({ type: "drop" }).pct === 20 && L.normTech({ type: "drop" }).plus === undefined);
+let k = L.applyTech([WU(60), W(100)], bo, 2.5);
+ok("back-off na de top set", types(k) === "w w b1 b2", types(k));
+ok("back-off gewicht 90 kg, niet stapelend", k[2].weight === 90 && k[3].weight === 90, k[2].weight + "/" + k[3].weight);
+k = L.applyTech([W(102.5)], { type: "backoff", n: 1, pct: 15 }, 2.5);
+ok("back-off afgerond op stap (102,5 −15% = 87,5)", k[1].weight === 87.5, String(k[1].weight));
+k = L.syncSubs(L.applyTech([W(100)], bo, 2.5).map((x, j) => (j === 0 ? { ...x, weight: 110 } : x)), bo, 2.5);
+ok("back-off volgt werkelijk top-gewicht (110 -> 100)", k[1].weight === 100 && k[2].weight === 100, k[1].weight + "/" + k[2].weight);
+k = L.applyTech([W(100)], bo, 2.5);
+const EB = [ex(k, { tech: bo, rest: 150 }), ex([W(30)])];
+st = L.nextStep(EB, 0, 0);
+ok("na top set: gewone rust naar back-off", st.kind === "rust" && st.rest === 150 && st.next.j === 1, JSON.stringify(st));
+st = L.nextStep(EB, 0, 1);
+ok("na back-off 1: gewone rust naar back-off 2", st.kind === "rust" && st.rest === 150 && st.next.j === 2, JSON.stringify(st));
+const doneB = { sets: k.map((x) => ({ ...x, done: true, reps: 8 })) };
+ok("volume: top set + 2 back-off = 3 volle sets", L.effSets(doneB) === 3, String(L.effSets(doneB)));
+ok("planning: back-off telt als volle sets", L.techExtraSets({ sets: 1, tech: bo }) === 2);
+let kb = L.addWorkSet(L.applyTech([W(100)], bo, 2.5), bo, 2.5);
+ok("set erbij: back-off blijft achter de laatste top set", types(kb) === "w w b1 b2", types(kb));
+
 console.log(fails ? `${fails} FOUT` : "Alle tests geslaagd");

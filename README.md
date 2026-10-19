@@ -216,9 +216,18 @@ unilaterale oefeningen, ongeveer 40/60 compound/isolatie.
     laatste werkset of na elke werkset. Dropgewichten volgen het
     werkgewicht tot de gebruiker ze zelf wijzigt. Myo-reps stoppen zodra
     een mini-set onder de 3 reps blijft.
+  - *Back-off sets* (`backoff`): na de top set (de laatste werkset, meestal
+    één) 1–4 sets met een vast percentage minder gewicht (5–20%, standaard
+    10%) en 0–6 reps meer dan de range van de top set (standaard +2), met
+    de gewone rust en een eigen RIR-keuze. Het percentage stapelt niet: elke
+    back-off set ligt evenveel onder het werkelijk ingevulde top-gewicht,
+    afgerond op de stap van de oefening. Nooit "op elke werkset". Blijft
+    staan bij zware oefeningen met de stang (daar is het juist gangbaar);
+    de editor stelt één top set voor als er meer werksets staan.
   - Progressie, e1RM en records gebruiken alleen gewone werksets. Voor het
     volume telt elke subset als een halve set, hoogstens één extra per
-    werkset (`effSets`, `techExtraSets`). In een deload en een minicut
+    werkset; een back-off set telt als volle set (`effSets`,
+    `techExtraSets`). In een deload en een minicut
     vervallen de technieken automatisch (`techOff`); supersets blijven.
 - **Schema-advies** (`programAdvice`, blok `schema-advies`): toetst het
   schema en doet concrete voorstellen die met één tik zijn toe te passen,

@@ -3847,12 +3847,25 @@ const lowReadiness = (r) => {
    (slot.ssRest) en de volledige rust na de laatste. Dropsets, rest-pause,
    myo-reps en halve reps hangen als extra rijen (subsets) na een werkset.
    Progressie, e1RM en records kijken alleen naar gewone werksets; voor het
-   volume telt elke subset als een halve set, hoogstens één extra per werkset. */
+   volume telt elke subset als een halve set, hoogstens één extra per werkset.
+   Back-off sets zijn de uitzondering: na de top set (de laatste werkset) met
+   een vast percentage minder gewicht en een paar reps meer, met de gewone
+   rust ertussen. Ze tellen als volle sets; de progressie volgt de top set,
+   het back-off gewicht rekent daarmee mee. */
 
 const TECH = {
   drop: { label: "Dropset", sub: "drop", n: [1, 3, 2], rest: 0, row: "↓", reps: "max", hint: "Direct na de werkset, zonder rust, met minder gewicht door tot (bijna) falen." },
   rp: { label: "Rest-pause", sub: "rp", n: [1, 3, 2], rest: 15, row: "P", reps: "max", hint: "Zelfde gewicht, korte pauze, dan zoveel mogelijk reps. Herhaal." },
   myo: { label: "Myo-reps", sub: "myo", n: [2, 5, 4], rest: 15, row: "M", reps: "3–5", hint: "Activatieset van 12–20 reps, dan mini-sets van 3–5 reps met 3 tot 5 ademhalingen rust. Stop zodra u het doel niet meer haalt." },
+  backoff: {
+    label: "Back-off sets",
+    sub: "backoff",
+    n: [1, 4, 2],
+    rest: null,
+    row: "B",
+    reps: "+2",
+    hint: "Na de top set: hetzelfde gewicht min een vast percentage, met een paar reps meer en dezelfde inspanning (of 1 rep verder van falen). Gewone rust ertussen.",
+  },
   partial: { label: "Halve reps (gerekt)", sub: "partial", n: [1, 1, 1], rest: 0, row: "½", reps: "5–10", hint: "Na de laatste volledige rep doorgaan met halve reps in de gerekte positie, tot falen." },
 };
 const SUB_TYPES = new Set(Object.keys(TECH));
@@ -3865,21 +3878,29 @@ const techShort = (t) =>
     ? `rest-pause ${t.n}× ${t.pause} s${t.all ? " (elke set)" : ""}`
     : t.type === "myo"
     ? `myo-reps tot ${t.n} mini-sets`
+    : t.type === "backoff"
+    ? `${t.n}× back-off −${t.pct}%${t.plus ? `, +${t.plus} reps` : ""}`
     : `halve reps${t.all ? " (elke set)" : ""}`;
 const isSub = (s) => !!s && SUB_TYPES.has(s.type);
 const MYO_MIN = 3;
+const BACKOFF_PCT = [5, 10, 15, 20];
 
 function normTech(t) {
   if (!t || !TECH[t.type]) return null;
   const d = TECH[t.type];
+  const bo = t.type === "backoff";
   return {
     type: t.type,
     n: clamp(Math.round(num(t.n, d.n[2])), d.n[0], d.n[1]),
-    pct: clamp(num(t.pct, 20), 10, 40),
+    pct: bo ? clamp(num(t.pct, 10), 5, 20) : clamp(num(t.pct, 20), 10, 40),
     pause: clamp(num(t.pause, d.rest || 15), 5, 60),
-    all: !!t.all,
+    all: bo ? false : !!t.all,
+    ...(bo ? { plus: clamp(Math.round(num(t.plus, 2)), 0, 6) } : {}),
   };
 }
+
+/* Doel-reps van een back-off set: de range van de top set plus de extra reps. */
+const backoffReps = (e, t) => `${num(e.repMin, 0) + (t ? t.plus : 2)}–${num(e.repMax, 0) + (t ? t.plus : 2)}`;
 
 /* Techniek vervalt in een deload en in een minicut: dan gaat het om
    herstel en behoud, niet om extra prikkel. */
@@ -3888,6 +3909,8 @@ const techOff = (D) => (D.pos.phase === "deload" ? "deload" : D.phase === "minic
 function subWeight(type, w, k, pct, inc) {
   if (!(num(w, 0) > 0)) return null;
   if (type === "drop") return Math.max(0, roundTo(num(w, 0) * Math.pow(1 - pct / 100, k), inc || 2.5));
+  // back-off: elke set hetzelfde percentage onder de top set, niet stapelend
+  if (type === "backoff") return Math.max(0, roundTo(num(w, 0) * (1 - pct / 100), inc || 2.5));
   return num(w, 0);
 }
 
@@ -4025,6 +4048,7 @@ function nextStep(exercises, i, j, doneNow = true) {
   if (!next) return { next: null, rest: 0, kind: "klaar" };
   const ns = exercises[next.i].sets[next.j];
   const t = normTech(e.tech);
+  if (next.i === i && ns.type === "backoff" && next.j === j + 1) return { next, rest: num(e.rest, 120), kind: "rust" };
   if (next.i === i && isSub(ns) && next.j === j + 1) {
     return { next, rest: ns.type === "rp" || ns.type === "myo" ? (t ? t.pause : TECH[ns.type].rest) : 0, kind: "sub" };
   }
@@ -4037,7 +4061,7 @@ function nextStep(exercises, i, j, doneNow = true) {
 }
 
 /* Voor het volume: werksets plus een halve set per subset, hoogstens één
-   extra per werkset. */
+   extra per werkset. Een back-off set telt als volle set. */
 function effSets(e) {
   const sets = (e && e.sets) || [];
   let n = 0;
@@ -4052,6 +4076,8 @@ function effSets(e) {
       flush();
       open = x.done && num(x.reps, 0) > 0;
       if (open) n++;
+    } else if (x.type === "backoff") {
+      if (x.done && num(x.reps, 0) > 0) n++;
     } else if (isSub(x) && open && x.done && num(x.reps, 0) > 0) extra++;
   });
   flush();
@@ -4061,6 +4087,7 @@ function effSets(e) {
 function techExtraSets(slot) {
   const t = normTech(slot.tech);
   if (!t) return 0;
+  if (t.type === "backoff") return t.n;
   return Math.min(1, t.n * 0.5) * (t.all ? Math.max(1, num(slot.sets, 2)) : 1);
 }
 
@@ -4442,6 +4469,7 @@ function sessionStats(s) {
       if (!isSub(x) || !x.done) return;
       ton += setLoad(e, x) * num(x.reps, 0);
       reps += num(x.reps, 0);
+      if (x.type === "backoff" && num(x.reps, 0) > 0) sets++;
     });
   });
   return { ton, sets, reps, min: s.end ? Math.max(1, Math.round((s.end - s.start) / 60000)) : null };
@@ -4526,7 +4554,11 @@ function estMinutes(day) {
   const sec = sum(
     day.slots.map((s) => {
       const t = normTech(s.tech);
-      const sub = t ? t.n * (t.type === "rp" || t.type === "myo" ? t.pause + 15 : 20) * (t.all ? num(s.sets, 2) : 1) : 0;
+      const sub = !t
+        ? 0
+        : t.type === "backoff"
+        ? t.n * (45 + num(s.rest, 120))
+        : t.n * (t.type === "rp" || t.type === "myo" ? t.pause + 15 : 20) * (t.all ? num(s.sets, 2) : 1);
       return num(s.warmups, 0) * 100 + num(s.sets, 2) * (45 + (s.ss ? num(s.ssRest, 15) : num(s.rest, 120))) + sub;
     })
   );
@@ -4752,7 +4784,7 @@ const swapSlotTo = (slot, ex) => ({
   repMax: ex.repMax,
   startWeight: null,
   rest: ex.kind === "compound" ? Math.max(num(slot.rest, 120), 150) : num(slot.rest, 120),
-  tech: slot.tech && heavyFree(ex) ? null : slot.tech,
+  tech: slot.tech && slot.tech.type !== "backoff" && heavyFree(ex) ? null : slot.tech,
 });
 const mapSlots = (program, fn) => ({ ...program, days: program.days.map((d) => ({ ...d, slots: d.slots.map((s) => fn(s, d)) })) });
 const patchSlots = (program, patches) => mapSlots(program, (s) => (patches[s.id] ? { ...s, ...patches[s.id] } : s));
@@ -6344,7 +6376,9 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
     const next = !ns
       ? null
       : isSub(ns)
-      ? `${TECH[ns.type].label}, ${ns.type === "drop" ? `${kgTxt(ns.weight)} kg` : `mini-set ${ns.k}`}`
+      ? ns.type === "backoff"
+        ? `${name}, back-off set ${ns.k}, ${kgTxt(ns.weight)} kg`
+        : `${TECH[ns.type].label}, ${ns.type === "drop" ? `${kgTxt(ns.weight)} kg` : `mini-set ${ns.k}`}`
       : st.next.i === i
       ? `${name}, ${ns.type === "warmup" ? "warming-up" : "werkset"}`
       : `${nm(st.next.i)}${ns.type === "warmup" ? ", warming-up" : ""}`;
@@ -6573,7 +6607,8 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
         const inGroup = g.g != null;
         const tech = normTech(e.tech);
         const work = e.sets.filter((s) => s.type === "work");
-        const done = work.filter((s) => s.done).length;
+        const counted = e.sets.filter((s) => s.type === "work" || s.type === "backoff");
+        const done = counted.filter((s) => s.done).length;
         const complete = e.sets.length > 0 && e.sets.every((s) => s.done);
         const last = isOpen ? lastSummary(D, e) : null;
         let wn = 0;
@@ -6613,7 +6648,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                 </span>
               </span>
               <span className="text-xs tnum shrink-0" style={{ color: complete ? C.carb : C.muted }}>
-                {done}/{work.length}
+                {done}/{counted.length}
               </span>
             </button>
 
@@ -6632,7 +6667,13 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                     </span>
                   )}
                   {e.slotNote && <span className="block mt-0.5 italic">{e.slotNote}</span>}
-                  {tech && <span className="block mt-0.5">{TECH[tech.type].hint}</span>}
+                  {tech && tech.type !== "backoff" && <span className="block mt-0.5">{TECH[tech.type].hint}</span>}
+                  {tech && tech.type === "backoff" && (
+                    <span className="block mt-0.5">
+                      Back-off: {tech.pct}% onder uw top set voor {backoffReps(e, tech)} reps, met dezelfde inspanning of 1 rep verder van falen. Het gewicht rekent mee
+                      met wat u bij de top set invult.
+                    </span>
+                  )}
                   {e.techOff && (
                     <span className="block mt-0.5">
                       Uw techniek vervalt vandaag: {e.techOff === "deload" ? "in een deload gaat het om herstel" : "in een minicut gaat het om behoud"}.
@@ -6690,7 +6731,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                         inputMode="numeric"
                         autoComplete="off"
                         value={s.reps ?? ""}
-                        placeholder={sub ? TECH[s.type].reps : `${e.repMin}-${e.repMax}`}
+                        placeholder={s.type === "backoff" ? backoffReps(e, tech).replace("–", "-") : sub ? TECH[s.type].reps : `${e.repMin}-${e.repMax}`}
                         onChange={(ev) => setField(i, j, "reps", ev.target.value === "" ? null : Number(ev.target.value))}
                         className="w-full px-1 py-2 text-sm text-center tnum"
                         style={inputStyle}
@@ -6700,7 +6741,7 @@ function LiveWorkout({ T, setT, D, bw, onFinish }) {
                         <span className="text-xs text-center" style={{ color: C.muted }}>
                           opwarmen
                         </span>
-                      ) : sub ? (
+                      ) : sub && s.type !== "backoff" ? (
                         <span className="text-xs text-center leading-tight" style={{ color: C.muted }}>
                           {s.type === "drop" ? "direct" : s.type === "partial" ? "gerekt" : `na ${tech ? tech.pause : TECH[s.type].rest} s`}
                         </span>
@@ -7905,7 +7946,7 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
                   {TECH[tech.type].n[1] > 1 && (
                     <label className="block">
                       <span className="text-xs block mb-1" style={{ color: C.muted }}>
-                        {tech.type === "drop" ? "Drops" : tech.type === "rp" ? "Pauzes" : "Max. mini-sets"}
+                        {tech.type === "drop" ? "Drops" : tech.type === "rp" ? "Pauzes" : tech.type === "backoff" ? "Back-off sets" : "Max. mini-sets"}
                       </span>
                       <Num value={tech.n} onChange={(v) => setTech({ n: v })} min={TECH[tech.type].n[0]} max={TECH[tech.type].n[1]} />
                     </label>
@@ -7918,6 +7959,22 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
                       <Pick value={String(tech.pct)} onChange={(v) => setTech({ pct: Number(v) })} options={[15, 20, 25, 30].map((x) => ({ id: String(x), label: `${x}%` }))} />
                     </label>
                   )}
+                  {tech.type === "backoff" && (
+                    <label className="block">
+                      <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                        Lichter
+                      </span>
+                      <Pick value={String(tech.pct)} onChange={(v) => setTech({ pct: Number(v) })} options={BACKOFF_PCT.map((x) => ({ id: String(x), label: `${x}%` }))} />
+                    </label>
+                  )}
+                  {tech.type === "backoff" && (
+                    <label className="block">
+                      <span className="text-xs block mb-1" style={{ color: C.muted }}>
+                        Extra reps
+                      </span>
+                      <Num value={tech.plus} onChange={(v) => setTech({ plus: v })} min={0} max={6} />
+                    </label>
+                  )}
                   {(tech.type === "rp" || tech.type === "myo") && (
                     <label className="block">
                       <span className="text-xs block mb-1" style={{ color: C.muted }}>
@@ -7927,13 +7984,29 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
                     </label>
                   )}
                 </div>
-                {tech.type !== "myo" && (
+                {tech.type !== "myo" && tech.type !== "backoff" && (
                   <label className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={tech.all} onChange={(e) => setTech({ all: e.target.checked })} />
                     Op elke werkset (standaard alleen de laatste)
                   </label>
                 )}
-                {heavyFree(ex) && (
+                {tech.type === "backoff" && (
+                  <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
+                    Top set: {num(slot.sets, 2)} × {slot.repMin}–{slot.repMax} reps; daarna {tech.n} × {tech.pct}% lichter voor{" "}
+                    {num(slot.repMin, 0) + tech.plus}–{num(slot.repMax, 0) + tech.plus} reps. Gangbaar is 5–10% voor kracht en 10–20% voor spiergroei.
+                  </p>
+                )}
+                {tech.type === "backoff" && num(slot.sets, 2) > 1 && (
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs leading-relaxed flex-1" style={{ color: C.warn }}>
+                      De sets hierboven zijn uw top sets. Meestal is één top set genoeg; de back-off sets komen erbij.
+                    </p>
+                    <TBtn small onClick={() => updSlot(day.id, slot.id, { sets: 1 })}>
+                      1 top set
+                    </TBtn>
+                  </div>
+                )}
+                {heavyFree(ex) && tech.type !== "backoff" && (
                   <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
                     Let op: tot falen met snel gewicht wisselen is bij een zware oefening met de stang riskant. Kies deze techniek liever bij een machine, kabel of
                     isolatieoefening.
@@ -7945,7 +8018,9 @@ function SlotEditor({ slot, ex, nextEx, group, day, idx, n, T, D, setT, updSlot,
                   </p>
                 )}
                 <p className="text-xs" style={{ color: C.muted }}>
-                  Vervalt automatisch in een deload en een minicut. Telt per extra drop of mini-set als een halve set, hoogstens één extra per werkset.
+                  {tech.type === "backoff"
+                    ? "Vervalt automatisch in een deload en een minicut. Elke back-off set telt als een volle set; de progressie volgt de top set."
+                    : "Vervalt automatisch in een deload en een minicut. Telt per extra drop of mini-set als een halve set, hoogstens één extra per werkset."}
                 </p>
               </div>
             )}
@@ -9298,7 +9373,9 @@ function TrainLog({ T, setT, D, perfSessions = [] }) {
                       <div className="text-xs tnum leading-relaxed" style={{ color: C.muted }}>
                         {e.sets
                           .map((x) =>
-                            isSub(x)
+                            x.type === "backoff"
+                              ? `B ${kgTxt(x.weight)} × ${x.reps}${x.rir != null ? ` ${effortLabel(x.rir, scale)}` : ""}`
+                              : isSub(x)
                               ? `${x.type === "drop" ? "↓ " : x.type === "partial" ? "½ " : "+ "}${x.type === "drop" ? `${kgTxt(x.weight)} × ` : ""}${x.reps}`
                               : `${x.type === "warmup" ? "opw. " : ""}${kgTxt(x.weight)} × ${x.reps}${x.type === "work" && x.rir != null ? ` ${effortLabel(x.rir, scale)}` : ""}`
                           )
