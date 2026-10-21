@@ -9,6 +9,7 @@
 
    Puur JavaScript zonder React, zodat de tests het los draaien. */
 
+import { mainGoal, subGoals, goalLabel } from "./goals.js";
 import { KINDS, SPORTS, dayNum, isoOfNum, mondayOf, num, sessionTitle } from "./model.js";
 import { fitnessSeries, formStatus, weekSummary, intensityDistribution, strengthRecords, rpeOf, durationOf } from "./load.js";
 import { readinessFor, readinessAverage, READINESS_TEXT } from "./readiness.js";
@@ -45,6 +46,8 @@ export function buildCoachContext(data, todayISO) {
     ctx.doel = {
       doel: (GOALS[s.goal] || GOALS.hybride).label,
       doeldatum: s.goalDate || null,
+      hoofddoel: s.goalDate ? { naam: goalLabel(mainGoal(s)), soort: mainGoal(s).kind, wens: "zo fit mogelijk op die dag (piek en taper)" } : null,
+      tussendoelen: subGoals(s).filter((g) => g.date >= todayISO).map((g) => ({ datum: g.date, naam: goalLabel(g), soort: g.kind })),
       wekenTotDoel: ph.weeksLeft,
       fase: (PHASES[ph.phase] || {}).label || ph.phase,
       trainingsdagenPerWeek: (s.days || []).length,

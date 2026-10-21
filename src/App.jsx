@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { PerformanceTraining, SportPicker, PerfTodayCard } from "./perf/PerformanceTraining.jsx";
+import { PerformanceTraining, SportPicker, PerfTodayCard, GoalCountdownCard } from "./perf/PerformanceTraining.jsx";
 import { LiftDock } from "./perf/LiveLift.jsx";
 import { useTeam, TeamNotice, AcceptInvite, TeamSection, TeamSwitcher, ClientSheet, MessagesSheet } from "./perf/Team.jsx";
 import { savedLift } from "./perf/lift.js";
@@ -13,6 +13,8 @@ import { stravaCall, pullInbox, clearInboxRows } from "./hybrid/strava.js";
 import { isNative as isNativeApp } from "./hybrid/native/platform.js";
 import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
 import { useHybridStore } from "./hybrid/store.js";
+import { raceDayFuel, carbLoadMacros } from "./hybrid/engine/goals.js";
+import { raceMinutes } from "./hybrid/engine/fuel.js";
 
 /* =========================================================================
    Nexa - Your personal performance coach
@@ -11855,6 +11857,13 @@ function MacroApp() {
   const setGoalSince = (date) =>
     date && date <= localISO() && setF((s) => ({ ...s, goalSince: { goal: s.goal, date } }));
 
+  /* Wedstrijdweek van het hoofddoel (hybride schema): een cut gaat naar
+     onderhoud en de dag(en) ervoor komen er koolhydraten bij (goals.js). */
+  const racePlan = discipline !== "bodybuilding" && perfData.plan && perfData.plan.settings && perfData.plan.settings.goalDate ? perfData.plan.settings : null;
+  const raceEst = racePlan ? raceMinutes(racePlan.goal, perfData.profile, { kind: racePlan.goalKind || (racePlan.goal === "hyrox" ? "hyrox" : null), km: racePlan.goalKm || null }) : 90;
+  const raceToday = racePlan ? raceDayFuel(racePlan, localISO(), raceEst) : null;
+  const raceMaint = !!raceToday && effGoal === "cut";
+
   const core = useMemo(() => {
     const weight = Math.max(20, num(f.weight, 80));
     const input = {
@@ -11865,15 +11874,15 @@ function MacroApp() {
       bodyFat: num(f.bodyFat, 0),
       useBodyFat: f.useBodyFat,
       activityFactor: activityFactorOf(calcBMR({ sex: f.sex, weight, height: Math.max(100, num(f.height, 175)), age: Math.max(12, num(f.age, 30)), bodyFat: num(f.bodyFat, 0), useBodyFat: f.useBodyFat }), { ...stepsOf(f), weight }),
-      goal: effGoal,
-      rate: effGoal === "onderhoud" ? 0 : effRate,
+      goal: raceMaint ? "onderhoud" : effGoal,
+      rate: raceMaint || effGoal === "onderhoud" ? 0 : effRate,
       cycling: f.cycling,
       kcalAdjust: num(kcalAdjust, 0),
       week,
     };
     const adj = adjustWeek(input, weekAdj && weekAdj.weekStart === thisMonday ? weekAdj : null);
     return { input, energy: adj.energy, base: adj.base, wk: adj.week, adjList: adj.list, weight };
-  }, [f, week, kcalAdjust, effGoal, effRate, weekAdj, thisMonday]);
+  }, [f, week, kcalAdjust, effGoal, effRate, weekAdj, thisMonday, raceMaint]);
 
   const { input, energy, weight, wk, adjList } = core;
 
@@ -12073,8 +12082,10 @@ function MacroApp() {
           : Math.max(0.6 * weight, ((Math.min(60, Math.max(10, num(f.fatPercent, 25))) / 100) * energy.tdeeAvg) / 9)
         : null;
     const build = (i) => {
-      const kcal = energy.kcals[i];
-      const macros = calcMacros({ weight, kcal, proteinPerKg, fatPercent: f.fatPercent, fatGrams: fixedFat });
+      const rf = racePlan ? raceDayFuel(racePlan, isoOfNum(dayNum(thisMonday) + i), raceEst) : null;
+      const macros0 = calcMacros({ weight, kcal: energy.kcals[i], proteinPerKg, fatPercent: f.fatPercent, fatGrams: fixedFat });
+      const macros = rf && rf.perKg ? carbLoadMacros(macros0, weight, rf.perKg) : macros0;
+      const kcal = macros.loaded ? macros.kcal : energy.kcals[i];
       const s = wk[i].session;
       const cfg = {
         meals: num(week[i].meals ?? f.meals, 4),
@@ -12102,7 +12113,7 @@ function MacroApp() {
     };
     const all = DAYS.map((_, i) => build(i));
     return { all, proteinPerKg, today: all[selDay], fixedFat };
-  }, [core, f, week, selDay]);
+  }, [core, f, week, selDay, racePlan, raceEst, thisMonday]);
 
   const { macros, meals, plan } = dayPlan.today;
   const proteinPerKg = dayPlan.proteinPerKg;
@@ -13709,6 +13720,7 @@ function MacroApp() {
                 ) : (
                   <PerfTodayCard store={perfStore} onOpen={() => setTab("training")} />
                 )}
+                {discipline !== "bodybuilding" && <GoalCountdownCard store={perfStore} onOpen={() => setTab("training")} />}
               </TrainingBoundary>
             )}
             {loaded && !T.active && !bill.locked && (() => {
@@ -14719,6 +14731,19 @@ function MacroApp() {
         {tab === "eten" && bill.locked && <CoachPaywall bill={bill} feature="eten" onStart={startCoach} />}
         {tab === "eten" && !bill.locked && (
           <>
+        {raceToday && (
+          <div className="mb-3 px-4 py-3 text-xs leading-relaxed" role="status" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.muted }}>
+            <strong className="block text-sm mb-0.5" style={{ color: C.ink }}>
+              {raceToday.race ? `Wedstrijddag: ${raceToday.label}` : `Wedstrijdweek: ${raceToday.label} over ${raceToday.left} ${raceToday.left === 1 ? "dag" : "dagen"}`}
+            </strong>
+            {raceMaint ? "Uw cut staat tot en met de wedstrijd op onderhoud, zodat u met volle voorraden start. Daarna gaat hij vanzelf verder. " : ""}
+            {raceToday.perKg
+              ? `Vandaag koolhydraten stapelen: ${Math.round(raceToday.perKg * weight)} g (${raceToday.perKg} g/kg), met minder vet en vezels. Dat kan 1–2 kilo op de weegschaal geven; dat is glycogeen en vocht.`
+              : raceToday.race
+              ? "Een bekend ontbijt met ruim koolhydraten, 2–4 uur voor de start. Niets nieuws op de wedstrijddag."
+              : "De dag(en) voor de wedstrijd komen er koolhydraten bij; dat ziet u dan hier en in uw dagschema."}
+          </div>
+        )}
         {discipline !== "bodybuilding" && <PerfFueling store={perfStore} weight={weight} />}
         {/* ---------------- variatie deze week ---------------- */}
         <Section

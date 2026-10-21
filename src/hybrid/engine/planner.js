@@ -28,6 +28,7 @@ import { fitnessSeries, sessionLoad, strengthRecords, durationOf } from "./load.
 import { runPaceZones, powerZones, rowZones, hrZones } from "./zones.js";
 import { readinessAverage } from "./readiness.js";
 import { fmtDuration } from "./model.js";
+import { mainGoal, raceItem, applySubGoals } from "./goals.js";
 
 /* ---------------- doelen en sessietypen ---------------- */
 export const GOALS = {
@@ -829,13 +830,20 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
     }
   }
   if (raceDay != null && raceDay >= 0 && raceDay <= 6) {
-    items.push({ id: newId(), planned: true, status: "gepland", date: settings.goalDate, slot: "RACE", kind: goal.run ? "duur" : "hyrox", sport: goal.run ? "hardlopen" : undefined, type: "wedstrijd", title: `Wedstrijd: ${goal.label}`, hard: true, key: true, targetMin: null, rpeTarget: 9, blocks: [], note: "Succes! Begin rustig en bouw op." });
+    // zo fit mogelijk aan de start: blijft er vóór de wedstrijd niets over,
+    // dan een korte opener twee dagen (of één dag) ervoor
+    const od = raceDay >= 2 ? raceDay - 2 : raceDay - 1;
+    if (od >= 0 && !items.some((x) => dayNum(x.date) - dayNum(mondayISO) < raceDay)) items.push(openerSession(isoOfNum(dayNum(mondayISO) + od), settings, ctx));
+    items.push(raceItem(mainGoal(settings), newId));
   }
+  // tussendoelen: korte aanloop, de wedstrijd zelf en een hersteldag
+  const sub = applySubGoals(items, settings, mondayISO, { lighten: (x, level) => lightenItem(x, level, ctx, settings), newId });
+  items.splice(0, items.length, ...sub.items);
   // twee trainingen op één dag (instelbaar): extra volume zonder extra
   // trainingsdag, minstens 6 uur ertussen (Robineau e.a. 2016, JSCR 30(3));
   // de belangrijkste training eerst als u fris bent (Viada).
   const light = ph.deload || ph.phase === "herstel" || ph.phase === "taper" || ph.phase === "wedstrijd" || ph.phase === "na";
-  if (settings.doubles && !light && raceDay == null) {
+  if (settings.doubles && !light && raceDay == null && !sub.touched) {
     const prio = settings.goal === "kracht" ? "kracht" : goal.run ? "duur" : settings.priority || "gelijk";
     const keyNext = (x) => items.some((y) => dayNum(y.date) === dayNum(x.date) + 1 && ["D_INT", "D_LONG", "D_TEMPO", "C_HYROX"].includes(y.slot));
     const dateOf = (x) => x.date;
@@ -873,6 +881,38 @@ export function generateWeek(settingsIn, ctx, mondayISO) {
   const partOrder = { ochtend: 0, undefined: 1, avond: 2 };
   items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : partOrder[a.part] - partOrder[b.part]));
   return { monday: mondayISO, phase: ph.phase, phaseInfo: ph, factor: Math.round(factor * 100) / 100, enduranceMin: endurMin, reasons: adj.reasons, readiness: adj.readiness, items };
+}
+
+/* Opener in de wedstrijdweek: kort, rustig, met een paar versnellingen op
+   wedstrijdtempo, zodat de benen scherp blijven zonder vermoeid te raken. */
+export function openerSession(date, settings, ctx = {}) {
+  const sport = (settings.cardio || []).includes("hardlopen") || (GOALS[settings.goal] || {}).run ? "hardlopen" : (settings.cardio || [])[0] || "hardlopen";
+  const move = SPORT_MOVE[sport] || "run";
+  return {
+    id: newId(),
+    planned: true,
+    status: "gepland",
+    date,
+    slot: "D_EASY",
+    kind: "duur",
+    sport,
+    type: "rustig",
+    title: "Opener: kort en scherp",
+    hard: false,
+    key: false,
+    opener: true,
+    targetMin: 25,
+    rpeTarget: 4,
+    blocks: [
+      newBlock("doorlopend", { intensity: intensityText(ctx.profile || {}, sport, "rustig"), items: [newItem(move, { timeSec: 15 * 60 })] }),
+      newBlock("interval", { rounds: 4, restSec: 60, intensity: "versnelling op wedstrijdtempo, ontspannen", items: [newItem(move, { timeSec: 20 })] }),
+      newBlock("doorlopend", { intensity: "uitlopen, heel rustig", items: [newItem(move, { timeSec: 5 * 60 })] }),
+    ],
+    note:
+      settings.goal === "hyrox"
+        ? "Kort en scherp, twee dagen voor de wedstrijd. Wilt u de stations voelen: na afloop 2 × 10 wall balls en een paar lichte sled-pushes, niet meer."
+        : "Kort en scherp, zodat u fris maar niet stroef aan de start staat.",
+  };
 }
 
 /* ---------------- dagelijks bijsturen ---------------- */
@@ -985,7 +1025,7 @@ export function draftFromItem(item) {
     if (c.type === "sets") c.items = c.items.map((it) => ({ ...it, sets: it.sets.map((s) => ({ kg: s.kg, reps: s.reps, rir: null, kind: s.kind })) }));
     return c;
   });
-  const base = { id: newId(), date: localISO(), kind: item.kind, rpe: null, notes: "", source: "handmatig", createdAt: Date.now(), planItemId: item.id, title: item.kind === "duur" || item.slot === "RACE" ? undefined : item.title, blocks: fresh };
+  const base = { id: newId(), date: localISO(), kind: item.kind, rpe: null, notes: "", source: "handmatig", createdAt: Date.now(), planItemId: item.id, title: item.kind === "duur" || (item.slot === "RACE" && item.kind === "hyrox") ? undefined : item.title, blocks: fresh };
   if (item.kind === "duur") return { ...base, sport: item.sport || "hardlopen", type: item.type || "rustig", durationSec: item.targetMin ? item.targetMin * 60 : null, distanceM: null, avgHr: null, maxHr: null, avgPower: null, elevGain: null };
   if (item.kind === "hyrox") return { ...base, mode: item.slot === "RACE" ? "race" : "deel", splits: { runs: Array(8).fill(null), stations: Array(8).fill(null) } };
   return base;

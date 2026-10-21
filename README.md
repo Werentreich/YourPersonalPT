@@ -64,6 +64,28 @@ Testadres (branch deploy): https://feature-nexa-hybrid--nexa-performance.netlify
   live timer in `src/hybrid/ui/timer.jsx`.
   Tests: `tests/hybrid-*.mjs` (toegang, motor, blokken, planner, timer,
   voeding, Strava, coach, GPS).
+- Doelen (`src/hybrid/engine/goals.js`, tests `tests/goals-test.mjs`):
+  - *Hoofddoel* (`settings.goalDate`, `goalName`, `goalKind`
+    hyrox/hardlopen/anders, `goalKm`): de dag waarop de gebruiker zo fit
+    mogelijk wil zijn. Basis, opbouw, piek, taper en wedstrijdweek
+    (`phaseFor`); in de wedstrijdweek alleen een korte opener
+    (`openerSession`, twee dagen ervoor, of één bij een wedstrijd op dinsdag)
+    als er anders niets vóór de wedstrijd staat. De wedstrijd zelf is een
+    sessie van de juiste soort (Hyrox als Hyrox, niet als hardlopen).
+  - *Tussendoelen* (`settings.subGoals`, hoogstens 6): het schema traint
+    erdoor (`applySubGoals`): twee en drie dagen ervoor de zware sessies
+    korter, de dag ervoor geen kracht en alleen kort rustig, op de dag zelf
+    alleen de wedstrijd, de dag erna herstel; geen dubbele trainingen in die
+    week. De periodisering naar het hoofddoel blijft gelijk. Waarschuwing
+    bij een tussendoel minder dan 14 dagen voor het hoofddoel.
+  - *Aftellen*: `GoalCountdownCard` op Vandaag (eerstvolgende doel, fase van
+    de week, voeding).
+  - *Voeding* (`raceDayFuel`, `carbLoadMacros`): de laatste 6 dagen tot en
+    met de wedstrijd gaat een cut naar onderhoud (alleen de voeding; de
+    trainingsfase blijft). Koolhydraten stapelen: langer dan 90 minuten twee
+    dagen 10 g/kg, anders de dag ervoor 8 g/kg; eerst vet tot 0,6 g/kg
+    ruilen, de rest komt erbij. Melding bovenaan Eten.
+  - `PLAN_V` naar 7, zodat bestaande weken opnieuw worden berekend.
 - Routes (GPS) staan alleen op het apparaat onder `nexa:hybrid-route:<id>`.
 - Strava: `netlify/functions/strava-*.mjs` en `netlify/lib/strava-core.mjs`,
   tabel en postvak in `supabase/migrations/20261003_hybrid_strava.sql`.

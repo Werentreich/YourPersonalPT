@@ -177,7 +177,7 @@ export function ItemFuel({ item, data, base }) {
   if (!base) return null;
   if (item.slot === "RACE" && data.plan) {
     const goal = data.plan.settings.goal;
-    const r = raceNutrition(goal, base.weight, raceMinutes(goal, data.profile));
+    const r = raceNutrition(goal, base.weight, raceMinutes(goal, data.profile, item.race));
     return (
       <div className="px-3 py-3 space-y-1.5" style={{ background: C.surface2, borderRadius: R.field }}>
         <div className="eyebrow">Wedstrijdvoeding · verwachte duur ± {Math.round(r.estMinutes)} min</div>

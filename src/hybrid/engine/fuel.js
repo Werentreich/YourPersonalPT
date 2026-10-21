@@ -216,7 +216,7 @@ export function fuelingFor(s, weight, { nextWithinHours = null } = {}) {
 export function raceNutrition(goal, weight, estMinutes) {
   const w = weight;
   const r5 = (x) => Math.round(x / 5) * 5;
-  const long = estMinutes >= 90;
+  const long = estMinutes > 90; // zelfde grens als goals.js (raceDayFuel)
   return {
     estMinutes,
     loading: long
@@ -229,10 +229,14 @@ export function raceNutrition(goal, weight, estMinutes) {
   };
 }
 
-/* Verwachte wedstrijdduur in minuten. */
-export function raceMinutes(goal, profile) {
+/* Verwachte wedstrijdduur in minuten. race: { kind, km } van de geplande
+   wedstrijd (hoofd- of tussendoel); anders het doel van het schema. */
+export function raceMinutes(goal, profile, race = null) {
   const t5 = num(profile && profile.run5k);
   const riegel = (km) => (t5 ? (t5 * Math.pow(km / 5, 1.06)) / 60 : null);
+  if (race && race.kind === "hyrox") return 90;
+  if (race && race.kind === "hardlopen" && race.km) return riegel(race.km) || race.km * 6;
+  if (race && race.kind === "anders") return 60;
   if (goal === "5k") return riegel(5) || 30;
   if (goal === "10k") return riegel(10) || 60;
   if (goal === "halve") return riegel(21.1) || 120;

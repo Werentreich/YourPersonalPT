@@ -9,8 +9,9 @@ import { LIVE_SPORTS } from "../engine/gps.js";
 import { platform } from "../native/platform.js";
 import { C, R, Sheet, TBtn } from "../../App.jsx";
 import { K } from "../theme.js";
-import { SPORTS, localISO, mondayOf, dayNum, isoOfNum, fmtDuration, num } from "../engine/model.js";
-import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, PRIORITIES, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, weekSummary, conflictsFor, lightenItem, draftFromItem, dailySuggestions } from "../engine/planner.js";
+import { SPORTS, localISO, mondayOf, dayNum, isoOfNum, fmtDuration, num, newId } from "../engine/model.js";
+import { GOALS, SLOTS, PHASES, EXPERIENCE, EXPERIENCE_DUUR, RUN_NOW, PRIORITIES, EQUIPMENT, DAY_NAMES, SETTINGS_DEFAULT, generateWeek, weekSummary, conflictsFor, lightenItem, draftFromItem, dailySuggestions, phaseFor } from "../engine/planner.js";
+import { RACE_KINDS, RUN_KM, defaultKind, subWarning } from "../engine/goals.js";
 import { blockHeader, itemLine, BLOCK_TYPES, ROLES } from "../engine/blocks.js";
 import { QUESTIONS, readinessFor, READINESS_TEXT } from "../engine/readiness.js";
 import { Card, Contours, Eyebrow, Field, NumInput, Choice, HIcon, PillarDot, dateLabel } from "./kit.jsx";
@@ -46,7 +47,7 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
     } catch (e) {
       return "";
     }
-  }, [bb, valid, s.goal, s.days.join(), s.priority, s.doubles, s.exp.duur, s.exp.kracht, s.goalDate, s.cardio.join()]);
+  }, [bb, valid, s.goal, s.days.join(), s.priority, s.doubles, s.exp.duur, s.exp.kracht, s.goalDate, s.cardio.join(), JSON.stringify(s.subGoals || [])]);
   return (
     <Sheet title={initial ? "Schema aanpassen" : "Uw schema"} onClose={onClose}>
       <div className="space-y-5 pb-2">
@@ -111,24 +112,7 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
           </>
         ) : (
           <>
-        <Field label="Datum van de wedstrijd of het doel (optioneel)" hint="Met een datum bouwt het schema op naar een piek en een taper.">
-          <div className="flex gap-2">
-            <input
-              type="date"
-              value={s.goalDate || ""}
-              min={localISO()}
-              onChange={(e) => set({ goalDate: e.target.value || null })}
-              className="flex-1 px-3 py-2.5 text-sm tnum"
-              style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink }}
-              aria-label="Doeldatum"
-            />
-            {s.goalDate && (
-              <TBtn small kind="ghost" onClick={() => set({ goalDate: null })}>
-                Geen datum
-              </TBtn>
-            )}
-          </div>
-        </Field>
+        <GoalFields s={s} set={set} />
         <Field label="Op welke dagen traint u?" hint={`${s.days.length} trainingen per week`}>
           <div className="flex gap-1.5">
             {DAY_NAMES.map((n, d) => (
@@ -210,6 +194,134 @@ export function PlanSheet({ initial, onSave, onStop, onClose, goals = null, body
         )}
       </div>
     </Sheet>
+  );
+}
+
+/* ---------------- doelen ---------------- */
+// als functie: C en R komen uit App.jsx en bestaan pas na het laden van de modules
+const inputStyle = () => ({ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: R.field, color: C.ink });
+const longDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
+const shortDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("nl-NL", { day: "numeric", month: "short" });
+const kmLabel = (km) => (km === 21.1 ? "halve" : km === 42.2 ? "marathon" : `${km} km`);
+
+/* Fasen van nu tot de wedstrijdweek, bijvoorbeeld "nu Piek · 26 okt. Taper · 2 nov. Wedstrijdweek". */
+export function phasePath(settings, todayISO) {
+  if (!settings.goalDate) return [];
+  const m0 = mondayOf(todayISO);
+  const last = mondayOf(settings.goalDate);
+  const out = [];
+  for (let m = dayNum(m0); m <= dayNum(last) && out.length < 8; m += 7) {
+    const ph = phaseFor({ ...settings, startDate: settings.startDate || m0 }, isoOfNum(m)).phase;
+    if (!out.length || out[out.length - 1].phase !== ph) out.push({ phase: ph, monday: isoOfNum(m) });
+  }
+  return out;
+}
+
+function KindPick({ kind, km, onChange, label }) {
+  return (
+    <div className="space-y-1.5">
+      <Choice options={Object.entries(RACE_KINDS).map(([value, l]) => ({ value, label: l }))} value={kind} onChange={(v) => onChange({ kind: v })} ariaLabel={`Soort ${label}`} />
+      {kind === "hardlopen" && <Choice options={RUN_KM.map((v) => ({ value: v, label: kmLabel(v) }))} value={km || null} onChange={(v) => onChange({ km: v })} ariaLabel={`Afstand ${label}`} />}
+    </div>
+  );
+}
+
+function GoalFields({ s, set }) {
+  const today = localISO();
+  const kind = RACE_KINDS[s.goalKind] ? s.goalKind : defaultKind(s.goal);
+  const goalKm = kind === "hardlopen" ? s.goalKm || { "5k": 5, "10k": 10, halve: 21.1, marathon: 42.2 }[s.goal] || null : null;
+  const subs = s.subGoals || [];
+  const setSub = (id, p) => set({ subGoals: subs.map((g) => (g.id === id ? { ...g, ...p } : g)) });
+  const path = phasePath(s, today);
+  const taper = (GOALS[s.goal] || GOALS.hybride).taper;
+  return (
+    <div className="space-y-3">
+      <div>
+        <span className="block text-xs mb-1" style={{ color: C.muted, fontWeight: 500 }}>
+          Hoofddoel: de dag waarop u zo fit mogelijk wilt zijn (optioneel)
+        </span>
+        <div className="flex gap-2">
+          <input type="date" value={s.goalDate || ""} min={today} onChange={(e) => set({ goalDate: e.target.value || null })} className="flex-1 px-3 py-2.5 text-sm tnum" style={inputStyle()} aria-label="Datum hoofddoel" />
+          {s.goalDate && (
+            <TBtn small kind="ghost" onClick={() => set({ goalDate: null })}>
+              Geen datum
+            </TBtn>
+          )}
+        </div>
+        {!s.goalDate && (
+          <span className="block text-xs mt-1 leading-snug" style={{ color: C.muted }}>
+            Bijvoorbeeld uw wedstrijd. Met een datum bouwt het schema op naar een piek en een taper.
+          </span>
+        )}
+      </div>
+      {s.goalDate && (
+        <div className="px-3 py-3 space-y-2.5" style={{ background: C.surface2, borderRadius: R.field }}>
+          <input
+            type="text"
+            value={s.goalName || ""}
+            maxLength={40}
+            onChange={(e) => set({ goalName: e.target.value })}
+            placeholder="Naam, bijvoorbeeld Hyrox Amsterdam"
+            className="w-full px-3 py-2 text-sm"
+            style={{ ...inputStyle(), background: C.panel }}
+            aria-label="Naam hoofddoel"
+          />
+          <KindPick kind={kind} km={goalKm} label="hoofddoel" onChange={(p) => set({ ...(p.kind ? { goalKind: p.kind } : {}), ...(p.km ? { goalKm: p.km } : {}) })} />
+          <p className="text-xs leading-relaxed" style={{ color: C.ink }}>
+            <strong>Zo fit mogelijk op {longDate(s.goalDate)}.</strong> Het schema bouwt op naar een piek, met {taper === 2 ? "twee weken" : "een week"} taper: minder volume en dezelfde
+            intensiteit, zodat de vermoeidheid wegzakt en de fitheid blijft. In de wedstrijdweek staat alleen nog een korte opener; de voeding gaat de laatste week naar
+            onderhoud, met extra koolhydraten de dag ervoor.
+          </p>
+          {path.length > 0 && (
+            <p className="text-xs tnum" style={{ color: C.muted }} aria-label="Fasen tot het hoofddoel">
+              {path.map((x, i) => `${i === 0 ? "nu" : shortDate(x.monday)} ${(PHASES[x.phase] || { label: x.phase }).label}`).join(" · ")}
+            </p>
+          )}
+        </div>
+      )}
+      <div className="space-y-2">
+        <span className="block text-xs" style={{ color: C.muted, fontWeight: 500 }}>
+          Tussendoelen (optioneel)
+        </span>
+        {subs.map((g, i) => {
+          const warn = g.date ? subWarning(g, s) : null;
+          return (
+            <div key={g.id} className="px-3 py-3 space-y-2" style={{ background: C.surface2, borderRadius: R.field }}>
+              <div className="flex gap-2">
+                <input type="date" value={g.date || ""} min={today} onChange={(e) => setSub(g.id, { date: e.target.value || null })} className="flex-1 px-3 py-2 text-sm tnum" style={{ ...inputStyle(), background: C.panel }} aria-label={`Datum tussendoel ${i + 1}`} />
+                <TBtn small kind="ghost" onClick={() => set({ subGoals: subs.filter((x) => x.id !== g.id) })}>
+                  Weg
+                </TBtn>
+              </div>
+              <input
+                type="text"
+                value={g.name || ""}
+                maxLength={40}
+                onChange={(e) => setSub(g.id, { name: e.target.value })}
+                placeholder="Naam, bijvoorbeeld Bosloop"
+                className="w-full px-3 py-2 text-sm"
+                style={{ ...inputStyle(), background: C.panel }}
+                aria-label={`Naam tussendoel ${i + 1}`}
+              />
+              <KindPick kind={g.kind || "anders"} km={g.km} label={`tussendoel ${i + 1}`} onChange={(p) => setSub(g.id, p)} />
+              {warn && (
+                <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
+                  {warn}
+                </p>
+              )}
+            </div>
+          );
+        })}
+        {subs.length < 6 && (
+          <TBtn small kind="ghost" onClick={() => set({ subGoals: [...subs, { id: newId(), date: null, name: "", kind: "hardlopen", km: 10 }] })}>
+            + Tussendoel
+          </TBtn>
+        )}
+        <span className="block text-xs leading-snug" style={{ color: C.muted }}>
+          Wedstrijden onderweg. Het schema traint erdoor, met twee lichtere dagen en een rustige dag ervoor en een hersteldag erna.
+        </span>
+      </div>
+    </div>
   );
 }
 

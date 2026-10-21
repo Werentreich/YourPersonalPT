@@ -19,7 +19,7 @@ export const ROUTE_PREFIX = "nexa:hybrid-route:";
 const SAVE_DELAY = 600;
 /* Versie van de planner: hoger = weken die met een oudere versie gemaakt zijn
    worden bij openen voor de komende dagen opnieuw berekend. */
-export const PLAN_V = 6;
+export const PLAN_V = 7;
 
 /* Loop-wandeltrainingen die al gepland stonden voordat de 5 km-tijd bekend
    was, tonen het tempo ook (alleen in de weergave). */

@@ -3,9 +3,11 @@
    en navigatie van Nexa. Bodybuilding blijft de bestaande Nexa-training. */
 import React, { useState } from "react";
 import { C, R, Section, TBtn } from "../App.jsx";
-import { newSession, localISO } from "../hybrid/engine/model.js";
+import { newSession, localISO, mondayOf } from "../hybrid/engine/model.js";
 import { newBlock } from "../hybrid/engine/blocks.js";
-import { draftFromItem, SETTINGS_DEFAULT, GOALS } from "../hybrid/engine/planner.js";
+import { draftFromItem, SETTINGS_DEFAULT, GOALS, PHASES, phaseFor } from "../hybrid/engine/planner.js";
+import { countdown, raceFuel } from "../hybrid/engine/goals.js";
+import { raceMinutes } from "../hybrid/engine/fuel.js";
 import { programFromBlocks } from "../hybrid/engine/guide.js";
 import { SessionSheet, ensureNexaExercises } from "../hybrid/ui/session.jsx";
 import { TodayView, QuickStart, LogView, ProgressView, AthleteSection } from "../hybrid/ui/screens.jsx";
@@ -75,6 +77,54 @@ export function PerfTodayCard({ store, onOpen }) {
       <span className="text-xs shrink-0" style={{ color: C.accent, fontWeight: 600 }}>
         {items.some((x) => x.status === "gepland") ? "Start" : "Training"}
       </span>
+    </button>
+  );
+}
+
+/* Op Vandaag: aftellen naar het eerstvolgende doel, met de fase van deze
+   week en wat de voeding doet. */
+export function GoalCountdownCard({ store, onOpen }) {
+  const [data] = store;
+  const plan = data.plan;
+  if (!plan || !plan.settings) return null;
+  const today = localISO();
+  const c = countdown(plan.settings, today);
+  if (!c) return null;
+  const date = new Date(c.goal.date + "T00:00:00").toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" });
+  const ph = plan.settings.goalDate ? phaseFor(plan.settings, mondayOf(today)) : null;
+  const phase = ph && PHASES[ph.phase];
+  const st = plan.settings;
+  const fuel = raceFuel(st, today, raceMinutes(st.goal, data.profile, { kind: st.goalKind || (st.goal === "hyrox" ? "hyrox" : null), km: st.goalKm || null }));
+  const big = c.days === 0 ? "Vandaag!" : c.days === 1 ? "Morgen" : `Nog ${c.days} dagen`;
+  return (
+    <button onClick={onOpen} className="tap w-full text-left mb-3 px-4 py-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }} aria-label={`Aftellen: ${big} tot ${c.label}`}>
+      <span className="eyebrow block" style={{ color: C.accent }}>
+        {c.goal.main ? "Hoofddoel · zo fit mogelijk" : "Tussendoel"}
+      </span>
+      <span className="flex items-baseline justify-between gap-3 mt-0.5">
+        <span className="disp text-2xl font-bold tnum" style={{ color: C.ink }}>
+          {big}
+        </span>
+        <span className="text-xs text-right" style={{ color: C.muted }}>
+          {c.label} · {date}
+        </span>
+      </span>
+      {phase && (c.goal.main || c.main) && (
+        <span className="block text-xs mt-1.5 leading-relaxed" style={{ color: C.muted }}>
+          <strong style={{ color: C.ink }}>Deze week: {phase.label.toLowerCase()}.</strong> {phase.text}
+        </span>
+      )}
+      {!c.goal.main && (
+        <span className="block text-xs mt-1 leading-relaxed" style={{ color: C.muted }}>
+          Het schema traint erdoor: de dagen ervoor wat lichter, de dag erna herstel.
+          {c.main ? ` Daarna: ${c.main.label} over ${c.main.days} dagen.` : ""}
+        </span>
+      )}
+      {fuel && (
+        <span className="block text-xs mt-1 leading-relaxed" style={{ color: C.ink }}>
+          Voeding: {fuel.race ? "een bekend ontbijt met ruim koolhydraten, 2–4 uur voor de start." : fuel.load ? `vandaag koolhydraten stapelen (${fuel.perKg} g/kg), met minder vet en vezels.` : "deze week geen tekort, zodat u met volle voorraden start."}
+        </span>
+      )}
     </button>
   );
 }
