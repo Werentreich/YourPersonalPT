@@ -358,7 +358,7 @@ De weegschaal ziet het verschil tussen vet en spier niet. Daarom meet de
 gebruiker wekelijks taille en nek (vrouwen ook heupen) met een meetlint,
 eventueel aangevuld met een andere vetmeting (weegschaal, huidplooimeter,
 DEXA, Bod Pod). Code tussen het kopcommentaar `lichaamssamenstelling` en
-`recommendedProtein`, UI in `CheckinSheet` en `CompositionSection`.
+`recommendedProtein`, UI in `CheckinSheet` (meetlint is optioneel, onder de voedingsvragen) en `CompositionSection`.
 
 - **Schatting** (`estimateComposition`): een klein Kalmanfilter met twee
   grootheden, het werkelijke vetpercentage en de afwijking van de
@@ -452,8 +452,24 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
   inname (`coach.kcalHist`, `intakeBetween`) min de energie van de gewichtstrend.
   Met "Rekenen met gemeten onderhoud" wordt `kcalAdjust` zo gezet dat het schema
   op het gemeten verbruik rekent.
-- **Wekelijkse meting** vraagt ook de gemiddelde stappen (werkt `f.steps` bij) en
-  hoe goed het schema gevolgd is (`ADHERENCE`).
+- **Wekelijkse check-in** (`CheckinSheet`, rekenwerk in `src/checkin.js`, tests
+  `tests/checkin-test.mjs`): eerst de voeding van de zeven dagen tot en met
+  gisteren. Per dag "volgens schema", "minder" of "meer" (tikken wisselt), met
+  per richting een grootte: een beetje (± 250 kcal), flink (± 500), veel
+  (± 1000). Daarna stappen (werkt `f.steps` bij); meetlint en andere
+  vetmeting zijn optioneel. Opslag in `checkins[].food` (`days`, `less`,
+  `more`); `adherence` volgt uit het aantal afwijkende dagen (0 goed, 1–3
+  meestal, 4+ slecht).
+  - De coach rekent met het tempo zoals het met het schema was geweest:
+    gemeten trend min het effect van de afwijkende dagen in het trendvenster
+    (`deviationBetween`, `adjustTrend`; 7700 kcal per kg verlies, 5500 per kg
+    aanzet). Het gemeten onderhoud gebruikt de werkelijke inname (schema plus
+    afwijking). Zo verhoogt de app de calorieën niet omdat u een paar dagen
+    minder at, en verlaagt hij ze niet na een feestje. De coachkaart laat
+    zien waarmee rekening is gehouden.
+  - Bij 4 of meer afwijkende dagen blijft "eerst het schema volgen" (`trouw`).
+  - Alleen check-ins met een meting tellen voor de lichaamssamenstelling
+    (`tapeCheckins`); het overzicht staat in `CheckinHistory` (Plan).
 - **Aanpassingen deze week**: overgeslagen of verplaatste trainingen van eerdere
   dagen staan op Vandaag, elk met "Ongedaan maken" (`undoAdjAt`).
 

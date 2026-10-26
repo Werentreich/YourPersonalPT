@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import * as CK from "../src/checkin.js";
 const src = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const grab = (a, b) => src.slice(src.indexOf(a), src.indexOf(b));
 const code = [
@@ -7,7 +8,7 @@ const code = [
   grab("function calcBMR(", "const sessionKcal"),
   grab("const STEP_KCAL_PER_KG", "const ACTIVITY = ["),
 ].join("\n");
-const L = new Function(`const num=(v,f)=>{const n=Number(v);return Number.isFinite(n)?n:f;};const sum=(a)=>a.reduce((x,y)=>x+y,0);` + code + "return {weightTrend, calorieCorrection, coachState, intakeBetween, activityFactorOf, stepsOf, stepKcal, calcBMR, stepFloor};")();
+const L = new Function("deviationBetween", "adjustTrend", "trendWindow", `const num=(v,f)=>{const n=Number(v);return Number.isFinite(n)?n:f;};const sum=(a)=>a.reduce((x,y)=>x+y,0);` + code + "return {weightTrend, calorieCorrection, coachState, intakeBetween, activityFactorOf, stepsOf, stepKcal, calcBMR, stepFloor};")(CK.deviationBetween, CK.adjustTrend, CK.trendWindow);
 let fails = 0;
 const ok = (l, c, i = "") => { if (!c) fails++; console.log((c ? "OK  " : "FOUT") + " " + l + (i ? "  → " + i : "")); };
 const days = (start, ws) => ws.map((w, k) => ({ date: new Date(Date.parse(start) + k * 864e5).toISOString().slice(0, 10), weight: w }));

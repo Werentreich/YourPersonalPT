@@ -6,6 +6,7 @@ import { savedLift } from "./perf/lift.js";
 import { programFromPlan, missingSlots, dayFromItem, dayForItem, itemsToSync, perfSessionFromNexa, isLight, lighten, warmupOf, finisherOf } from "./perf/bridge.js";
 import { learnedDayMinutes, learnedNote } from "./perf/duration.js";
 import { sharedDays, writeDays, daysLabel, regroup, startDays } from "./mealScope.js";
+import { DEV_SIZES, SLECHT_DAYS, checkinDays, foodSummary, adherenceOf, deviationBetween, adjustTrend, trendWindow } from "./checkin.js";
 import { perfLogRows } from "./perf/screens.jsx";
 import { syncPerfWeek } from "./perf/nutrition.js";
 import { PerfRecovery, PerfFueling, PerfProgress, PerfProfile } from "./perf/tabs.jsx";
@@ -975,7 +976,10 @@ function intakeBetween(hist, fromIso, toIso, fallback) {
      worden en loopt de gebruiker onder het gezondheidsminimum, dan eerst
      meer stappen (nooit minder lopen om aan te komen)
    - koers: binnen de meetruis
-   Daarnaast het gemeten onderhoud zodra er drie weken aan metingen is. */
+   Daarnaast het gemeten onderhoud zodra er drie weken aan metingen is.
+   Dagen die volgens de wekelijkse check-in anders liepen (minder of meer
+   gegeten) tellen mee: het tempo wordt het tempo met het schema, en het
+   gemeten onderhoud rekent met de werkelijke inname (src/checkin.js). */
 function coachState({ log, goal, targetKgPerWeek, coach = {}, today, plan, steps, age, weight, checkins = [], avgTarget, tdeeAvg }) {
   const d = (iso) => Math.round(Date.parse(iso) / 864e5);
   const t = d(today);
@@ -983,26 +987,33 @@ function coachState({ log, goal, targetKgPerWeek, coach = {}, today, plan, steps
   const adherence = last ? last.adherence : null;
   const corr = coach.corr && coach.corr.at && t - d(coach.corr.at) <= 28 ? coach.corr : null;
   const floor = stepFloor(age);
-  const out = { adherence, floor, corr, measured: null };
+  const out = { adherence, floor, corr, measured: null, foodKnown: !!(last && last.food) };
 
   // gemeten onderhoud: drie weken metingen, schema redelijk gevolgd
   const long = weightTrend(log, 28, { minSpan: 21, minN: 10 });
   if (long.ok && adherence !== "slecht") {
     const lastDate = [...log].sort((a, b) => a.date.localeCompare(b.date)).pop().date;
     const fromIso = new Date(Date.parse(lastDate) - long.span * 864e5).toISOString().slice(0, 10);
-    const intake = intakeBetween(coach.kcalHist, fromIso, lastDate, avgTarget);
+    const dev = deviationBetween(checkins, fromIso, lastDate);
+    const intake = intakeBetween(coach.kcalHist, fromIso, lastDate, avgTarget) + dev;
     const kcal = Math.round((intake - energyOfRate(long.kgPerWeek) / 7) / 10) * 10;
-    out.measured = { kcal, formula: Math.round(tdeeAvg), intake: Math.round(intake), span: Math.round(long.span) };
+    out.measured = { kcal, formula: Math.round(tdeeAvg), intake: Math.round(intake), span: Math.round(long.span), dev: Math.round(dev) };
   }
 
   if (corr && t - d(corr.at) < CORR_WAIT_DAYS) return { ...out, stage: "wacht", until: new Date((d(corr.at) + CORR_WAIT_DAYS) * 864e5).toISOString().slice(0, 10) };
 
   // na een bijsturing telt alleen wat daarna gemeten is
   const since = corr ? log.filter((e) => e.date >= corr.at) : log;
-  const trend = corr ? weightTrend(since, 28, { minSpan: 6, minN: 5 }) : weightTrend(log);
+  // tempo zoals het met het schema was geweest (afwijkende dagen uit de check-in eruit)
+  const withSchema = (tr) => {
+    if (!tr || !tr.ok) return tr;
+    const w = trendWindow(since, tr.span);
+    return w ? adjustTrend(tr, deviationBetween(checkins, w.from, w.to)) : tr;
+  };
+  const trend = withSchema(corr ? weightTrend(since, 28, { minSpan: 6, minN: 5 }) : weightTrend(log));
   const wrong = (kgw) => (goal === "bulk" ? kgw < targetKgPerWeek - 0.4 : goal === "cut" ? kgw > targetKgPerWeek + 0.4 : Math.abs(kgw - targetKgPerWeek) > 0.4);
   if (!trend.ok) {
-    const early = weightTrend(since, 28, { minSpan: 6, minN: 5 });
+    const early = withSchema(weightTrend(since, 28, { minSpan: 6, minN: 5 }));
     if (early.ok && wrong(early.kgPerWeek) && !(coach.earlyDismissed && t - d(coach.earlyDismissed) < 3)) {
       const c = calorieCorrection({ trend: early, targetKgPerWeek });
       return { ...out, stage: "vroeg", trend: early, correction: c, small: Math.sign(c.full) * 150 };
@@ -9972,6 +9983,16 @@ function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdv
     </button>
   );
   const c = cs.correction;
+  // tempo gecorrigeerd voor dagen die volgens de check-in anders liepen
+  const tr0 = cs.trend;
+  const devNote =
+    !compact && tr0 && tr0.raw != null && Math.abs(tr0.devPerDay) >= 25 && ["vroeg", "bijsturen", "koers"].includes(cs.stage) ? (
+      <p className="text-xs mt-2 leading-relaxed" style={{ color: C.muted }}>
+        <strong style={{ color: C.ink }}>Rekening gehouden met uw check-in.</strong> U at in deze periode gemiddeld ± {Math.abs(Math.round(tr0.devPerDay / 10) * 10)} kcal per dag{" "}
+        {tr0.devPerDay < 0 ? "minder" : "meer"} dan het schema. Gemeten {kgTxt2(tr0.raw)} kg per week; met het schema was dat {kgTxt2(tr0.kgPerWeek)} kg per week. Met dat
+        laatste tempo stuurt de app bij.
+      </p>
+    ) : null;
   const measured =
     !compact && cs.measured && Math.abs(cs.measured.kcal - cs.measured.formula) >= 100 && cs.stage !== "wacht"
       ? box(
@@ -9979,7 +10000,8 @@ function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdv
           <>
             <p style={txt(C.ink)}>
               <strong>Gemeten onderhoud: ± {cs.measured.kcal} kcal per dag.</strong> De formule zegt {cs.measured.formula}. Dit volgt uit uw gewicht over{" "}
-              {cs.measured.span} dagen en uw schema van gemiddeld {cs.measured.intake} kcal, als u dat ook echt at.
+              {cs.measured.span} dagen en uw inname van gemiddeld {cs.measured.intake} kcal
+              {cs.measured.dev ? ` (uw schema, ${cs.measured.dev < 0 ? "min" : "plus"} de dagen die volgens uw check-ins anders liepen)` : ", als u het schema ook echt at"}.
             </p>
             <div className="flex gap-2 mt-2">{btn("Rekenen met gemeten onderhoud", onMeasured)}</div>
           </>
@@ -10032,7 +10054,7 @@ function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdv
       <>
         <p style={{ ...txt(C.warn), fontWeight: 600 }}>Eerst het schema volgen</p>
         <p style={txt(C.warn)}>
-          U gaf bij uw laatste meting aan het schema vaak niet te volgen. Dan zegt de weegschaal iets over wat u at, niet over het schema; bijsturen
+          Bij uw laatste check-in liepen veel dagen anders dan het schema. Dan zegt de weegschaal iets over wat u at, niet over het schema; bijsturen
           maakt het dan alleen onrustiger. Probeer een week de porties te wegen en alle maaltijden te eten. Lukt dat niet, kijk dan of een ander
           aantal maaltijden of andere producten beter in uw dag past.
         </p>
@@ -10064,7 +10086,7 @@ function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdv
           U zit {c.full < 0 ? "boven" : "onder"} het geplande tempo: in totaal ± {Math.abs(c.full)} kcal per dag. De app stuurt bij in stappen van
           hoogstens {CORR_STEP} kcal en meet daarna een week{c.stepsLeft > 1 ? ` (stap 1 van ongeveer ${c.stepsLeft})` : ""}.
         </p>
-        {cs.adherence === "meestal" && (
+        {cs.adherence === "meestal" && !cs.foodKnown && (
           <p style={{ ...txt(C.warn), marginTop: 6 }}>U volgt het schema meestal. Weeg een paar dagen de porties, zodat u zeker weet dat de afwijking niet daar vandaan komt.</p>
         )}
         {sf ? (
@@ -10092,6 +10114,7 @@ function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdv
   return (
     <>
       {main}
+      {devNote}
       {measured}
       {!compact && kcalAdjust !== 0 && (
         <div className="flex items-center gap-2 mt-2">
@@ -10429,17 +10452,20 @@ function SyncNotices({ s }) {
 const nlNum = (v, d = 1) => (Math.round(v * 10 ** d) / 10 ** d).toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
 const signed = (v, d = 1) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${nlNum(Math.abs(v), d)}`;
 
-const ADHERENCE = [
-  { id: "goed", label: "Bijna altijd", hint: "Alle maaltijden, porties gewogen of goed ingeschat" },
-  { id: "meestal", label: "Meestal", hint: "Een paar keer afgeweken of geschat" },
-  { id: "slecht", label: "Vaak niet", hint: "Maaltijden overgeslagen of veel anders gegeten" },
-];
 
-function CheckinSheet({ sex, last, steps, onSave, onClose }) {
+const DAY_SHORT_NL = ["zo", "ma", "di", "wo", "do", "vr", "za"];
+const FOOD_NEXT = { undefined: "minder", minder: "meer", meer: undefined };
+
+/* Wekelijkse check-in: eerst de voeding (welke dagen liepen anders), dan
+   stappen en, als u wilt, het meetlint. De afwijkende dagen gebruikt de
+   coach om eerlijk bij te sturen (src/checkin.js). */
+function CheckinSheet({ sex, last, steps, onSave, onClose, openTape = false }) {
   const [x, setX] = useState(() => ({
     steps: steps ? String(Math.round(steps)) : "",
-    adherence: "",
     date: localISO(),
+    days: {},
+    less: "flink",
+    more: "flink",
     waist: "",
     neck: last && last.neck ? last.neck : "",
     hip: last && last.hip ? last.hip : "",
@@ -10447,7 +10473,12 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
     bf: "",
   }));
   const [err, setErr] = useState(null);
+  const [tape, setTape] = useState(openTape);
   const s = (k, v) => setX((o) => ({ ...o, [k]: v }));
+  const week = checkinDays(x.date || localISO());
+  const food = { days: Object.fromEntries(week.filter((d) => x.days[d]).map((d) => [d, x.days[d]])), less: x.less, more: x.more };
+  const fsum = foodSummary(food);
+  const cycle = (d) => setX((o) => ({ ...o, days: { ...o.days, [d]: FOOD_NEXT[o.days[d]] } }));
   const field = (key, label, hint, min, max) => (
     <label className="block">
       <span className="text-sm font-medium">{label}</span>
@@ -10459,11 +10490,8 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
       <div className="flex items-center gap-2 mt-1">
         <input
           type="text"
- autoComplete="off"
+          autoComplete="off"
           inputMode="decimal"
-          step="0.1"
-          min={min}
-          max={max}
           value={x[key]}
           onChange={(e) => s(key, e.target.value)}
           className="w-28 px-3 py-2 text-sm tnum"
@@ -10476,12 +10504,36 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
       </div>
     </label>
   );
+  const sizePick = (key, title) => (
+    <div>
+      <span className="text-sm font-medium">{title}</span>
+      <div className="grid gap-1.5 mt-1.5">
+        {Object.entries(DEV_SIZES).map(([id, d]) => {
+          const on = x[key] === id;
+          return (
+            <button
+              key={id}
+              onClick={() => s(key, id)}
+              className="tap text-left px-3 py-2"
+              style={{ border: `1.5px solid ${on ? C.accent : C.line}`, borderRadius: R.field, background: on ? C.surface2 : "transparent" }}
+              aria-pressed={on}
+            >
+              <span className="text-sm font-semibold block">{d.label}</span>
+              <span className="text-xs" style={{ color: C.muted }}>
+                {d.hint}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
   const save = () => {
-    const waist = num(x.waist, 0);
-    const neck = num(x.neck, 0);
-    const hip = num(x.hip, 0);
-    const bf = num(x.bf, 0);
-    if (!(waist >= 40 && waist <= 200)) return setErr("Vul uw taille in, in centimeters.");
+    const waist = num(toNum(x.waist), 0);
+    const neck = num(toNum(x.neck), 0);
+    const hip = num(toNum(x.hip), 0);
+    const bf = num(toNum(x.bf), 0);
+    if (waist && !(waist >= 40 && waist <= 200)) return setErr("De taille lijkt niet te kloppen; vul centimeters in.");
     if (neck && !(neck >= 20 && neck <= 70)) return setErr("De nekomtrek lijkt niet te kloppen; vul centimeters in.");
     if (hip && !(hip >= 50 && hip <= 200)) return setErr("De heupomtrek lijkt niet te kloppen; vul centimeters in.");
     if (x.method && !(bf >= 3 && bf <= 60)) return setErr("Vul het gemeten vetpercentage in, of kies geen andere meting.");
@@ -10490,9 +10542,10 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
     if (x.steps !== "" && !(st >= 0 && st <= 40000)) return setErr("Het aantal stappen lijkt niet te kloppen.");
     onSave({
       steps: x.steps !== "" ? st : null,
-      adherence: x.adherence || null,
+      adherence: adherenceOf(food),
+      food: { days: food.days, less: fsum.lessDays ? x.less : null, more: fsum.moreDays ? x.more : null },
       date: x.date,
-      waist,
+      waist: waist || null,
       neck: neck || null,
       hip: sex === "vrouw" && hip ? hip : null,
       method: x.method || null,
@@ -10500,48 +10553,49 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
     });
   };
   return (
-    <Sheet title="Wekelijkse meting" onClose={onClose}>
+    <Sheet title="Wekelijkse check-in" onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
-          Meet het liefst op dezelfde dag en tijd, 's ochtends voor het ontbijt. Lint horizontaal, strak maar zonder in te drukken, na een
-          normale uitademing.
-        </p>
-        <label className="block">
-          <span className="text-sm font-medium">Datum</span>
-          <input type="date" value={x.date} onChange={(e) => s("date", e.target.value)} className="block mt-1 px-3 py-2 text-sm tnum" style={inputStyle} />
-        </label>
-        {field("waist", "Taille", "Ter hoogte van de navel.", 40, 200)}
-        {field("neck", "Nek", "Direct onder het strottenhoofd. Eén keer meten is genoeg; de app onthoudt het.", 20, 70)}
-        {sex === "vrouw" && field("hip", "Heupen", "Op het breedste punt van de billen.", 50, 200)}
         <div>
-          <span className="text-sm font-medium">Andere vetmeting (optioneel)</span>
+          <span className="text-sm font-medium">Hoe ging uw voeding afgelopen week?</span>
           <span className="text-xs block leading-snug" style={{ color: C.muted }}>
-            Heeft u deze week ook uw vetpercentage laten meten? De app weegt elke methode naar haar betrouwbaarheid.
+            Tik op een dag die anders liep: één keer voor minder gegeten, twee keer voor meer. Eerlijk is genoeg; een schatting volstaat.
           </span>
-          <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1">
-              <Pick value={x.method} onChange={(v) => s("method", v)} options={[{ id: "", label: "Geen" }, ...Object.entries(BF_METHODS).map(([id, m]) => ({ id, label: m.label }))]} />
-            </div>
-            {x.method && (
-              <>
-                <input
-                  type="text"
- autoComplete="off"
-                  inputMode="decimal"
-                  step="0.1"
-                  value={x.bf}
-                  onChange={(e) => s("bf", e.target.value)}
-                  className="w-20 px-2 py-2 text-sm tnum"
-                  style={inputStyle}
-                  aria-label="Gemeten vetpercentage"
-                />
-                <span className="text-sm" style={{ color: C.muted }}>
-                  %
-                </span>
-              </>
-            )}
+          <div className="grid grid-cols-7 gap-1 mt-2" role="group" aria-label="Dagen van afgelopen week">
+            {week.map((d) => {
+              const v = x.days[d];
+              const dt = new Date(d + "T00:00:00");
+              const col = v === "minder" ? C.pro : v === "meer" ? C.fat : C.carb;
+              return (
+                <button
+                  key={d}
+                  onClick={() => cycle(d)}
+                  className="tap flex flex-col items-center py-2"
+                  style={{ border: `1.5px solid ${v ? col : C.line}`, borderRadius: R.field, background: v ? C.surface2 : "transparent" }}
+                  aria-label={`${dt.toLocaleDateString("nl-NL", { weekday: "long", day: "numeric", month: "long" })}: ${v ? `${v} gegeten` : "volgens schema"}`}
+                >
+                  <span className="text-xs" style={{ color: C.muted }}>
+                    {DAY_SHORT_NL[dt.getDay()]}
+                  </span>
+                  <span className="text-sm font-semibold tnum">{dt.getDate()}</span>
+                  <span className="text-[10px] font-semibold" style={{ color: col }}>
+                    {v === "minder" ? "minder" : v === "meer" ? "meer" : "✓"}
+                  </span>
+                </button>
+              );
+            })}
           </div>
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: fsum.offDays >= SLECHT_DAYS ? C.warn : C.muted }} aria-live="polite">
+            {fsum.offDays === 0
+              ? "Alle dagen volgens schema."
+              : `${fsum.offDays} ${fsum.offDays === 1 ? "dag" : "dagen"} anders${fsum.lessDays && fsum.moreDays ? ` (${fsum.lessDays} minder, ${fsum.moreDays} meer)` : ""}: ± ${Math.abs(fsum.week)} kcal ${fsum.week < 0 ? "minder" : "meer"} over de week. ${
+                  fsum.offDays >= SLECHT_DAYS
+                    ? "Bij zoveel afwijkende dagen stuurt de app niet bij; dan zegt de weegschaal vooral iets over die dagen."
+                    : "De app houdt hier rekening mee: geen hogere of lagere calorieën door deze dagen."
+                }`}
+          </p>
         </div>
+        {fsum.lessDays > 0 && sizePick("less", fsum.lessDays === 1 ? "Hoeveel minder at u die dag, ongeveer?" : "Hoeveel minder at u op die dagen, ongeveer per dag?")}
+        {fsum.moreDays > 0 && sizePick("more", fsum.moreDays === 1 ? "Hoeveel meer at u die dag, ongeveer?" : "Hoeveel meer at u op die dagen, ongeveer per dag?")}
         <label className="block">
           <span className="text-sm font-medium">Gemiddeld aantal stappen deze week</span>
           <span className="text-xs block leading-snug" style={{ color: C.muted }}>
@@ -10549,9 +10603,8 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
           </span>
           <input
             type="text"
- autoComplete="off"
+            autoComplete="off"
             inputMode="numeric"
-            step="500"
             value={x.steps}
             onChange={(e) => s("steps", e.target.value)}
             className="w-32 mt-1 px-3 py-2 text-sm tnum"
@@ -10559,41 +10612,108 @@ function CheckinSheet({ sex, last, steps, onSave, onClose }) {
             aria-label="Gemiddeld aantal stappen"
           />
         </label>
-        <div>
-          <span className="text-sm font-medium">Hoe goed volgde u het voedingsschema?</span>
-          <span className="text-xs block leading-snug" style={{ color: C.muted }}>
-            Eerlijk antwoord helpt: de app stuurt alleen bij als het schema ook gevolgd is.
-          </span>
-          <div className="grid gap-1.5 mt-1.5">
-            {ADHERENCE.map((a) => {
-              const on = x.adherence === a.id;
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => s("adherence", a.id)}
-                  className="tap text-left px-3 py-2"
-                  style={{ border: `1.5px solid ${on ? C.accent : C.line}`, borderRadius: R.field, background: on ? C.surface2 : "transparent" }}
-                  aria-pressed={on}
-                >
-                  <span className="text-sm font-semibold block">{a.label}</span>
-                  <span className="text-xs" style={{ color: C.muted }}>
-                    {a.hint}
-                  </span>
-                </button>
-              );
-            })}
+        {!tape ? (
+          <button onClick={() => setTape(true)} className="tap text-sm underline" style={{ color: C.accent }}>
+            Ook meten met het meetlint (optioneel)
+          </button>
+        ) : (
+          <div className="space-y-4 pt-1" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+            <p className="text-xs leading-relaxed pt-3" style={{ color: C.muted }}>
+              Meet het liefst op dezelfde dag en tijd, 's ochtends voor het ontbijt. Lint horizontaal, strak maar zonder in te drukken, na een normale
+              uitademing. Zo ziet de app of u vet verliest als de weegschaal stilstaat.
+            </p>
+            {field("waist", "Taille", "Ter hoogte van de navel.", 40, 200)}
+            {field("neck", "Nek", "Direct onder het strottenhoofd. Eén keer meten is genoeg; de app onthoudt het.", 20, 70)}
+            {sex === "vrouw" && field("hip", "Heupen", "Op het breedste punt van de billen.", 50, 200)}
+            <div>
+              <span className="text-sm font-medium">Andere vetmeting (optioneel)</span>
+              <span className="text-xs block leading-snug" style={{ color: C.muted }}>
+                Heeft u deze week ook uw vetpercentage laten meten? De app weegt elke methode naar haar betrouwbaarheid.
+              </span>
+              <div className="flex items-center gap-2 mt-1">
+                <div className="flex-1">
+                  <Pick value={x.method} onChange={(v) => s("method", v)} options={[{ id: "", label: "Geen" }, ...Object.entries(BF_METHODS).map(([id, m]) => ({ id, label: m.label }))]} />
+                </div>
+                {x.method && (
+                  <>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      inputMode="decimal"
+                      value={x.bf}
+                      onChange={(e) => s("bf", e.target.value)}
+                      className="w-20 px-2 py-2 text-sm tnum"
+                      style={inputStyle}
+                      aria-label="Gemeten vetpercentage"
+                    />
+                    <span className="text-sm" style={{ color: C.muted }}>
+                      %
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+        <label className="block">
+          <span className="text-sm font-medium">Datum van de check-in</span>
+          <input type="date" value={x.date} max={localISO()} onChange={(e) => s("date", e.target.value)} className="block mt-1 px-3 py-2 text-sm tnum" style={inputStyle} />
+        </label>
         {err && (
           <p className="text-sm" style={{ color: C.train }} role="alert">
             {err}
           </p>
         )}
         <TBtn full onClick={save}>
-          Meting opslaan
+          Check-in opslaan
         </TBtn>
       </div>
     </Sheet>
+  );
+}
+
+/* Overzicht van de wekelijkse check-ins: per week hoe de voeding ging. */
+function CheckinHistory({ checkins, onNew, onDelete }) {
+  const list = [...(checkins || [])].reverse().slice(0, 6);
+  return (
+    <Section title="Wekelijkse check-in" sub="Hoe ging uw voeding? Dagen die anders liepen, telt de coach mee bij het bijsturen.">
+      {list.length === 0 && (
+        <p className="px-4 py-3 text-xs leading-relaxed" style={{ color: C.muted }}>
+          Nog geen check-in. Eén keer per week, 's ochtends: welke dagen liepen anders, uw stappen en eventueel het meetlint.
+        </p>
+      )}
+      {list.map((c) => {
+        const fs = c.food ? foodSummary(c.food) : null;
+        const text = fs
+          ? fs.offDays === 0
+            ? "voeding volgens schema"
+            : `${fs.offDays} ${fs.offDays === 1 ? "dag" : "dagen"} anders, ± ${Math.abs(fs.week)} kcal ${fs.week < 0 ? "minder" : "meer"}`
+          : c.adherence === "goed"
+          ? "schema bijna altijd gevolgd"
+          : c.adherence === "meestal"
+          ? "schema meestal gevolgd"
+          : c.adherence === "slecht"
+          ? "schema vaak niet gevolgd"
+          : "alleen meting";
+        return (
+          <div key={c.date} className="px-4 py-2 flex items-center justify-between gap-3 text-xs tnum" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+            <span>
+              <strong>{fmtDay(dayNum(c.date))}</strong>
+              <span style={{ color: fs && fs.offDays >= SLECHT_DAYS ? C.warn : C.muted }}> · {text}</span>
+              {c.steps != null && <span style={{ color: C.muted }}> · {stepsLabel(c.steps)} stappen</span>}
+            </span>
+            <button onClick={() => onDelete(c.date)} className="tap underline shrink-0" style={{ color: C.muted }} aria-label={`Check-in van ${c.date} verwijderen`}>
+              Verwijderen
+            </button>
+          </div>
+        );
+      })}
+      <div className="px-4 py-3" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+        <TBtn small onClick={onNew}>
+          Check-in doen
+        </TBtn>
+      </div>
+    </Section>
   );
 }
 
@@ -10681,7 +10801,7 @@ function CompositionSection({ comp, checkins, sex, waistTrend, strength, bodyFat
       </Section>
     );
   }
-  const last = checkins[checkins.length - 1];
+  const lastWaist = [...checkins].reverse().find((c) => num(c.waist, 0) > 0);
   const dBf = comp.bf - comp.start.bf;
   const dFat = comp.fat - comp.start.fat;
   const dLean = comp.lean - comp.start.lean;
@@ -10712,7 +10832,7 @@ function CompositionSection({ comp, checkins, sex, waistTrend, strength, bodyFat
         label="Taille"
         hint={waistTrend.ok ? `${cmTxt(waistTrend.perWeek)} per week over de laatste weken` : "Na drie metingen over twee weken ziet u hier de trend."}
       >
-        <span className="text-sm font-semibold tnum">{nlNum(last.waist)} cm</span>
+        <span className="text-sm font-semibold tnum">{lastWaist ? `${nlNum(lastWaist.waist)} cm` : "–"}</span>
       </Row>
       <Row
         label="Kracht"
@@ -10750,7 +10870,7 @@ function CompositionSection({ comp, checkins, sex, waistTrend, strength, bodyFat
               <strong>{fmtDay(dayNum(c.date))}</strong>
               <span style={{ color: C.muted }}>
                 {" "}
-                · taille {nlNum(c.waist)}
+                {c.waist ? ` · taille ${nlNum(c.waist)}` : ""}
                 {c.neck ? ` · nek ${nlNum(c.neck)}` : ""}
                 {c.hip ? ` · heup ${nlNum(c.hip)}` : ""}
                 {c.method && c.bf ? ` · ${BF_METHODS[c.method] ? BF_METHODS[c.method].label.toLowerCase() : c.method} ${nlNum(c.bf)}%` : ""}
@@ -12323,9 +12443,11 @@ function MacroApp() {
   /* Lichaamssamenstelling: schatting uit gewicht plus wekelijkse meting, en
      het oordeel of een afwijking van het tempo echt bijsturen vraagt. */
   const todayLocal = localISO();
+  // check-ins met een meting (meetlint of andere vetmeting); de voeding alleen telt hier niet
+  const tapeCheckins = useMemo(() => checkins.filter((c) => num(c.waist, 0) > 0 || (c.method && num(c.bf, 0) > 0)), [checkins]);
   const comp = useMemo(
-    () => estimateComposition({ sex: f.sex, height: num(f.height, 180), log, checkins, anchor: compAnchor, win: bfWindow, today: todayLocal }),
-    [f.sex, f.height, log, checkins, compAnchor, bfWindow, todayLocal]
+    () => estimateComposition({ sex: f.sex, height: num(f.height, 180), log, checkins: tapeCheckins, anchor: compAnchor, win: bfWindow, today: todayLocal }),
+    [f.sex, f.height, log, tapeCheckins, compAnchor, bfWindow, todayLocal]
   );
   const waistTrend = useMemo(() => measureTrend(checkins, "waist", todayLocal), [checkins, todayLocal]);
   const strength = useMemo(() => strengthTrend(T.sessions || [], todayLocal), [T.sessions, todayLocal]);
@@ -12357,6 +12479,7 @@ function MacroApp() {
   const saveCheckin = (c) => {
     if (c.steps != null) setF((s) => ({ ...s, steps: c.steps, work: stepsOf(s).work }));
     setCheckins((list) => [...list.filter((x) => x.date !== c.date), c].sort((a, b) => a.date.localeCompare(b.date)));
+    if (!(c.waist || (c.method && c.bf))) return setCheckinOpen(false);
     setCompAnchor((a) => {
       if (a) return c.date < a.date ? { ...a, date: c.date } : a;
       return {
@@ -12371,7 +12494,7 @@ function MacroApp() {
   const deleteCheckin = (date) => {
     const rest = checkins.filter((x) => x.date !== date);
     setCheckins(rest);
-    if (!rest.length) setCompAnchor(null);
+    if (!rest.some((c) => num(c.waist, 0) > 0 || (c.method && num(c.bf, 0) > 0))) setCompAnchor(null);
   };
   const applyComposition = () => {
     if (!comp) return;
@@ -13698,14 +13821,12 @@ function MacroApp() {
             {checkinDue && !bill.locked && (
               <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
                 <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
-                  <strong style={{ color: C.ink }}>{lastCheckin ? "Tijd voor uw wekelijkse meting." : "Meet ook uw taille."}</strong>{" "}
-                  {lastCheckin
-                    ? "Taille en nek met het meetlint, 's ochtends voor het ontbijt. Zo ziet de app of u vet verliest als de weegschaal stilstaat."
-                    : "De weegschaal ziet het verschil tussen vet en spier niet. Eén meting per week met het meetlint is genoeg."}
+                  <strong style={{ color: C.ink }}>Tijd voor uw wekelijkse check-in.</strong> Hoe ging uw voeding afgelopen week? Liepen er dagen anders, dan houdt de
+                  app daar rekening mee bij het bijsturen van uw calorieën. Een minuut werk; het meetlint is optioneel.
                 </span>
                 <div className="flex flex-col gap-1 shrink-0 items-end">
                   <TBtn small onClick={() => setCheckinOpen(true)}>
-                    Meten
+                    Check-in
                   </TBtn>
                   <button onClick={snoozeCheckin} className="tap text-xs underline" style={{ color: C.muted }}>
                     Later
@@ -15494,15 +15615,17 @@ function MacroApp() {
           </div>
         </Section>
 
+        <CheckinHistory checkins={checkins} onNew={() => setCheckinOpen(true)} onDelete={deleteCheckin} />
+
         <CompositionSection
           comp={comp}
-          checkins={checkins}
+          checkins={tapeCheckins}
           sex={f.sex}
           waistTrend={waistTrend}
           strength={strength}
           bodyFat={f.bodyFat}
           useBodyFat={f.useBodyFat}
-          onNew={() => setCheckinOpen(true)}
+          onNew={() => setCheckinOpen("tape")}
           onDelete={deleteCheckin}
           onApply={applyComposition}
         />
@@ -16678,7 +16801,7 @@ function MacroApp() {
           onClose={() => setSkipOpen(false)}
         />
       )}
-      {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} steps={stepsNow.est ? null : stepsNow.steps} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} />}
+      {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} steps={stepsNow.est ? null : stepsNow.steps} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} openTape={checkinOpen === "tape"} />}
 
       <TrainingBoundary quiet>
         {!bill.locked && <WorkoutDock T={T} setT={setT} showOpen={tab !== "training"} onOpen={() => setTab("training")} />}
