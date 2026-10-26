@@ -14,7 +14,8 @@ import { stravaCall, pullInbox, clearInboxRows } from "./hybrid/strava.js";
 import { isNative as isNativeApp } from "./hybrid/native/platform.js";
 import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
 import { useHybridStore } from "./hybrid/store.js";
-import { raceDayFuel, carbLoadMacros } from "./hybrid/engine/goals.js";
+import { raceDayFuel, carbLoadMacros, mainGoal, goalLabel } from "./hybrid/engine/goals.js";
+import { planHorizon, withRaceWeek, padToWeeks, planMatchesRace, MIN_WEEKS, MAX_WEEKS } from "./planDate.js";
 import { raceMinutes } from "./hybrid/engine/fuel.js";
 
 /* =========================================================================
@@ -12516,13 +12517,20 @@ function MacroApp() {
     }
   };
 
+  /* Horizon van het meerwekenplan: weken, een eigen einddatum of de
+     wedstrijd uit het trainingsschema (src/planDate.js). */
+  const raceSet = perfData.plan && perfData.plan.settings && perfData.plan.settings.goalDate ? perfData.plan.settings : null;
+  const raceGoal = raceSet && raceSet.goalDate >= localISO() ? { date: raceSet.goalDate, label: goalLabel(mainGoal(raceSet)) } : null;
+  const horizon = planHorizon({ mode: phaseCfg.horizonMode, weeks: phaseCfg.horizonWeeks, endDate: phaseCfg.endDate, raceDate: raceGoal ? raceGoal.date : null, start: planStartInput || localISO() });
+  const toRace = horizon.mode === "wedstrijd" && !!horizon.end;
   const plan52 = useMemo(() => {
     if (!showPlan) return null;
-    if (phaseCfg.mode === "doorlopend")
-      return chainPlan({
+    const res =
+      phaseCfg.mode === "doorlopend"
+        ? chainPlan({
         ...input,
         bfWindow,
-        horizonWeeks: Number(phaseCfg.horizonWeeks) || 52,
+        horizonWeeks: horizon.end ? horizon.weeks : Number(phaseCfg.horizonWeeks) || 52,
         bulkRate: Number(phaseCfg.bulkRate) || 0.25,
         cutRate: Number(phaseCfg.cutRate) || 0.6,
         minicut: phaseCfg.minicut,
@@ -12533,11 +12541,11 @@ function MacroApp() {
         maintWeeks: Number(phaseCfg.maintWeeks) || 3,
         priority: phaseCfg.priority,
         targetBf: phaseCfg.priority === "vorm" ? Number(phaseCfg.targetBf) : null,
-      });
-    return phasePlan({
+      })
+        : phasePlan({
       ...input,
       bfWindow,
-      horizonWeeks: Number(phaseCfg.horizonWeeks) || 26,
+      horizonWeeks: horizon.weeks,
       minicut: phaseCfg.minicut,
       minicutRate: Number(phaseCfg.minicutRate) || 0.75,
       maxMinicutWeeks: Number(phaseCfg.maxMinicutWeeks) || 5,
@@ -12546,7 +12554,13 @@ function MacroApp() {
       blockWeeks: Number(phaseCfg.blockWeeks) || (f.goal === "bulk" ? 16 : 10),
       maintWeeks: Number(phaseCfg.maintWeeks) || 3,
     });
-  }, [input, phaseCfg, showPlan, f.sex, f.goal, bfWindow]);
+    // eindigt het plan op de wedstrijd (en niet eerder, bijvoorbeeld doel bereikt), dan is de laatste week de wedstrijdweek
+    if (toRace && res && res.rows.length && res.rows.length <= horizon.weeks) {
+      const rows = withRaceWeek(padToWeeks(res.rows, horizon.weeks), raceGoal.label);
+      return { ...res, rows, summary: { ...res.summary, weeks: rows.length, maintenanceWeeks: rows.filter((r) => r.phase === "onderhoud").length } };
+    }
+    return res;
+  }, [input, phaseCfg, showPlan, f.sex, f.goal, bfWindow, horizon.weeks, horizon.end, toRace, raceGoal && raceGoal.label]);
 
   /* Bouwt beide profielen op voor de afdruk: een trainingsdag en een rustdag,
      compleet met tijden, macro's en porties. */
@@ -12759,6 +12773,8 @@ function MacroApp() {
       start: planStartInput || new Date().toISOString().slice(0, 10),
       rows: snapshotPlan(plan52.rows),
       mode: phaseCfg.mode,
+      end: horizon.end || null,
+      race: toRace ? { date: raceGoal.date, label: raceGoal.label } : null,
       created: new Date().toISOString().slice(0, 10),
     });
     setLastSeen(null);
@@ -15380,7 +15396,33 @@ function MacroApp() {
               )}
             </div>
 
+            {raceGoal && !planMatchesRace(autopilot.start, autopilot.rows.length, raceGoal.date) && (
+              <div className="px-4 py-3 relative" style={{ background: C.warnBg, borderBottom: `1px solid ${C.lineSoft}` }} role="status">
+                <span className="rail" style={{ background: C.warn }} />
+                <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
+                  <strong>Voeding en training lopen niet gelijk.</strong> Uw trainingsschema werkt naar {raceGoal.label} op{" "}
+                  {dateNL(new Date(raceGoal.date + "T00:00:00"))}; dit voedingsplan eindigt op{" "}
+                  {dateNL(new Date(Date.parse(autopilot.start + "T00:00:00") + (autopilot.rows.length * 7 - 1) * DAY_MS))}.
+                </p>
+                <button
+                  onClick={() => {
+                    setPhaseCfg((st) => ({ ...st, horizonMode: "wedstrijd" }));
+                    setPlanStartInput(localISO());
+                    setShowPlan(true);
+                  }}
+                  className="tap text-xs underline mt-1"
+                  style={{ color: C.warn, fontWeight: 600 }}
+                >
+                  Nieuw plan tot de wedstrijd berekenen
+                </button>
+              </div>
+            )}
             <div className="px-4 py-3 grid grid-cols-2 gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+              {autopilot.race && (
+                <div className="col-span-2 text-xs" style={{ color: C.muted }}>
+                  Doel: <strong style={{ color: C.ink }}>{autopilot.race.label}</strong> op {dateNL(new Date(autopilot.race.date + "T00:00:00"))}, samen met uw trainingsschema.
+                </div>
+              )}
               <div>
                 <div className="text-xs" style={{ color: C.muted }}>
                   Gestart
@@ -15649,6 +15691,12 @@ function MacroApp() {
               ]}
             />
           </Row>
+          {!showPlan && !autopilot && raceGoal && (
+            <p className="px-4 py-3 text-xs leading-relaxed" style={{ color: C.muted, borderTop: `1px solid ${C.lineSoft}` }}>
+              Uw trainingsschema werkt naar <strong style={{ color: C.ink }}>{raceGoal.label}</strong> op {dateNL(new Date(raceGoal.date + "T00:00:00"))}. Zet Plan berekenen aan;
+              uw voedingsplan loopt dan vanzelf tot die dag, met de wedstrijdweek op onderhoud.
+            </p>
+          )}
           {showPlan && (
             <>
               <Row
@@ -15669,8 +15717,66 @@ function MacroApp() {
                   ]}
                 />
               </Row>
-              <Row label="Horizon" hint="Hoe ver vooruit u wilt kijken.">
-                <Num value={phaseCfg.horizonWeeks} onChange={(v) => setPhase("horizonWeeks", v)} min={4} max={78} suffix="wk" />
+              <Row
+                label="Tot wanneer"
+                stack
+                hint={
+                  horizon.mode === "wedstrijd"
+                    ? "Volgt het hoofddoel uit uw trainingsschema. Verschuift die datum, dan schuift het plan mee."
+                    : horizon.mode === "datum"
+                    ? "Het plan loopt van de startdatum tot en met deze dag."
+                    : "Hoe ver vooruit u wilt kijken."
+                }
+              >
+                <Seg
+                  value={horizon.mode}
+                  onChange={(v) => setPhaseCfg((st) => ({ ...st, horizonMode: v, endDate: v === "datum" && !st.endDate ? (raceGoal ? raceGoal.date : null) : st.endDate }))}
+                  options={[
+                    { value: "weken", label: "Weken" },
+                    { value: "datum", label: "Datum" },
+                    ...(raceGoal ? [{ value: "wedstrijd", label: "Wedstrijd" }] : []),
+                  ]}
+                />
+                <div className="mt-2">
+                  {horizon.mode === "weken" && <Num value={phaseCfg.horizonWeeks} onChange={(v) => setPhase("horizonWeeks", v)} min={MIN_WEEKS} max={MAX_WEEKS} suffix="wk" />}
+                  {horizon.mode === "datum" && (
+                    <input
+                      type="date"
+                      value={phaseCfg.endDate || ""}
+                      min={planStartInput || localISO()}
+                      onChange={(ev) => setPhase("endDate", ev.target.value || null)}
+                      className="w-full px-2 py-1.5 text-sm tnum"
+                      style={{ border: `1px solid ${C.line}`, background: C.panel, color: C.ink, borderRadius: R.field }}
+                      aria-label="Einddatum van het plan"
+                    />
+                  )}
+                  {horizon.mode === "wedstrijd" && raceGoal && (
+                    <p className="text-sm font-semibold" style={{ color: C.ink }}>
+                      {raceGoal.label} · {dateNL(new Date(raceGoal.date + "T00:00:00"))}
+                    </p>
+                  )}
+                  {horizon.end && (
+                    <p className="text-xs mt-1 tnum" style={{ color: horizon.tooShort || horizon.tooLong || horizon.past ? C.warn : C.muted }}>
+                      {horizon.past
+                        ? "Deze datum ligt vóór de startdatum."
+                        : horizon.tooShort
+                        ? `Dat is ${horizon.raw} ${horizon.raw === 1 ? "week" : "weken"}; een meerwekenplan heeft er minstens ${MIN_WEEKS} nodig. Het plan rekent met ${MIN_WEEKS}.`
+                        : horizon.tooLong
+                        ? `Dat is ${horizon.raw} weken; het plan kijkt hoogstens ${MAX_WEEKS} weken vooruit.`
+                        : `${horizon.weeks} weken vanaf de startdatum${toRace ? "; de laatste week is de wedstrijdweek, op onderhoud" : ""}.`}
+                      {phaseCfg.mode === "doorlopend" && horizon.weeks < 8 ? " Een doorlopend plan heeft minstens 8 weken nodig; kies anders Eén fase." : ""}
+                    </p>
+                  )}
+                  {horizon.mode === "datum" && horizon.end && perfData.plan && discipline !== "bodybuilding" && perfData.plan.settings.goalDate !== horizon.end && (
+                    <button
+                      onClick={() => perfStore[1].setPlan({ ...perfData.plan.settings, goalDate: horizon.end })}
+                      className="tap text-xs underline mt-1.5 text-left"
+                      style={{ color: C.accent }}
+                    >
+                      Deze datum ook als hoofddoel in mijn trainingsschema zetten
+                    </button>
+                  )}
+                </div>
               </Row>
 
               {phaseCfg.mode === "doorlopend" ? (
@@ -15953,7 +16059,8 @@ function MacroApp() {
                       </div>
                     ))}
                     <div className="col-span-3 text-xs leading-relaxed tnum mt-1" style={{ color: C.muted }}>
-                      {plan52.summary.weeks} weken, eindigend rond {dateNL(addDays(plan52.summary.weeks * 7))} op{" "}
+                      {plan52.summary.weeks} weken, eindigend rond{" "}
+                      {dateNL(new Date(Date.parse((planStartInput || localISO()) + "T00:00:00") + (plan52.summary.weeks * 7 - 1) * DAY_MS))} op{" "}
                       {plan52.summary.endWeight.toFixed(1)} kg en {plan52.summary.endBf.toFixed(1)} procent vet
                       {plan52.summary.minicuts > 0 && `, met ${plan52.summary.minicuts} minicut${plan52.summary.minicuts > 1 ? "s" : ""}`}
                       .{plan52.summary.estimatedBf && " Het vetpercentage is geschat; vul uw eigen waarde in voor een scherper plan."}

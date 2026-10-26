@@ -473,6 +473,24 @@ Claude de tabel te lezen en geeft gestructureerde JSON terug.
 - **Aanpassingen deze week**: overgeslagen of verplaatste trainingen van eerdere
   dagen staan op Vandaag, elk met "Ongedaan maken" (`undoAdjAt`).
 
+## Meerwekenplan tot een datum of wedstrijd
+
+`src/planDate.js` (tests `tests/plandate-test.mjs`). "Tot wanneer" kent drie
+manieren (`phaseCfg.horizonMode`): weken (`horizonWeeks`), een eigen datum
+(`phaseCfg.endDate`) of de wedstrijd: het hoofddoel uit het trainingsschema
+(`settings.goalDate` in de hybride opslag). Zonder eigen keuze volgt het plan
+de wedstrijd als die er is; verschuift die datum, dan schuift de horizon mee.
+- `planHorizon` rekent het aantal weken vanaf de startdatum tot en met de
+  einddag (4–78, met melding bij te kort, te lang of in het verleden).
+- Eindigt het plan op de wedstrijd, dan is de laatste week de wedstrijdweek
+  (`withRaceWeek`: een tekort wordt onderhoud); is het doel eerder bereikt,
+  dan vult `padToWeeks` aan met onderhoud tot de wedstrijd.
+- Bij een eigen datum zet één tik die datum ook als hoofddoel in het
+  trainingsschema (`setPlan` met `goalDate`).
+- Een gestart plan bewaart `autopilot.end` en `autopilot.race`. Loopt het niet
+  meer gelijk met de wedstrijd (`planMatchesRace`), dan meldt "Actief plan" dat,
+  met een knop om een nieuw plan tot de wedstrijd te berekenen.
+
 ## Getallen en tijden invoeren
 
 Geen `type="number"` meer: iOS laat daarin vaak geen komma toe of wist het
