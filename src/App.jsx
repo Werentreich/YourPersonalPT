@@ -2483,27 +2483,61 @@ function CountUp({ value, digits = 0, duration = 520 }) {
   return <span ref={ref}>{fmt(value)}</span>;
 }
 
-function Section({ title, sub, children, accent }) {
+/* Sectie met kop. Eenvoud: een lange uitleg (sub) staat standaard dicht
+   achter "Waarom?"; een korte blijft zichtbaar. Met collapsible is de hele
+   sectie in te klappen (achtergrondinformatie), met summary als één regel
+   eronder zolang hij dicht is. */
+const SUB_SHORT = 70;
+function Section({ title, sub, children, accent, collapsible = false, defaultOpen = true, summary = null }) {
+  const long = typeof sub === "string" && sub.length > SUB_SHORT;
+  const [why, setWhy] = useState(false);
+  const [open, setOpen] = useState(!collapsible || defaultOpen);
+  const head = (
+    <>
+      <span className="inline-block w-1.5 h-5 rounded-sm shrink-0" style={{ background: accent || C.accent }} />
+      <h2 className="disp text-2xl font-bold uppercase leading-none" style={{ color: C.ink }}>
+        {title}
+      </h2>
+    </>
+  );
   return (
     <Reveal>
       <section className="mb-8">
         <div className="flex items-baseline gap-2 mb-1">
-          <span className="inline-block w-1.5 h-5 rounded-sm" style={{ background: accent || C.accent }} />
-          <h2 className="disp text-2xl font-bold uppercase leading-none" style={{ color: C.ink }}>
-            {title}
-          </h2>
+          {collapsible ? (
+            <button onClick={() => setOpen((v) => !v)} className="tap flex items-baseline gap-2 text-left flex-1 min-w-0" aria-expanded={open}>
+              {head}
+              <span className="text-sm ml-auto shrink-0" style={{ color: C.muted }} aria-hidden="true">
+                {open ? "▴" : "▾"}
+              </span>
+            </button>
+          ) : (
+            head
+          )}
+          {long && open && (
+            <button onClick={() => setWhy((v) => !v)} className="tap text-xs underline ml-auto shrink-0 px-1" style={{ color: C.muted }} aria-expanded={why}>
+              {why ? "Minder" : "Waarom?"}
+            </button>
+          )}
         </div>
-        {sub && (
+        {sub && open && (!long || why) && (
           <p className="text-sm mb-3 leading-relaxed" style={{ color: C.muted, maxWidth: "62ch" }}>
             {sub}
           </p>
         )}
-        <div
-          className="overflow-hidden"
-          style={{ border: `1px solid ${C.line}`, background: C.panel, borderRadius: R.card, boxShadow: C.shadow }}
-        >
-          {children}
-        </div>
+        {!open && summary && (
+          <p className="text-sm leading-relaxed" style={{ color: C.muted, maxWidth: "62ch" }}>
+            {summary}
+          </p>
+        )}
+        {open && (
+          <div
+            className={`overflow-hidden${sub && (!long || why) ? "" : " mt-2"}`}
+            style={{ border: `1px solid ${C.line}`, background: C.panel, borderRadius: R.card, boxShadow: C.shadow }}
+          >
+            {children}
+          </div>
+        )}
       </section>
     </Reveal>
   );
@@ -2700,14 +2734,18 @@ function Icon({ name, size = 22 }) {
   );
 }
 
+/* Vier tabbladen onderaan; Profiel zit achter het icoon rechtsboven.
+   Gezondheid is opgegaan in Voortgang (id "plan"), het dagelijkse herstel
+   in Training. Oude verwijzingen naar "gezondheid" komen in Voortgang uit. */
 const TABS = [
   { id: "vandaag", label: "Vandaag", title: "Vandaag" },
-  { id: "plan", label: "Plan", title: "Plan en voortgang" },
   { id: "training", label: "Training", title: "Training" },
   { id: "eten", label: "Eten", title: "Eten" },
-  { id: "gezondheid", label: "Gezondheid", title: "Gezondheid" },
-  { id: "profiel", label: "Profiel", title: "Profiel" },
+  { id: "plan", label: "Voortgang", title: "Voortgang" },
+  { id: "profiel", label: "Profiel", title: "Profiel", hidden: true },
 ];
+const NAV_TABS = TABS.filter((t) => !t.hidden);
+const TAB_ALIAS = { gezondheid: "plan" };
 
 function MacroBar({ p, c, f, height = 8, shine, colors }) {
   const cl = colors || { pro: C.proFill, carb: C.carbFill, fat: C.fatFill };
@@ -10084,7 +10122,18 @@ function CoachPanel({ cs, goal, targetKg, advice, overrideAdvice, setOverrideAdv
           </p>
         )}
         <p style={txt(C.warn)}>
-          U zit {c.full < 0 ? "boven" : "onder"} het geplande tempo: in totaal ± {Math.abs(c.full)} kcal per dag. De app stuurt bij in stappen van
+          {c.full > 0
+            ? goal === "bulk"
+              ? "U komt langzamer aan dan gepland"
+              : goal === "cut"
+              ? "U valt sneller af dan gepland"
+              : "Uw gewicht daalt"
+            : goal === "bulk"
+            ? "U komt sneller aan dan gepland"
+            : goal === "cut"
+            ? "U valt langzamer af dan gepland"
+            : "Uw gewicht stijgt"}
+          : ± {Math.abs(c.full)} kcal per dag {c.full > 0 ? "erbij" : "eraf"} brengt u op koers. De app stuurt bij in stappen van
           hoogstens {CORR_STEP} kcal en meet daarna een week{c.stepsLeft > 1 ? ` (stap 1 van ongeveer ${c.stepsLeft})` : ""}.
         </p>
         {cs.adherence === "meestal" && !cs.foodKnown && (
@@ -10286,7 +10335,7 @@ function PrivacySection({ s }) {
     }
   };
   return (
-    <Section title="Privacy en gegevens" sub="Uw gegevens zijn van u. U kunt ze inzien, meenemen en laten verwijderen.">
+    <Section title="Privacy en gegevens" sub="Uw gegevens zijn van u. U kunt ze inzien, meenemen en laten verwijderen." collapsible defaultOpen={false} summary="Gegevens inzien, downloaden of laten verwijderen.">
       <div className="px-4 py-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
         <a href={PRIVACY_URL} target="_blank" rel="noopener" className="underline" style={{ color: C.ink }}>
           Privacyverklaring
@@ -11444,8 +11493,10 @@ function MacroApp() {
   const [planStartInput, setPlanStartInput] = useState(new Date().toISOString().slice(0, 10));
   const [confirmStop, setConfirmStop] = useState(false);
   const [tab, setTabRaw] = useState("vandaag");
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [showAllNotes, setShowAllNotes] = useState(false);
   const setTab = (t) => {
-    setTabRaw(t);
+    setTabRaw(TAB_ALIAS[t] || t);
     try {
       window.scrollTo({ top: 0, behavior: "instant" });
     } catch (e) {
@@ -13599,7 +13650,7 @@ function MacroApp() {
         className="macroapp no-print mx-auto max-w-2xl px-4 pt-6"
         style={{ paddingBottom: trainingActive ? "calc(210px + env(safe-area-inset-bottom, 0px))" : "calc(96px + env(safe-area-inset-bottom, 0px))" }}
       >
-        <header className="mb-5">
+        <header className="mb-5 relative pr-10">
           <div className="text-xs leading-snug whitespace-nowrap overflow-hidden" style={{ textOverflow: "ellipsis" }}>
             <NexaMark size={13} />{" "}
             <span className="font-bold" style={{ color: C.ink, letterSpacing: "0.01em" }}>
@@ -13607,15 +13658,24 @@ function MacroApp() {
             </span>
             <span style={{ color: C.muted }}> · Your personal performance coach</span>
           </div>
+          <button
+            onClick={() => setTab(tab === "profiel" ? "vandaag" : "profiel")}
+            className="tap absolute flex items-center justify-center"
+            style={{ top: -6, right: -8, width: 40, height: 40, borderRadius: 20, color: tab === "profiel" ? C.accent : C.muted, background: tab === "profiel" ? C.surface2 : "transparent" }}
+            aria-label={tab === "profiel" ? "Profiel sluiten" : "Profiel en instellingen"}
+            aria-current={tab === "profiel" ? "page" : undefined}
+          >
+            <Icon name="profiel" size={22} />
+          </button>
           <div className="flex items-end justify-between gap-3 mt-0.5">
           <h1 className="disp text-4xl font-bold uppercase leading-none tracking-tight">
-            {TABS.find((t) => t.id === tab).title}
+            {(TABS.find((t) => t.id === tab) || TABS[0]).title}
           </h1>
-          {tab === "vandaag" && (
+          {(tab === "vandaag" || tab === "eten") && (
             <div className="text-right text-xs leading-snug" style={{ color: C.muted }}>
-              {DAY_FULL[selDay]}
+              {DAY_FULL[tab === "vandaag" ? todayIdx : selDay]}
               <br />
-              {dayType(selDay) === "training" ? "Trainingsdag" : "Rustdag"}
+              {dayType(tab === "vandaag" ? todayIdx : selDay) === "training" ? "Trainingsdag" : "Rustdag"}
             </div>
           )}
           </div>
@@ -13717,83 +13777,6 @@ function MacroApp() {
               </div>
             )}
 
-            {/* ---------------- planstatus ---------------- */}
-            {(planNow.active || planNow.pending || planNow.ended) && (
-              <button
-                onClick={() => setTab("plan")}
-                className="tap w-full text-left mb-3 px-3 py-2 flex items-center gap-3"
-                style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}
-              >
-                <span
-                  className="shrink-0 rounded-full"
-                  style={{ width: 10, height: 10, background: planNow.active ? PHASE_COLOR[planNow.row.phase] : C.muted }}
-                />
-                <span className="text-xs leading-snug flex-1" style={{ color: C.muted }}>
-                  {planNow.active ? (
-                    <>
-                      <strong style={{ color: C.ink }}>
-                        Plan · week {planNow.week + 1} van {planNow.total} · {PHASE_LABEL[planNow.row.phase]}
-                      </strong>
-                      {(() => {
-                        let left = 0;
-                        for (let k = planNow.week; k < autopilot.rows.length && autopilot.rows[k].phase === planNow.row.phase; k++) left++;
-                        const after = autopilot.rows[planNow.week + left];
-                        return after
-                          ? ` · nog ${left} ${left === 1 ? "week" : "weken"}, daarna ${PHASE_LABEL[after.phase]}`
-                          : ` · nog ${left} ${left === 1 ? "week" : "weken"} tot het einde van het plan`;
-                      })()}
-                    </>
-                  ) : planNow.pending ? (
-                    <>
-                      <strong style={{ color: C.ink }}>Plan start over {planNow.daysToStart} {planNow.daysToStart === 1 ? "dag" : "dagen"}</strong>
-                      {" · tot die tijd geldt uw eigen doel"}
-                    </>
-                  ) : (
-                    <>
-                      <strong style={{ color: C.ink }}>Plan afgerond</strong>
-                      {" · uw eigen doel geldt weer. Maak een nieuw plan op het tabblad Plan."}
-                    </>
-                  )}
-                </span>
-                <span className="text-xs shrink-0" style={{ color: C.accent }}>
-                  Plan
-                </span>
-              </button>
-            )}
-
-            {D.resensAdv && !bill.locked && !(lengthAdv && lengthAdv.kind === "pauze") && <ResensCard adv={D.resensAdv} onOpen={() => setResensOpen(true)} />}
-            {loaded && ["vroeg", "bijsturen", "trouw"].includes(cs.stage) && !bill.locked && (
-              <div className="mb-3 px-3 py-1 relative" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
-                <CoachPanel {...coachProps} compact />
-                <button onClick={() => setTab("plan")} className="tap text-xs underline my-2" style={{ color: C.muted }}>
-                  Details op Plan
-                </button>
-              </div>
-            )}
-            {loaded && onboarding === null && stepsNow.est && (
-              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
-                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
-                  <strong style={{ color: C.ink }}>Hoeveel stappen zet u per dag?</strong> De app rekent nu met een schatting van {stepsLabel(stepsNow.steps)}. Met uw
-                  echte aantal klopt uw verbruik beter.
-                </span>
-                <TBtn small onClick={() => setStepsOpen(true)}>
-                  Invullen
-                </TBtn>
-              </div>
-            )}
-            {loaded && onboarding === null && !stepsNow.est && stepsNow.steps < stepFloor(f.age) && !(coach.stepTipAt && dayNum(localISO()) - dayNum(coach.stepTipAt) < 7) && (
-              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
-                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
-                  <strong style={{ color: C.ink }}>± {stepsLabel(stepsNow.steps)} stappen per dag.</strong> Rond {stepsLabel(stepFloor(f.age))} ligt het
-                  gezondheidsminimum: daar is het meeste gezondheidswinst te halen. Elke duizend stappen extra telt.
-                </span>
-                <button onClick={() => setCoach((c) => ({ ...c, stepTipAt: localISO() }))} className="tap text-xs underline shrink-0" style={{ color: C.muted }}>
-                  Begrepen
-                </button>
-              </div>
-            )}
-            {lengthAdv && !bill.locked && <PhaseLengthCard a={lengthAdv} onStart={startBreak} onEnd={endBreak} onSnooze={snoozeLength} onSince={setGoalSince} />}
-
             <SyncNotices s={nx} />
             {billNotice && (
               <div
@@ -13805,7 +13788,7 @@ function MacroApp() {
                   {billNotice === "gelukt" ? (
                     <>
                       <strong style={{ color: C.carb }}>Welkom bij Nexa Coach.</strong>{" "}
-                      {bill.active ? "Alles staat voor u klaar: begin bij Plan of Training." : "Uw abonnement wordt verwerkt; dat duurt meestal een paar seconden."}
+                      {bill.active ? "Alles staat voor u klaar: begin bij Training of Eten." : "Uw abonnement wordt verwerkt; dat duurt meestal een paar seconden."}
                     </>
                   ) : billNotice === "geannuleerd" ? (
                     "De betaling is afgebroken. Er is niets afgeschreven; u kunt het later opnieuw proberen."
@@ -13819,22 +13802,18 @@ function MacroApp() {
               </div>
             )}
             <BillingBanner bill={bill} onManage={() => window.nexaSync && window.nexaSync.portal().catch(() => {})} />
-            {nx && !nx.user && !nx.notice && !nx.recovery && loaded && accountHint && (
-              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
-                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
-                  <strong style={{ color: C.ink }}>Bewaar uw gegevens veilig.</strong> Met een gratis account raakt u niets kwijt als u de app verwijdert of van telefoon wisselt.
-                </span>
-                <div className="flex flex-col gap-1 shrink-0 items-end">
-                  <TBtn small onClick={() => setAccountOpen("signup")}>
-                    Account
-                  </TBtn>
-                  <button onClick={hideAccountHint} className="tap text-xs underline" style={{ color: C.muted }}>
-                    Later
-                  </button>
-                </div>
+            {/* ---------------- meldingen: de belangrijkste open, de rest achter een knop ---------------- */}
+            {(() => {
+              const notes = [
+            loaded && ["vroeg", "bijsturen", "trouw"].includes(cs.stage) && !bill.locked && (
+              <div className="mb-3 px-3 py-1 relative" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card }}>
+                <CoachPanel {...coachProps} compact />
+                <button onClick={() => setTab("plan")} className="tap text-xs underline my-2" style={{ color: C.muted }}>
+                  Details bij Voortgang
+                </button>
               </div>
-            )}
-            {checkinDue && !bill.locked && (
+            ),
+            checkinDue && !bill.locked && (
               <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
                 <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
                   <strong style={{ color: C.ink }}>Tijd voor uw wekelijkse check-in.</strong> Hoe ging uw voeding afgelopen week? Liepen er dagen anders, dan houdt de
@@ -13849,7 +13828,61 @@ function MacroApp() {
                   </button>
                 </div>
               </div>
-            )}
+            ),
+            lengthAdv && !bill.locked && <PhaseLengthCard a={lengthAdv} onStart={startBreak} onEnd={endBreak} onSnooze={snoozeLength} onSince={setGoalSince} />,
+            D.resensAdv && !bill.locked && !(lengthAdv && lengthAdv.kind === "pauze") && <ResensCard adv={D.resensAdv} onOpen={() => setResensOpen(true)} />,
+            loaded && onboarding === null && stepsNow.est && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>Hoeveel stappen zet u per dag?</strong> De app rekent nu met een schatting van {stepsLabel(stepsNow.steps)}. Met uw
+                  echte aantal klopt uw verbruik beter.
+                </span>
+                <TBtn small onClick={() => setStepsOpen(true)}>
+                  Invullen
+                </TBtn>
+              </div>
+            ),
+            loaded && onboarding === null && !stepsNow.est && stepsNow.steps < stepFloor(f.age) && !(coach.stepTipAt && dayNum(localISO()) - dayNum(coach.stepTipAt) < 7) && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>± {stepsLabel(stepsNow.steps)} stappen per dag.</strong> Rond {stepsLabel(stepFloor(f.age))} ligt het
+                  gezondheidsminimum: daar is het meeste gezondheidswinst te halen. Elke duizend stappen extra telt.
+                </span>
+                <button onClick={() => setCoach((c) => ({ ...c, stepTipAt: localISO() }))} className="tap text-xs underline shrink-0" style={{ color: C.muted }}>
+                  Begrepen
+                </button>
+              </div>
+            ),
+            nx && !nx.user && !nx.notice && !nx.recovery && loaded && accountHint && (
+              <div className="mb-3 px-3 py-2.5 flex items-center gap-3" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.field }}>
+                <span className="text-xs flex-1 leading-snug" style={{ color: C.muted }}>
+                  <strong style={{ color: C.ink }}>Bewaar uw gegevens veilig.</strong> Met een gratis account raakt u niets kwijt als u de app verwijdert of van telefoon wisselt.
+                </span>
+                <div className="flex flex-col gap-1 shrink-0 items-end">
+                  <TBtn small onClick={() => setAccountOpen("signup")}>
+                    Account
+                  </TBtn>
+                  <button onClick={hideAccountHint} className="tap text-xs underline" style={{ color: C.muted }}>
+                    Later
+                  </button>
+                </div>
+              </div>
+            ),
+              ].filter(Boolean);
+              if (!notes.length) return null;
+              return (
+                <>
+                  {notes.slice(0, showAllNotes ? notes.length : 1).map((el, i) => (
+                    <React.Fragment key={i}>{el}</React.Fragment>
+                  ))}
+                  {notes.length > 1 && (
+                    <button onClick={() => setShowAllNotes((v) => !v)} className="tap text-xs underline mb-3 -mt-1 px-1" style={{ color: C.muted }} aria-expanded={showAllNotes}>
+                      {showAllNotes ? "Minder meldingen" : `Nog ${notes.length - 1} ${notes.length - 1 === 1 ? "melding" : "meldingen"}`}
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             {!bill.locked && (
               <TrainingBoundary quiet>
                 {discipline === "bodybuilding" || T.active ? (
@@ -13909,6 +13942,121 @@ function MacroApp() {
               );
             })()}
 
+            {/* ---------------- voeding vandaag (samenvatting; alles bij Eten) ---------------- */}
+            {(() => {
+              const dp = dayPlan.all[todayIdx];
+              const m = dp.macros;
+              const planLine = planNow.active
+                ? ` · plan week ${planNow.week + 1} van ${planNow.total}, ${PHASE_LABEL[planNow.row.phase].toLowerCase()}`
+                : planNow.pending
+                ? ` · plan start over ${planNow.daysToStart} ${planNow.daysToStart === 1 ? "dag" : "dagen"}`
+                : planNow.ended
+                ? " · plan afgerond"
+                : "";
+              const toEten = () => {
+                setSelDay(todayIdx);
+                setTab("eten");
+              };
+              return (
+                <div className="mb-3 overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: R.card, boxShadow: C.shadow }} aria-label="Voeding vandaag">
+                  <button onClick={toEten} className="tap w-full text-left px-4 pt-3 pb-2.5">
+                    <span className="eyebrow block" style={{ color: C.accent }}>
+                      Voeding vandaag{planLine}
+                    </span>
+                    <span className="flex items-baseline justify-between gap-3 mt-0.5 tnum">
+                      <span>
+                        <span className="disp text-2xl font-bold">{Math.round(dp.kcal)}</span>{" "}
+                        <span className="text-xs" style={{ color: C.muted }}>
+                          kcal
+                        </span>
+                      </span>
+                      <span className="text-sm font-semibold">
+                        <span style={{ color: C.pro }}>{Math.round(m.protein)} e</span> · <span style={{ color: C.carb }}>{Math.round(m.carbs)} k</span> ·{" "}
+                        <span style={{ color: C.fat }}>{Math.round(m.fat)} v</span>
+                      </span>
+                    </span>
+                    <span className="block mt-2">
+                      <MacroBar p={m.protein} c={m.carbs} f={m.fat} height={6} />
+                    </span>
+                  </button>
+                  {!bill.locked &&
+                    dp.meals.map((ml, i) => (
+                      <button
+                        key={i}
+                        onClick={toEten}
+                        className="tap w-full flex items-center gap-3 px-4 py-2 text-sm text-left tnum"
+                        style={{ borderTop: `1px solid ${C.lineSoft}` }}
+                      >
+                        <span className="text-xs w-11 shrink-0" style={{ color: C.muted }}>
+                          {toHHMM(ml.time)}
+                        </span>
+                        <span className="flex-1 truncate">{mealName(ml.label, i, dp.meals.length)}</span>
+                        <span className="text-xs" style={{ color: C.muted }}>
+                          {Math.round(ml.kcal)} kcal
+                        </span>
+                      </button>
+                    ))}
+                  <button onClick={toEten} className="tap w-full px-4 py-2.5 text-sm font-semibold text-left" style={{ color: C.accent, borderTop: `1px solid ${C.lineSoft}` }}>
+                    {bill.locked ? "Week en dagindeling bij Eten ›" : "Porties en dagindeling bij Eten ›"}
+                  </button>
+                </div>
+              );
+            })()}
+          </>
+        )}
+        {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
+        {tab === "training" && !bill.locked && !T.active && !savedLift() && <TeamSwitcher team={team} onOpenClient={setClientOpen} />}
+        {tab === "training" && !bill.locked && !T.active && !(discipline !== "bodybuilding" && savedLift()) && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
+        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
+          <TrainingBoundary>
+            <PerformanceTraining
+              store={perfStore}
+              nx={nx}
+              discipline={discipline}
+              bbLog={T.sessions
+                .filter((x) => x.end)
+                .map((x) => {
+                  const st = sessionStats(x);
+                  return { id: x.id, date: x.date, name: x.name, facts: `${st.min} min · ${st.sets} werksets · ${fmtKgTotal(st.ton)}` };
+                })}
+              onBodybuilding={() => perfStore[1].setDiscipline("bodybuilding")}
+              onGoTab={(t) => (t === "gezondheid" ? setRecoveryOpen(true) : setTab(t))}
+              onStartStrength={startPerfStrength}
+              onStartFree={startPerfFree}
+              hasProgram={!!perfProgram}
+              renderProgram={() => (
+                <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
+                  <TrainSchema T={T} setT={setT} D={D} week={week} setWeek={setWeek} perf />
+                </ProfileCtx.Provider>
+              )}
+            />
+          </TrainingBoundary>
+        )}
+        {tab === "training" && !bill.locked && (discipline === "bodybuilding" || T.active) && (
+          <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
+            <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
+            <TrainingTab
+              T={T}
+              setT={setT}
+              D={D}
+              bw={weight}
+              week={week}
+              setWeek={setWeek}
+              onStart={startTraining}
+              summary={trainSummary}
+              setSummary={setTrainSummary}
+              perfSessions={perfData.sessions.filter((x) => x.source !== "nexa")}
+            />
+            </ProfileCtx.Provider>
+          </TrainingBoundary>
+        )}
+        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && trainSummary && (
+          <SessionSummary s={trainSummary} D={D} T={T} setT={setT} onClose={() => setTrainSummary(null)} />
+        )}
+        {/* Dagschema: dagkiezer, week in cijfers en de dagindeling met porties. Stond
+            vroeger op Vandaag; daar staat nu een samenvatting. */}
+        {tab === "eten" && (
+          <>
             {/* Kleeft bovenaan tijdens het scrollen met position: sticky.
                 Geen scrollmeting nodig, dus het werkt in elke webweergave. */}
             <div
@@ -14815,55 +14963,6 @@ function MacroApp() {
         )}
 
           </>
-        )}
-        {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
-        {tab === "training" && !bill.locked && !T.active && !savedLift() && <TeamSwitcher team={team} onOpenClient={setClientOpen} />}
-        {tab === "training" && !bill.locked && !T.active && !(discipline !== "bodybuilding" && savedLift()) && <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} />}
-        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && (
-          <TrainingBoundary>
-            <PerformanceTraining
-              store={perfStore}
-              nx={nx}
-              discipline={discipline}
-              bbLog={T.sessions
-                .filter((x) => x.end)
-                .map((x) => {
-                  const st = sessionStats(x);
-                  return { id: x.id, date: x.date, name: x.name, facts: `${st.min} min · ${st.sets} werksets · ${fmtKgTotal(st.ton)}` };
-                })}
-              onBodybuilding={() => perfStore[1].setDiscipline("bodybuilding")}
-              onGoTab={setTab}
-              onStartStrength={startPerfStrength}
-              onStartFree={startPerfFree}
-              hasProgram={!!perfProgram}
-              renderProgram={() => (
-                <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
-                  <TrainSchema T={T} setT={setT} D={D} week={week} setWeek={setWeek} perf />
-                </ProfileCtx.Provider>
-              )}
-            />
-          </TrainingBoundary>
-        )}
-        {tab === "training" && !bill.locked && (discipline === "bodybuilding" || T.active) && (
-          <TrainingBoundary onClearActive={() => setT((t) => ({ ...t, active: null }))}>
-            <ProfileCtx.Provider value={{ experience: f.experience, wake: f.wake, sleep: f.sleep, age: num(f.age, null), sex: f.sex, goal: effGoal }}>
-            <TrainingTab
-              T={T}
-              setT={setT}
-              D={D}
-              bw={weight}
-              week={week}
-              setWeek={setWeek}
-              onStart={startTraining}
-              summary={trainSummary}
-              setSummary={setTrainSummary}
-              perfSessions={perfData.sessions.filter((x) => x.source !== "nexa")}
-            />
-            </ProfileCtx.Provider>
-          </TrainingBoundary>
-        )}
-        {tab === "training" && !bill.locked && discipline !== "bodybuilding" && !T.active && trainSummary && (
-          <SessionSummary s={trainSummary} D={D} T={T} setT={setT} onClose={() => setTrainSummary(null)} />
         )}
         {tab === "eten" && bill.locked && <CoachPaywall bill={bill} feature="eten" onStart={startCoach} />}
         {tab === "eten" && !bill.locked && (
@@ -16162,7 +16261,7 @@ function MacroApp() {
           )}
         </Section>
 
-        <Section title="Wanneer welke fase" accent={C.carb}>
+        <Section title="Wanneer welke fase" accent={C.carb} collapsible defaultOpen={false} summary="Wanneer cutten, opbouwen of onderhouden zinvol is, en waarom.">
           {PHASE_GUIDE(f.sex).map((g, i) => (
             <div key={i} className="px-4 py-3 relative" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
               <span className="rail" style={{ background: g.col }} />
@@ -16183,10 +16282,11 @@ function MacroApp() {
 
           </>
         )}
-        {tab === "gezondheid" && bill.locked && <CoachPaywall bill={bill} feature="gezondheid" onStart={startCoach} />}
-        {tab === "gezondheid" && !bill.locked && (
+        {tab === "plan" && !bill.locked && (
           <>
-        {discipline !== "bodybuilding" && <PerfRecovery store={perfStore} />}
+        <h2 className="disp text-2xl font-bold uppercase tracking-tight mt-2 mb-3" style={{ color: C.ink }}>
+          Gezondheid
+        </h2>
         {/* ---------------- micronutriënten en hormonen ---------------- */}
         <Section
           title="Hormonale gezondheid"
@@ -16249,6 +16349,9 @@ function MacroApp() {
 
         <Section
           title={HORMONE_TIPS[f.sex].title}
+          collapsible
+          defaultOpen={false}
+          summary="Wat aantoonbaar werkt en wat niet, met bronnen."
           sub="Op volgorde van effect. De eerste drie punten wegen zwaarder dan alle overige samen."
         >
           <div className="px-3 py-3">
@@ -16372,6 +16475,9 @@ function MacroApp() {
 
         <Section
           title="Micronutriënten per dag"
+          collapsible
+          defaultOpen={false}
+          summary="Vitamines en mineralen: hoeveel per dag en waar ze in zitten."
           sub="Richtlijnen voor volwassenen. Deze getallen corrigeren tekorten; boven de norm innemen levert geen extra hormonale winst op."
         >
           {MICROS.map((mi) => (
@@ -16400,6 +16506,11 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
+        <Section title="Uw sport" sub="Bepaalt welk schema Training toont. Wisselen kan altijd.">
+          <div className="px-4 pt-3">
+            <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} startOpen />
+          </div>
+        </Section>
         <TeamSection nx={nx} team={team} onOpenClient={setClientOpen} mySettings={perfData.plan ? perfData.plan.settings : null} />
         {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
         <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
@@ -16908,6 +17019,11 @@ function MacroApp() {
           onClose={() => setSkipOpen(false)}
         />
       )}
+      {recoveryOpen && (
+        <Sheet title="Herstel" onClose={() => setRecoveryOpen(false)}>
+          <PerfRecovery store={perfStore} inSheet />
+        </Sheet>
+      )}
       {checkinOpen && <CheckinSheet sex={f.sex} last={lastCheckin} steps={stepsNow.est ? null : stepsNow.steps} onSave={saveCheckin} onClose={() => setCheckinOpen(false)} openTape={checkinOpen === "tape"} />}
 
       <TrainingBoundary quiet>
@@ -16929,12 +17045,13 @@ function MacroApp() {
         }}
         aria-label="Hoofdnavigatie"
       >
-        <div className="mx-auto max-w-2xl grid grid-cols-6">
-          {TABS.map((t) => {
+        <div className="mx-auto max-w-2xl grid grid-cols-4">
+          {NAV_TABS.map((t) => {
             const on = tab === t.id;
             const badge =
               !on &&
-              ((t.id === "vandaag" && (warnings.length > 0 || !!planUpdate)) ||
+              ((t.id === "vandaag" && !!planUpdate) ||
+                (t.id === "eten" && warnings.length > 0) ||
                 (t.id === "training" && (trainingActive || (!!D.fatigue && !T.block.deloadFrom))));
             return (
               <button
@@ -16962,7 +17079,7 @@ function MacroApp() {
                       style={{ top: -1, right: -3, width: 8, height: 8, background: C.train, border: `2px solid ${C.panel}` }}
                     />
                   )}
-                  {bill.locked && ["training", "eten", "plan", "gezondheid"].includes(t.id) && (
+                  {bill.locked && ["training", "eten", "plan"].includes(t.id) && (
                     <svg className="absolute" style={{ top: -3, right: -7 }} width="11" height="12" viewBox="0 0 11 12" aria-hidden="true">
                       <rect x="1" y="5" width="9" height="6.5" rx="1.5" fill="currentColor" />
                       <path d="M3 5.2V3.8a2.5 2.5 0 0 1 5 0v1.4" fill="none" stroke="currentColor" strokeWidth="1.5" />

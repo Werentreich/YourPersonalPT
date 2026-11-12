@@ -31,13 +31,35 @@ const VIEWS = [
 ];
 
 /* Keuze van de sport, boven in Training. */
-export function SportPicker({ value, onChange }) {
+/* Sportkeuze. Eenvoud: één keer kiezen; daarna alleen een kleine regel
+   "Sport: Hybride · wijzigen". In Profiel staat de lijst open (startOpen). */
+export function SportPicker({ value, onChange, startOpen = false }) {
+  const [open, setOpen] = useState(startOpen);
+  const cur = DISCIPLINES[value] || DISCIPLINES.hybride;
+  if (!open)
+    return (
+      <div className="mb-4 flex items-center gap-2 text-xs" style={{ color: C.muted }}>
+        <span>
+          Sport: <strong style={{ color: C.ink }}>{cur.label}</strong>
+        </span>
+        <button onClick={() => setOpen(true)} className="tap underline px-1 py-1" style={{ color: C.accent }} aria-expanded={false} aria-label={`Sport wijzigen, nu ${cur.label}`}>
+          wijzigen
+        </button>
+      </div>
+    );
   return (
     <div className="mb-4">
-      <div className="text-[11px] uppercase tracking-wide mb-1.5" style={{ color: C.muted, fontWeight: 600 }}>
-        Sport
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="text-[11px] uppercase tracking-wide" style={{ color: C.muted, fontWeight: 600 }}>
+          Sport
+        </span>
+        {!startOpen && (
+          <button onClick={() => setOpen(false)} className="tap text-xs underline px-1" style={{ color: C.muted }}>
+            Sluiten
+          </button>
+        )}
       </div>
-      <div className="flex gap-1.5 overflow-x-auto pb-1" role="radiogroup" aria-label="Sport" style={{ scrollbarWidth: "none" }}>
+      <div className="grid gap-1.5" role="radiogroup" aria-label="Sport">
         {Object.entries(DISCIPLINES).map(([id, d]) => {
           const on = value === id;
           return (
@@ -45,11 +67,19 @@ export function SportPicker({ value, onChange }) {
               key={id}
               role="radio"
               aria-checked={on}
-              onClick={() => onChange(id)}
-              className="tap shrink-0 px-3.5 py-1.5 text-sm"
-              style={{ borderRadius: 999, border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : C.panel, color: on ? C.onAccent : C.ink, fontWeight: on ? 600 : 500 }}
+              onClick={() => {
+                onChange(id);
+                if (!startOpen) setOpen(false);
+              }}
+              className="tap w-full text-left px-3 py-2"
+              style={{ borderRadius: R.field, border: `1px solid ${on ? C.accent : C.line}`, background: on ? "var(--accent-soft)" : C.panel, color: C.ink }}
             >
-              {d.label}
+              <span className="block text-sm" style={{ fontWeight: 600 }}>
+                {d.label}
+              </span>
+              <span className="block text-xs" style={{ color: C.muted }}>
+                {d.sub}
+              </span>
             </button>
           );
         })}
@@ -297,7 +327,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
       <div className="perf-cards">
         <CoachCard data={data} api={api} nx={nx} acc={acc} />
         <p className="text-xs leading-relaxed" style={{ color: C.muted }}>
-          Hartslag, tempo en vermogen voor uw zones, Strava en uw agenda stelt u in bij Profiel.
+          Hartslag, tempo en vermogen voor uw zones, Strava en uw agenda stelt u in bij Profiel (rechtsboven).
         </p>
       </div>
     );

@@ -48,7 +48,7 @@ const checks = [
   ["exact één groot en één klein <script>-blok", (html.match(/<script>[\s\S]*?<\/script>/g) || []).length === 2],
   ["React heeft gemount (#root heeft inhoud)", (doc.getElementById("root")?.children.length || 0) > 0],
   ["app-titel zichtbaar", /Nexa/.test(rootText)],
-  ["tabbalk zichtbaar", /Vandaag/.test(rootText) && /Profiel/.test(rootText)],
+  ["tabbalk zichtbaar", ["Vandaag", "Training", "Eten", "Voortgang"].every((t) => rootText.includes(t))],
   ["geen crash-melding", !/Er ging iets mis/.test(rootText)],
   ["ontwerpsysteem-CSS geladen (--accent aanwezig)", [...doc.querySelectorAll("style")].some((s) => s.textContent.includes("--accent"))],
   ["geen fouten tijdens uitvoeren", errors.length === 0],

@@ -36,7 +36,7 @@ function Head({ title, sub, accent }) {
 }
 
 /* ---------------- Gezondheid ---------------- */
-export function PerfRecovery({ store }) {
+export function PerfRecovery({ store, inSheet = false }) {
   const [data, api] = store;
   const today = localISO();
   const r = readinessFor(data.checkins || [], today);
@@ -45,7 +45,13 @@ export function PerfRecovery({ store }) {
   const withHrv = last.filter((c) => c.hrv || c.rhr || c.sleepH);
   return (
     <div className="perf mb-8">
-      <Head title="Herstel" sub="Tien seconden per dag. Uw schema past zich aan op hoe u hersteld bent; HRV en rusthartslag maken het nauwkeuriger." />
+      {inSheet ? (
+        <p className="text-sm mb-3 leading-relaxed" style={{ color: C.muted }}>
+          Tien seconden per dag. Uw schema past zich aan op hoe u hersteld bent; HRV en rusthartslag maken het nauwkeuriger.
+        </p>
+      ) : (
+        <Head title="Herstel" sub="Tien seconden per dag. Uw schema past zich aan op hoe u hersteld bent; HRV en rusthartslag maken het nauwkeuriger." />
+      )}
       <CheckinCard checkins={data.checkins} onSave={api.saveCheckin} />
       {(avg != null || withHrv.length > 0) && (
         <div className="mt-4 overflow-hidden" style={{ border: `1px solid ${C.line}`, background: C.panel, borderRadius: R.card, boxShadow: C.shadow }}>

@@ -41,6 +41,32 @@ bestand editen; `npm run build` zet het om naar een zelfstandige
 `dist/index.html` van ongeveer 460 kB, met alles inline (React, stijlen,
 logica) en geen andere netwerkafhankelijkheid dan Google Fonts.
 
+## Indeling van de app (eenvoud, november 2026)
+
+Vier tabbladen onderaan (`NAV_TABS`): **Vandaag**, **Training**, **Eten** en
+**Voortgang** (intern id `plan`). Profiel en instellingen zitten achter het
+icoon rechtsboven (tab `profiel`, `hidden`). Er is niets weggehaald, alleen
+verplaatst of ingeklapt:
+- **Gezondheid** is opgegaan in Voortgang (hormonen, slaap, micronutriënten,
+  onder de kop "Gezondheid"); `setTab("gezondheid")` komt via `TAB_ALIAS` in
+  Voortgang uit. Het dagelijkse herstel (check-in, HRV) opent vanuit
+  Training in een venster (`recoveryOpen`, `PerfRecovery inSheet`).
+- **Vandaag** is één scherm: meldingen gebundeld (de belangrijkste open, de
+  rest achter "Nog N meldingen"; volgorde coach, check-in, fase-advies,
+  herstelblok, stappen, account), de training van vandaag met Start, het
+  aftellen naar het doel en een **voedingssamenvatting** (kcal, macro's,
+  maaltijden met tijd, planweek). Het volledige dagschema (dagkiezer,
+  weekgrafiek, dagindeling met porties en bewerken, tips) staat bij **Eten**,
+  ook zonder abonnement (de dagindeling heeft daar haar eigen teaser).
+- **Uitleg**: `Section` toont een lange `sub` (meer dan 70 tekens) pas na
+  "Waarom?". Met `collapsible` (+ `defaultOpen`, `summary`) is een sectie in
+  te klappen; standaard dicht: "Wanneer welke fase", het hormoonadvies,
+  "Micronutriënten per dag" en "Privacy en gegevens".
+- **Sport**: één keer kiezen. Training toont "Sport: X · wijzigen"
+  (`SportPicker`); in Profiel staat de lijst open ("Uw sport").
+- Coachtekst in gewone taal: "U valt sneller af dan gepland" in plaats van
+  "onder het geplande tempo".
+
 ## Nexa Hybrid (opgegaan in Nexa)
 
 Sinds oktober 2026 zit alles van Hybrid in Nexa zelf: Training heeft een sportkeuze (bodybuilding, kracht, hybride, hardlopen, conditie) via `src/perf/`; /hybrid stuurt door naar /app. Zie `docs/hybrid/05-NEXA-COMPLEET.md`.
