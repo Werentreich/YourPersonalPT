@@ -75,7 +75,7 @@ function RestDock({ rest, onAdjust, onStop, title, onOpen }) {
   const over = rest && left <= 0;
   const pct = rest ? Math.max(0, Math.min(100, (left / Math.max(1, rest.total)) * 100)) : 0;
   return (
-    <div className="no-print fixed left-0 right-0 px-3" style={{ bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", zIndex: 45 }}>
+    <div className="dock no-print fixed px-3" style={{ bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", zIndex: 45 }}>
       <div
         className="macroapp mx-auto max-w-2xl hero-in overflow-hidden px-3 py-2"
         style={{ background: C.dark, color: C.darkInk, borderRadius: 14, boxShadow: "0 12px 30px -12px rgba(0,0,0,.6)", border: `1px solid ${C.darkLine}` }}

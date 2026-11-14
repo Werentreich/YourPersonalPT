@@ -131,11 +131,11 @@ export function GoalCountdownCard({ store, onOpen }) {
       <span className="eyebrow block" style={{ color: C.accent }}>
         {c.goal.main ? "Hoofddoel · zo fit mogelijk" : "Tussendoel"}
       </span>
-      <span className="flex items-baseline justify-between gap-3 mt-0.5">
-        <span className="disp text-2xl font-bold tnum" style={{ color: C.ink }}>
+      <span className="flex flex-wrap items-baseline justify-between gap-x-3 mt-0.5">
+        <span className="disp text-2xl font-bold tnum whitespace-nowrap" style={{ color: C.ink }}>
           {big}
         </span>
-        <span className="text-xs text-right" style={{ color: C.muted }}>
+        <span className="text-xs" style={{ color: C.muted }}>
           {c.label} · {date}
         </span>
       </span>
@@ -335,7 +335,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
   return (
     <div className="perf">
       {!lift && (
-        <div className="flex gap-1 p-1 mb-5" style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 999 }} role="tablist">
+        <div className="seg seg-full mb-5" role="tablist" aria-label="Onderdelen van Training">
           {VIEWS.map((v) => {
             const on = view === v.id || (v.id === "week" && view === "programma");
             return (
@@ -344,8 +344,7 @@ export function PerformanceTraining({ store, nx, discipline, bbLog = [], onBodyb
                 role="tab"
                 aria-selected={on}
                 onClick={() => go(v.id)}
-                className="tap flex-1 py-1.5 text-sm rounded-full"
-                style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+                aria-pressed={on}
               >
                 {v.label}
               </button>

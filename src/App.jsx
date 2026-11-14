@@ -16,6 +16,9 @@ import { PERF_STYLE, disciplineOfGoal } from "./perf/theme.js";
 import { useHybridStore } from "./hybrid/store.js";
 import { raceDayFuel, carbLoadMacros, mainGoal, goalLabel } from "./hybrid/engine/goals.js";
 import { planHorizon, withRaceWeek, padToWeeks, planMatchesRace, MIN_WEEKS, MAX_WEEKS } from "./planDate.js";
+import { CommandPalette } from "./ui/CommandPalette.jsx";
+import { SECTIONS } from "./ui/palette.js";
+import { weighSummary, withWeight, validWeight } from "./ui/weigh.js";
 import { raceMinutes } from "./hybrid/engine/fuel.js";
 
 /* =========================================================================
@@ -2319,7 +2322,13 @@ const STYLE = `
   --pro-fill:#2B4BFF; --carb-fill:#00C389; --fat-fill:#FFB020;
   --danger:#D8360F; --on-danger:#FFFFFF; --warn:#8A5A00; --warn-bg:#FFF3DF;
   --dark:#0B0D11; --dark-ink:#FFFFFF; --dark-muted:#9BA2B0; --dark-line:#242832;
-  --shadow:0 1px 2px rgba(11,13,17,.04), 0 10px 28px -16px rgba(11,13,17,.22);
+  --success:#00795A; --success-bg:#E3F6EF; --danger-bg:#FDE9E3; --info:#1B3BFF; --info-bg:#E7EAFF;
+  --hover:rgba(11,13,17,.045); --press:rgba(11,13,17,.08); --ring:rgba(27,59,255,.22);
+  --shadow:0 1px 2px rgba(11,13,17,.05);
+  --shadow-md:0 2px 4px rgba(11,13,17,.04), 0 12px 28px -14px rgba(11,13,17,.2);
+  --shadow-lg:0 4px 10px rgba(11,13,17,.06), 0 28px 64px -24px rgba(11,13,17,.38);
+  --r-sm:8px; --r-md:10px; --r-lg:14px; --r-xl:20px;
+  --ease:cubic-bezier(.22,1,.36,1); --t-fast:.12s; --t-med:.2s;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -2330,7 +2339,11 @@ const STYLE = `
     --pro-fill:#6B85FF; --carb-fill:#1FC98E; --fat-fill:#F0B03A;
     --danger:#FF6242; --on-danger:#1A0A06; --warn:#F0B75F; --warn-bg:#2A2013;
     --dark:#121419; --dark-ink:#F1F3F7; --dark-muted:#99A0AD; --dark-line:#2A2F39;
-    --shadow:0 1px 2px rgba(0,0,0,.5), 0 12px 32px -18px rgba(0,0,0,.9);
+    --success:#35D6A0; --success-bg:#10261F; --danger-bg:#2E1610; --info:#93A5FF; --info-bg:#1A2044;
+    --hover:rgba(255,255,255,.06); --press:rgba(255,255,255,.1); --ring:rgba(107,133,255,.35);
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:0 2px 4px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.8);
+    --shadow-lg:0 4px 10px rgba(0,0,0,.5), 0 28px 64px -24px rgba(0,0,0,.95);
   }
 }
 :root[data-theme="dark"] {
@@ -2341,7 +2354,11 @@ const STYLE = `
     --pro-fill:#6B85FF; --carb-fill:#1FC98E; --fat-fill:#F0B03A;
     --danger:#FF6242; --on-danger:#1A0A06; --warn:#F0B75F; --warn-bg:#2A2013;
     --dark:#121419; --dark-ink:#F1F3F7; --dark-muted:#99A0AD; --dark-line:#2A2F39;
-    --shadow:0 1px 2px rgba(0,0,0,.5), 0 12px 32px -18px rgba(0,0,0,.9);
+    --success:#35D6A0; --success-bg:#10261F; --danger-bg:#2E1610; --info:#93A5FF; --info-bg:#1A2044;
+    --hover:rgba(255,255,255,.06); --press:rgba(255,255,255,.1); --ring:rgba(107,133,255,.35);
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:0 2px 4px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.8);
+    --shadow-lg:0 4px 10px rgba(0,0,0,.5), 0 28px 64px -24px rgba(0,0,0,.95);
 }
 
 :root { box-sizing: border-box; }
@@ -2361,16 +2378,72 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 .disp { letter-spacing: -0.01em; }
 
 .macroapp input, .macroapp select, .macroapp textarea { font-family: inherit; }
-.macroapp input:focus-visible, .macroapp select:focus-visible, .macroapp button:focus-visible, .macroapp textarea:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 2px;
-}
-.tap { transition: transform .12s ease; }
-.tap:active { transform: scale(.97); }
+.macroapp ::selection { background: var(--accent-soft); }
 
-/* korrel: vast, niet-interactief, buiten de scrollende laag */
-.grain {
-  position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .045;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+/* Focus: één zichtbare ring voor alles wat bedienbaar is (toetsenbord). */
+.macroapp :is(button, a, [role="radio"], [role="tab"], [role="option"], summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm);
+}
+.macroapp :is(input, select, textarea) { transition: border-color var(--t-fast) ease, box-shadow var(--t-fast) ease; }
+.macroapp :is(input, select, textarea):focus-visible {
+  outline: none; border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--ring);
+}
+.macroapp input[type="range"]:focus-visible, .macroapp input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+.macroapp input[type="checkbox"] { accent-color: var(--accent); width: 18px; height: 18px; }
+.macroapp ::placeholder { color: var(--muted); opacity: .7; }
+
+/* Drukken en aanwijzen. .tap is elke losse knop; op apparaten met een
+   aanwijzer krijgt hij een rustige hover, op aanraking alleen de druk. */
+.tap { transition: transform var(--t-fast) ease, filter var(--t-fast) ease, background-color var(--t-fast) ease, border-color var(--t-fast) ease, color var(--t-fast) ease, box-shadow var(--t-fast) ease; }
+.tap:active { transform: scale(.97); }
+.tap:disabled { cursor: not-allowed; transform: none; }
+@media (hover: hover) {
+  .tap:hover:not(:disabled) { filter: brightness(.965); }
+  :root[data-theme="dark"] .tap:hover:not(:disabled) { filter: brightness(1.12); }
+  .macroapp :is(input, select, textarea):hover:not(:focus-visible) { border-color: color-mix(in srgb, var(--muted) 55%, var(--line)) !important; }
+}
+@media (hover: hover) and (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tap:hover:not(:disabled) { filter: brightness(1.12); } }
+
+/* Knoppen (TBtn) */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 600; border-radius: var(--r-md); border: 1px solid transparent; white-space: nowrap; min-height: 40px; padding: 0 14px; font-size: 14.5px; line-height: 1; }
+.btn-sm { min-height: 32px; padding: 0 11px; font-size: 13px; border-radius: var(--r-sm); }
+.btn-primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); box-shadow: 0 1px 0 rgba(255,255,255,.14) inset, 0 1px 2px rgba(11,13,17,.14); }
+.btn-secondary { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
+.btn-ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn-danger { background: var(--danger); color: var(--on-danger); border-color: var(--danger); }
+.btn:disabled { opacity: .45; }
+@media (hover: hover) {
+  .btn-ghost:hover:not(:disabled), .btn-secondary:hover:not(:disabled) { filter: none; background: var(--hover); border-color: color-mix(in srgb, var(--muted) 45%, var(--line)); }
+}
+
+/* Segmentkeuze (Seg): rustige baan met een verhoogde keuze. */
+.seg { display: inline-flex; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); gap: 2px; max-width: 100%; }
+.seg > button { min-height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; color: var(--muted); border-radius: 7px; white-space: nowrap; transition: background-color var(--t-fast) ease, color var(--t-fast) ease, box-shadow var(--t-fast) ease; }
+.seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(11,13,17,.12), 0 0 0 1px var(--line); }
+@media (hover: hover) { .seg > button:hover:not([aria-pressed="true"]) { color: var(--ink); } }
+.seg-full { display: flex; width: 100%; }
+.seg-full > button { flex: 1; min-width: 0; padding: 0 4px; }
+
+/* Aanklikbare rijen in lijsten */
+.row-tap { transition: background-color var(--t-fast) ease; }
+@media (hover: hover) { .row-tap:hover { background: var(--hover); } }
+.row-tap:active { background: var(--press); }
+
+/* Tekstknop (bijvoorbeeld "Waarom?", "Later") */
+.link { color: var(--muted); font-size: 13px; font-weight: 500; border-radius: 6px; padding: 4px 6px; margin: -4px -6px; transition: color var(--t-fast) ease, background-color var(--t-fast) ease; }
+@media (hover: hover) { .link:hover { color: var(--ink); background: var(--hover); } }
+.link-accent { color: var(--accent); }
+
+/* Kaart */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow); }
+
+/* Skelet tijdens laden */
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.skel { border-radius: var(--r-sm); background: linear-gradient(90deg, var(--surface-2) 25%, var(--line-soft) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
+
+/* Dunne schuifbalk op desktop */
+@media (hover: hover) and (min-width: 1024px) {
+  .macroapp * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 }
 
 @keyframes rise { from { opacity:0; transform: translate3d(0,16px,0); } to { opacity:1; transform:none; } }
@@ -2384,13 +2457,83 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 .bar-fill { transition: width .55s cubic-bezier(.22,1,.36,1); }
 .wk-bar { transform-origin: bottom; animation: grow .5s cubic-bezier(.22,1,.36,1) both; }
 .wk-bar > span { transition: height .45s cubic-bezier(.22,1,.36,1), background-color .2s ease; }
-.shine { position:absolute; inset:0; overflow:hidden; pointer-events:none; border-radius:inherit; }
-.shine::after {
-  content:""; position:absolute; top:0; bottom:0; width:38%;
-  background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
-  animation: sweep 1.4s cubic-bezier(.4,0,.2,1) .35s both;
-}
 .rail { position:absolute; left:0; top:0; bottom:0; width:3px; border-radius:3px; }
+
+/* Koppen. Eén luide kop per scherm (de paginatitel, in hoofdletters zoals
+   het woordmerk); sectiekoppen staan in gewone schrijfwijze. */
+.page-title { font-family: 'Barlow Condensed', 'Barlow', sans-serif; font-weight: 700; font-size: 34px; line-height: 1; letter-spacing: -0.01em; text-transform: uppercase; }
+.sec-title { font-family: 'Barlow Condensed', 'Barlow', sans-serif; font-weight: 600; font-size: 22px; line-height: 1.15; letter-spacing: -0.005em; text-transform: none; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+
+/* Vensters: onderaan op een telefoon, gecentreerd vanaf een tablet. */
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-up { from { transform: translate3d(0, 24px, 0); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes dialog-pop { from { transform: translate3d(0, 8px, 0) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+.overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; justify-content: center; background: rgba(8,9,12,.5); animation: fade .18s ease both; }
+.overlay-in { animation: fade .18s ease both; }
+.dialog { width: 100%; max-width: 42rem; max-height: 88vh; display: flex; flex-direction: column; background: var(--surface); color: var(--ink); border-radius: 20px 20px 0 0; box-shadow: var(--shadow-lg); animation: sheet-up .28s var(--ease) both; padding-bottom: env(safe-area-inset-bottom, 0px); outline: none; }
+.dialog-in { animation: sheet-up .28s var(--ease) both; }
+.dialog-grip { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 0; flex-shrink: 0; }
+@media (min-width: 768px) {
+  .overlay { align-items: center; padding: 24px; }
+  .dialog { max-width: 34rem; max-height: min(86vh, 760px); border-radius: var(--r-xl); border: 1px solid var(--line); animation-name: dialog-pop; animation-duration: .22s; padding-bottom: 0; }
+  .dialog-grip { display: none; }
+}
+.icon-btn { width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; }
+@media (hover: hover) { .icon-btn:hover { background: var(--hover); color: var(--ink); filter: none !important; } }
+
+/* Meldingen (toasts) */
+@keyframes toast-in { from { transform: translate3d(0, 12px, 0); opacity: 0; } to { transform: none; opacity: 1; } }
+.toasts { position: fixed; left: 0; right: 0; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); z-index: 80; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; padding: 0 16px; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; max-width: 26rem; padding: 10px 14px; border-radius: var(--r-md); background: var(--dark); color: var(--dark-ink); border: 1px solid var(--dark-line); box-shadow: var(--shadow-lg); font-size: 14px; font-weight: 500; animation: toast-in .25s var(--ease) both; }
+.toast-in { animation: toast-in .25s var(--ease) both; }
+.toast button { color: var(--dark-ink); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+@media (min-width: 1024px) { .toasts { bottom: 24px; left: var(--side-w, 0px); } }
+
+/* Vandaag: op brede schermen twee kolommen (acties links, voeding rechts). */
+@media (min-width: 1280px) { .today-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; } }
+section[data-section] { scroll-margin-top: 20px; }
+
+/* Opdrachtpalet */
+.kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 5px; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font: 500 11px/1 Barlow, ui-sans-serif, system-ui, sans-serif; }
+.palette-overlay { align-items: flex-start !important; padding: 10vh 12px 12px !important; }
+.palette { width: 100%; max-width: 36rem; max-height: min(70vh, 560px); display: flex; flex-direction: column; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); overflow: hidden; animation: dialog-pop .18s var(--ease) both; }
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line-soft); color: var(--muted); }
+.palette-input input { flex: 1; min-width: 0; height: 52px; background: transparent; border: 0 !important; outline: none; box-shadow: none !important; color: var(--ink); font-size: 16px; }
+.palette-list { overflow-y: auto; padding: 6px; overscroll-behavior: contain; }
+.palette-group { padding: 10px 10px 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.palette-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border-radius: var(--r-sm); cursor: pointer; font-size: 14.5px; }
+.palette-item[aria-selected="true"] { background: var(--accent-soft); }
+.palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.palette-hint { flex-shrink: 0; font-size: 12.5px; color: var(--muted); }
+.palette-empty { padding: 22px 14px; font-size: 14px; color: var(--muted); line-height: 1.5; }
+.palette-foot { display: flex; gap: 16px; padding: 8px 14px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--muted); }
+@media (max-width: 767px) { .palette-foot { display: none; } .palette-overlay { padding-top: calc(env(safe-area-inset-top, 0px) + 12px) !important; } }
+
+/* App-shell: op desktop een zijbalk, op telefoon en tablet de tabbalk. */
+:root { --side-w: 0px; }
+.side { display: none; }
+.dock { left: 0; right: 0; }
+@media (min-width: 1024px) {
+  :root { --side-w: 248px; }
+  .side { display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; width: var(--side-w); padding: 18px 12px 14px; background: var(--surface); border-right: 1px solid var(--line); z-index: 40; }
+  .bottom-nav { display: none !important; }
+  .shell { padding-left: var(--side-w); }
+  .dock { left: var(--side-w) !important; bottom: 20px !important; }
+  .only-mobile { display: none !important; }
+}
+.side-brand { display: flex; align-items: center; gap: 9px; padding: 4px 10px 16px; font: 700 20px/1 'Barlow Condensed', Barlow, sans-serif; letter-spacing: .01em; color: var(--ink); }
+.side-search { display: flex; align-items: center; gap: 9px; width: 100%; height: 36px; padding: 0 10px; margin-bottom: 14px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 14px; text-align: left; }
+.side-search span { flex: 1; }
+.side-item { position: relative; display: flex; align-items: center; gap: 11px; width: 100%; height: 38px; padding: 0 10px; border-radius: var(--r-md); color: var(--muted); font-size: 14.5px; font-weight: 500; text-align: left; transition: background-color var(--t-fast) ease, color var(--t-fast) ease; }
+.side-item + .side-item { margin-top: 2px; }
+.side-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+@media (hover: hover) { .side-item:hover:not([aria-current="page"]) { background: var(--hover); color: var(--ink); } .side-search:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--line)); } }
+.side-item .kbd { margin-left: auto; opacity: 0; transition: opacity var(--t-fast) ease; }
+.side:hover .side-item .kbd, .side:focus-within .side-item .kbd { opacity: 1; }
+.side-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-left: auto; }
+.side-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.side-meta { padding: 10px 10px 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
 .macroapp [data-field] { border-radius: 10px; }
 
 
@@ -2405,14 +2548,12 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
   .print-root { position:static !important; inset:auto !important; overflow:visible !important; background:#fff !important; padding:0 !important; }
   .sheet { width:auto !important; box-shadow:none !important; border:0 !important; margin:0 !important; padding:0 !important; break-inside:auto; }
   .sheet + .sheet { break-before:page; }
-  .grain { display:none !important; }
   * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   .meal { break-inside:avoid; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal, .reveal.in, .hero-in, .wk-bar { animation: none !important; opacity: 1 !important; transform: none !important; }
-  .shine::after { display: none; }
+  .reveal, .reveal.in, .hero-in, .wk-bar, .skel, .overlay-in, .dialog-in, .toast-in { animation: none !important; opacity: 1 !important; transform: none !important; }
   .bar-fill, .wk-bar > span, .tap { transition: none !important; }
 }
 `;
@@ -2492,30 +2633,33 @@ function Section({ title, sub, children, accent, collapsible = false, defaultOpe
   const long = typeof sub === "string" && sub.length > SUB_SHORT;
   const [why, setWhy] = useState(false);
   const [open, setOpen] = useState(!collapsible || defaultOpen);
+  useEffect(() => {
+    if (!collapsible || typeof title !== "string") return;
+    const on = (e) => e.detail === title && setOpen(true);
+    window.addEventListener("nexa:open-section", on);
+    return () => window.removeEventListener("nexa:open-section", on);
+  }, [collapsible, title]);
   const head = (
-    <>
-      <span className="inline-block w-1.5 h-5 rounded-sm shrink-0" style={{ background: accent || C.accent }} />
-      <h2 className="disp text-2xl font-bold uppercase leading-none" style={{ color: C.ink }}>
-        {title}
-      </h2>
-    </>
+    <h2 className="sec-title" style={{ color: C.ink }}>
+      {title}
+    </h2>
   );
   return (
     <Reveal>
-      <section className="mb-8">
-        <div className="flex items-baseline gap-2 mb-1">
+      <section className="mb-8" data-section={typeof title === "string" ? title : undefined}>
+        <div className="flex items-center gap-2 mb-2 min-h-[28px]">
           {collapsible ? (
-            <button onClick={() => setOpen((v) => !v)} className="tap flex items-baseline gap-2 text-left flex-1 min-w-0" aria-expanded={open}>
+            <button onClick={() => setOpen((v) => !v)} className="tap flex items-center gap-2 text-left flex-1 min-w-0" aria-expanded={open}>
               {head}
-              <span className="text-sm ml-auto shrink-0" style={{ color: C.muted }} aria-hidden="true">
-                {open ? "▴" : "▾"}
-              </span>
+              <svg className="ml-auto shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: C.muted, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s var(--ease)" }}>
+                <path d="M6 9l6 6 6-6" />
+              </svg>
             </button>
           ) : (
             head
           )}
           {long && open && (
-            <button onClick={() => setWhy((v) => !v)} className="tap text-xs underline ml-auto shrink-0 px-1" style={{ color: C.muted }} aria-expanded={why}>
+            <button onClick={() => setWhy((v) => !v)} className="link ml-auto shrink-0" aria-expanded={why}>
               {why ? "Minder" : "Waarom?"}
             </button>
           )}
@@ -2530,14 +2674,7 @@ function Section({ title, sub, children, accent, collapsible = false, defaultOpe
             {summary}
           </p>
         )}
-        {open && (
-          <div
-            className={`overflow-hidden${sub && (!long || why) ? "" : " mt-2"}`}
-            style={{ border: `1px solid ${C.line}`, background: C.panel, borderRadius: R.card, boxShadow: C.shadow }}
-          >
-            {children}
-          </div>
-        )}
+        {open && <div className="card overflow-hidden">{children}</div>}
       </section>
     </Reveal>
   );
@@ -2564,26 +2701,14 @@ function Row({ label, hint, children, stack }) {
   );
 }
 
-function Seg({ options, value, onChange }) {
+function Seg({ options, value, onChange, label }) {
   return (
-    <div className="flex p-0.5 rounded-full" style={{ background: C.surface2, border: `1px solid ${C.line}` }}>
-      {options.map((o) => {
-        const on = o.value === value;
-        return (
-          <button
-            key={String(o.value)}
-            onClick={() => onChange(o.value)}
-            className="tap px-3 py-1 text-sm rounded-full"
-            style={{
-              background: on ? C.accent : "transparent",
-              color: on ? C.onAccent : C.muted,
-              fontWeight: on ? 600 : 500,
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
+    <div className="seg" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={String(o.value)} onClick={() => onChange(o.value)} aria-pressed={o.value === value}>
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -2698,10 +2823,13 @@ const ICON_PATHS = {
   eten: ["M7 3.5v17", "M4.5 3.5v5a2.5 2.5 0 0 0 5 0v-5", "M16.5 20.5v-17c-2 1.5-3 4-3 7.5h3"],
   gezondheid: ["M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z", "M7.5 12h2.5l1.5-2.5 2 4.5 1.5-2h1.5"],
   profiel: ["M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M4.5 20.5c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5"],
+  zoek: ["M11 17.5a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z", "M16 16l4.5 4.5"],
 };
 
 /* Beeldmerk van Nexa: drie staven in blauw, groen en oranje. */
 function NexaMark({ size = 14 }) {
+  // eigen id's per exemplaar: een verborgen exemplaar (zijbalk op mobiel) mag de kleurverlopen van een zichtbaar exemplaar niet meenemen
+  const uid = React.useId().replace(/[^a-zA-Z0-9]/g, "");
   const bars = [
     { x: 0, h: 10, c: ["#4D86FF", "#1E48F5"] },
     { x: 7, h: 14, c: ["#46F2BC", "#0FBF86"] },
@@ -2711,14 +2839,14 @@ function NexaMark({ size = 14 }) {
     <svg width={(size * 20) / 14} height={size} viewBox="0 0 20 14" aria-hidden="true" style={{ display: "inline-block", verticalAlign: "-2px" }}>
       <defs>
         {bars.map((b, i) => (
-          <linearGradient key={i} id={`nexa-mark-${i}`} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient key={i} id={`nexa-mark-${uid}-${i}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor={b.c[0]} />
             <stop offset="1" stopColor={b.c[1]} />
           </linearGradient>
         ))}
       </defs>
       {bars.map((b, i) => (
-        <rect key={i} x={b.x} y={14 - b.h} width="6" height={b.h} rx="1.6" fill={`url(#nexa-mark-${i})`} />
+        <rect key={i} x={b.x} y={14 - b.h} width="6" height={b.h} rx="1.6" fill={`url(#nexa-mark-${uid}-${i})`} />
       ))}
     </svg>
   );
@@ -2733,6 +2861,33 @@ function Icon({ name, size = 22 }) {
     </svg>
   );
 }
+
+/* Thema: systeem (standaard), licht of donker. De keuze staat alleen op dit
+   apparaat. Wordt meteen bij het laden toegepast, vóór de eerste weergave. */
+const THEME_KEY = "nexa:theme";
+const THEME_BG = { light: "#EEF0F4", dark: "#08090C" };
+function readTheme() {
+  try {
+    const t = window.localStorage.getItem(THEME_KEY);
+    return t === "light" || t === "dark" ? t : "system";
+  } catch (e) {
+    return "system";
+  }
+}
+function applyTheme(t) {
+  try {
+    const el = document.documentElement;
+    if (t === "light" || t === "dark") el.setAttribute("data-theme", t);
+    else el.removeAttribute("data-theme");
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      if (!m.dataset.base) m.dataset.base = m.getAttribute("content");
+      m.setAttribute("content", t === "light" || t === "dark" ? THEME_BG[t] : m.dataset.base);
+    });
+  } catch (e) {
+    /* geen document (tests) */
+  }
+}
+if (typeof window !== "undefined" && typeof document !== "undefined") applyTheme(readTheme());
 
 /* Vier tabbladen onderaan; Profiel zit achter het icoon rechtsboven.
    Gezondheid is opgegaan in Voortgang (id "plan"), het dagelijkse herstel
@@ -2760,7 +2915,6 @@ function MacroBar({ p, c, f, height = 8, shine, colors }) {
       {seg.map((s, i) => (
         <div key={i} className="bar-fill" style={{ width: `${s.w * 100}%`, background: s.color }} />
       ))}
-      {shine && <span className="shine" />}
     </div>
   );
 }
@@ -2807,9 +2961,28 @@ function weeklyAverages(log) {
   return list.map((g, i) => ({ ...g, delta: i > 0 ? g.avg - list[i - 1].avg : null }));
 }
 
+/* Breedte van een grafiek volgt de kaart, zodat tekst en lijnen op elk
+   scherm even groot blijven (de hoogte ligt vast). setEl komt op het
+   omhullende element. */
+function useChartW(base = 340, max = 760) {
+  const [el, setEl] = useState(null);
+  const [w, setW] = useState(base);
+  useEffect(() => {
+    if (!el) return;
+    const upd = () => setW(Math.round(Math.min(max, Math.max(base, el.clientWidth || base))));
+    upd();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(upd);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el, base, max]);
+  return [setEl, w];
+}
+
 function WeightChart({ log, rangeDays, planKgPerWeek, onDelete }) {
   const [sel, setSel] = useState(null);
   const svgRef = useRef(null);
+  const [wrapRef, W] = useChartW();
   const all = log
     .filter((e) => e.weight > 0)
     .map((e) => ({ t: dayNum(e.date), w: e.weight, date: e.date }))
@@ -2822,7 +2995,6 @@ function WeightChart({ log, rangeDays, planKgPerWeek, onDelete }) {
   const avgAll = rollingAverage(all);
   const avg = pts.map((p) => avgAll[all.indexOf(p)]);
 
-  const W = 340;
   const H = 190;
   const padL = 36;
   const padR = 10;
@@ -2867,7 +3039,7 @@ function WeightChart({ log, rangeDays, planKgPerWeek, onDelete }) {
   const s = sel != null && sel < pts.length ? sel : null;
 
   return (
-    <div>
+    <div ref={wrapRef}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
@@ -5732,23 +5904,10 @@ function Elapsed({ start }) {
 
 /* ---------------- kleine bouwstenen ---------------- */
 
-function TBtn({ children, onClick, kind = "primary", small, full, disabled, className = "", label }) {
-  const st =
-    kind === "primary"
-      ? { background: C.accent, color: C.onAccent, border: `1px solid ${C.accent}` }
-      : kind === "danger"
-      ? { background: C.train, color: C.onTrain, border: `1px solid ${C.train}` }
-      : kind === "ghost"
-      ? { background: "transparent", color: C.ink, border: `1px solid ${C.line}` }
-      : { background: C.surface2, color: C.ink, border: `1px solid ${C.line}` };
+function TBtn({ children, onClick, kind = "primary", small, full, disabled, className = "", label, type = "button" }) {
+  const k = kind === "primary" || kind === "danger" || kind === "ghost" ? kind : "secondary";
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      className={`tap ${small ? "px-2.5 py-1.5 text-xs" : "px-3.5 py-2.5 text-sm"} ${full ? "w-full" : ""} ${className}`}
-      style={{ ...st, borderRadius: R.field, fontWeight: 600, opacity: disabled ? 0.45 : 1 }}
-    >
+    <button type={type} onClick={onClick} disabled={disabled} aria-label={label} className={`tap btn btn-${k} ${small ? "btn-sm" : ""} ${full ? "w-full" : ""} ${className}`}>
       {children}
     </button>
   );
@@ -5766,43 +5925,105 @@ function Chip({ children, color, title }) {
   );
 }
 
+/* Venster. Op een telefoon schuift het van onderen in, vanaf een tablet is
+   het een gecentreerde dialoog. Escape en een tik naast het venster
+   sluiten; de focus blijft binnen het venster en gaat bij sluiten terug
+   naar de knop die het opende. De pagina erachter scrolt niet mee. */
+let openSheets = 0;
 function Sheet({ title, onClose, children }) {
+  const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const prev = document.activeElement;
+    const el = ref.current;
+    if (el) el.focus({ preventScroll: true });
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        closeRef.current();
+      } else if (e.key === "Tab" && el) {
+        const f = el.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        if (!f.length) return;
+        const first = f[0];
+        const last = f[f.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === el)) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    openSheets++;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      openSheets = Math.max(0, openSheets - 1);
+      if (!openSheets) document.body.style.overflow = "";
+      if (prev && typeof prev.focus === "function" && document.contains(prev)) prev.focus({ preventScroll: true });
+    };
+  }, []);
   return (
-    <div
-      className="fixed inset-0 flex items-end justify-center"
-      style={{ background: "rgba(8,9,12,.55)", zIndex: 60 }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-    >
-      <div
-        className="macroapp w-full max-w-2xl hero-in flex flex-col"
-        style={{
-          background: C.panel,
-          color: C.ink,
-          borderTopLeftRadius: 18,
-          borderTopRightRadius: 18,
-          maxHeight: "88vh",
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
-          <h3 className="disp text-xl font-bold uppercase leading-none">{title}</h3>
-          <button onClick={onClose} className="tap text-sm px-2 py-1" style={{ color: C.muted }}>
-            Sluiten
+    <div className="overlay no-print" onClick={onClose}>
+      <div ref={ref} tabIndex={-1} className="macroapp dialog" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <span className="dialog-grip" aria-hidden="true" />
+        <div className="pl-5 pr-3 pt-2 pb-2 flex items-center justify-between gap-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+          <h3 className="sec-title">{title}</h3>
+          <button onClick={onClose} className="tap icon-btn" aria-label="Sluiten">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
         </div>
-        <div className="overflow-y-auto px-4 py-3" style={{ WebkitOverflowScrolling: "touch" }}>
+        <div className="overflow-y-auto px-5 py-4" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
           {children}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* Korte bevestiging onderaan ("Gewicht opgeslagen"). Overal aan te roepen
+   met toast("tekst") of toast("tekst", { action: "Ongedaan maken", onAction }). */
+const TOAST_EVENT = "nexa:toast";
+function toast(text, opts = {}) {
+  try {
+    window.dispatchEvent(new CustomEvent(TOAST_EVENT, { detail: { text, ...opts } }));
+  } catch (e) {
+    /* geen venster (tests) */
+  }
+}
+function Toaster() {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    const on = (e) => {
+      const id = Date.now() + Math.random();
+      setList((l) => [...l.slice(-2), { id, ...e.detail }]);
+      setTimeout(() => setList((l) => l.filter((t) => t.id !== id)), e.detail.onAction ? 6000 : 2800);
+    };
+    window.addEventListener(TOAST_EVENT, on);
+    return () => window.removeEventListener(TOAST_EVENT, on);
+  }, []);
+  return (
+    <div className="toasts macroapp no-print" role="status" aria-live="polite">
+      {list.map((t) => (
+        <div key={t.id} className="toast">
+          <span>{t.text}</span>
+          {t.action && (
+            <button
+              onClick={() => {
+                t.onAction && t.onAction();
+                setList((l) => l.filter((x) => x.id !== t.id));
+              }}
+            >
+              {t.action}
+            </button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -6092,8 +6313,8 @@ function ExercisePicker({ exIndex, onPick, onClose, onCreate, onUpdate, title = 
 /* ---------------- grafieken ---------------- */
 
 function LineMini({ pts, fmt = kgTxt, unit = "kg", color = "var(--accent)" }) {
-  if (!pts || pts.length < 2) return null;
-  const W = 340;
+  const [wrapRef, W] = useChartW();
+  if (!pts || pts.length < 2) return <span ref={wrapRef} />;
   const H = 160;
   const padL = 40;
   const padR = 10;
@@ -6111,7 +6332,7 @@ function LineMini({ pts, fmt = kgTxt, unit = "kg", color = "var(--accent)" }) {
   const ticks = [lo, (lo + hi) / 2, hi];
   const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label={`Verloop, laatste waarde ${fmt(pts[pts.length - 1].v)} ${unit}`}>
+    <svg ref={wrapRef} viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label={`Verloop, laatste waarde ${fmt(pts[pts.length - 1].v)} ${unit}`}>
       {ticks.map((v, i) => (
         <g key={i}>
           <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="var(--line-soft)" />
@@ -6235,7 +6456,7 @@ function WorkoutDock({ T, setT, showOpen, onOpen }) {
   const over = rest && left <= 0;
   const pct = rest ? Math.max(0, Math.min(100, (left / Math.max(1, rest.total)) * 100)) : 0;
   return (
-    <div className="no-print fixed left-0 right-0 px-3" style={{ bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", zIndex: 45 }}>
+    <div className="dock no-print fixed px-3" style={{ bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", zIndex: 45 }}>
       <div
         className="macroapp mx-auto max-w-2xl hero-in overflow-hidden"
         style={{ background: C.dark, color: C.darkInk, borderRadius: 14, boxShadow: "0 12px 30px -12px rgba(0,0,0,.6)", border: `1px solid ${C.darkLine}` }}
@@ -10768,10 +10989,10 @@ function CheckinHistory({ checkins, onNew, onDelete }) {
 }
 
 function BfChart({ comp }) {
+  const [wrapRef, W] = useChartW();
   const pts = [...comp.points.map((p) => ({ t: p.t, v: p.bf, navy: p.navy, dev: p.device })), { t: dayNum(localISO()), v: comp.bf, now: true }]
     .filter((p, i, a) => i === 0 || p.t > a[i - 1].t || !p.now);
   if (pts.length < 2) return null;
-  const W = 340;
   const H = 150;
   const padL = 34;
   const padR = 10;
@@ -10790,7 +11011,7 @@ function BfChart({ comp }) {
   const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
   const ticks = [lo, (lo + hi) / 2, hi];
   return (
-    <div>
+    <div ref={wrapRef}>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" role="img" aria-label={`Geschat vetpercentage, nu ${nlNum(comp.bf)} procent`}>
         {ticks.map((v, i) => (
           <g key={i}>
@@ -11495,6 +11716,54 @@ function MacroApp() {
   const [tab, setTabRaw] = useState("vandaag");
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [showAllNotes, setShowAllNotes] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [theme, setThemeRaw] = useState(readTheme);
+  const setTheme = (t) => {
+    setThemeRaw(t);
+    applyTheme(t);
+    try {
+      if (t === "system") window.localStorage.removeItem(THEME_KEY);
+      else window.localStorage.setItem(THEME_KEY, t);
+    } catch (e) {
+      /* alleen voor deze sessie */
+    }
+  };
+  /* Naar een sectie springen (opdrachtpalet): scherm openen, de sectie zo
+     nodig uitklappen en in beeld brengen. */
+  const goSection = (tabId, title) => {
+    setTab(tabId);
+    const prefix = title.replace(/…$/, "");
+    setTimeout(() => {
+      const el = [...document.querySelectorAll("[data-section]")].find((n) => n.getAttribute("data-section").startsWith(prefix));
+      if (!el) return;
+      window.dispatchEvent(new CustomEvent("nexa:open-section", { detail: el.getAttribute("data-section") }));
+      setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    }, 80);
+  };
+  /* Sneltoetsen: Ctrl/⌘ + K of / opent het palet, 1–4 wisselt van scherm.
+     Niet tijdens typen en niet als er een venster open staat. */
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (typing || document.querySelector(".overlay")) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        setPaletteOpen(true);
+      } else if (/^[1-4]$/.test(e.key)) {
+        e.preventDefault();
+        setTab(NAV_TABS[Number(e.key) - 1].id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const setTab = (t) => {
     setTabRaw(TAB_ALIAS[t] || t);
     try {
@@ -11523,7 +11792,7 @@ function MacroApp() {
       return 0;
     }
   });
-  const [newEntry, setNewEntry] = useState({ date: todayISO(), weight: "" });
+  const [newEntry, setNewEntry] = useState({ date: localISO(), weight: "" });
   const [chartRange, setChartRange] = useState(28);
   const [kcalAdjust, setKcalAdjust] = useState(0);
   // coach: laatste bijsturing, geschiedenis van het daggemiddelde, weggeklikte meldingen
@@ -13147,7 +13416,59 @@ function MacroApp() {
     const w = Number(newEntry.weight);
     if (!w || w < 30 || w > 300) return;
     setLog((l) => [...l.filter((e) => e.date !== newEntry.date), { date: newEntry.date, weight: w }].sort((a, b) => a.date.localeCompare(b.date)));
-    setNewEntry({ date: todayISO(), weight: "" });
+    setNewEntry({ date: localISO(), weight: "" });
+    toast(`Gewicht opgeslagen: ${String(w).replace(".", ",")} kg`);
+  };
+
+  /* Stip in de navigatie: er vraagt iets om aandacht op dat scherm. */
+  const navBadge = (id) =>
+    tab !== id &&
+    ((id === "vandaag" && !!planUpdate) || (id === "eten" && warnings.length > 0) || (id === "training" && (trainingActive || (!!D.fatigue && !T.block.deloadFrom))));
+
+  /* Snel wegen op Vandaag (src/ui/weigh.js). */
+  const weigh = weighSummary(log, localISO());
+  const [quickWeight, setQuickWeight] = useState("");
+  const saveQuickWeight = () => {
+    const w = toNum(quickWeight);
+    if (!validWeight(w)) return toast("Vul een gewicht tussen 30 en 300 kg in.");
+    const today = localISO();
+    const before = log;
+    setLog((l) => withWeight(l, today, w));
+    setQuickWeight("");
+    toast(`Gewicht opgeslagen: ${String(w).replace(".", ",")} kg`, { action: "Ongedaan maken", onAction: () => setLog(before) });
+  };
+  const focusWeigh = () => {
+    setTab("vandaag");
+    setTimeout(() => {
+      const el = document.getElementById("quick-weight");
+      if (el) el.focus();
+      else goSection("plan", "Gewicht en bijsturen");
+    }, 80);
+  };
+
+  /* Opdrachten voor het palet (Ctrl/⌘ + K): schermen, acties en secties. */
+  const commands = () => {
+    const tabLabel = { eten: "Eten", plan: "Voortgang", profiel: "Profiel" };
+    return [
+      ...NAV_TABS.map((t, i) => ({ id: `tab-${t.id}`, group: "Ga naar", label: t.label, hint: String(i + 1), run: () => setTab(t.id) })),
+      { id: "tab-profiel", group: "Ga naar", label: "Profiel en instellingen", keywords: "account instellingen", run: () => setTab("profiel") },
+      { id: "act-weeg", group: "Acties", label: weigh.today != null ? "Gewicht van vandaag aanpassen" : "Gewicht invoeren", keywords: "wegen weegschaal kg", run: focusWeigh },
+      { id: "act-checkin", group: "Acties", label: "Wekelijkse check-in doen", keywords: "voeding week meetlint taille", run: () => setCheckinOpen(true) },
+      ...(discipline !== "bodybuilding" ? [{ id: "act-herstel", group: "Acties", label: "Herstel van vandaag invullen", keywords: "slaap hrv energie", run: () => setRecoveryOpen(true) }] : []),
+      { id: "act-train", group: "Acties", label: "Naar de training van vandaag", keywords: "start workout", run: () => setTab("training") },
+      { id: "act-stappen", group: "Acties", label: "Stappen per dag aanpassen", keywords: "activiteit lopen", run: () => setStepsOpen(true) },
+      { id: "act-account", group: "Acties", label: nx && nx.user ? "Account bekijken" : "Inloggen of account aanmaken", keywords: "login aanmelden", run: () => (nx && nx.user ? goSection("profiel", "Account") : setAccountOpen("login")) },
+      ...[
+        ["system", "Thema: volg het apparaat"],
+        ["light", "Thema: licht"],
+        ["dark", "Thema: donker"],
+      ]
+        .filter(([k]) => k !== theme)
+        .map(([k, label]) => ({ id: `theme-${k}`, group: "Weergave", label, keywords: "donker licht dark mode kleur", run: () => setTheme(k) })),
+      ...Object.entries(SECTIONS).flatMap(([t, titles]) =>
+        titles.map((title) => ({ id: `sec-${t}-${title}`, group: "Secties", label: title.replace(/…$/, ""), hint: tabLabel[t], run: () => goSection(t, title) }))
+      ),
+    ];
   };
 
   /* ---------------- weergave ---------------- */
@@ -13155,7 +13476,6 @@ function MacroApp() {
   return (
     <div className="min-h-screen w-full" style={{ background: C.bg, color: C.ink }}>
       <style>{STYLE + PERF_STYLE}</style>
-      <span className="grain" aria-hidden="true" />
 
       {/* ---------------- afdrukweergave ---------------- */}
       {printData && (
@@ -13646,29 +13966,65 @@ function MacroApp() {
       )}
 
 
+      {/* ---------------- zijbalk (desktop) ---------------- */}
+      <aside className="side macroapp no-print">
+        <div className="side-brand">
+          <NexaMark size={17} />
+          Nexa
+        </div>
+        <button className="tap side-search" onClick={() => setPaletteOpen(true)} aria-label="Zoeken en opdrachten">
+          <Icon name="zoek" size={16} />
+          <span>Zoeken</span>
+          <kbd className="kbd">{/Mac|iPhone|iPad/.test(typeof navigator !== "undefined" ? navigator.platform || "" : "") ? "⌘K" : "Ctrl K"}</kbd>
+        </button>
+        <nav aria-label="Hoofdnavigatie">
+          {NAV_TABS.map((t, i) => (
+            <button key={t.id} className="side-item" onClick={() => setTab(t.id)} aria-current={tab === t.id ? "page" : undefined}>
+              <Icon name={t.id} size={19} />
+              {t.label}
+              {navBadge(t.id) ? <span className="side-dot" aria-label="Aandacht nodig" /> : <kbd className="kbd">{i + 1}</kbd>}
+            </button>
+          ))}
+        </nav>
+        <div className="side-foot">
+          <button className="side-item" onClick={() => setTab("profiel")} aria-current={tab === "profiel" ? "page" : undefined}>
+            <Icon name="profiel" size={19} />
+            Profiel
+          </button>
+          <p className="side-meta">{nx && nx.user && nx.user.email ? nx.user.email : "Niet ingelogd; uw gegevens staan op dit apparaat."}</p>
+        </div>
+      </aside>
+
+      <div className="shell">
       <div
-        className="macroapp no-print mx-auto max-w-2xl px-4 pt-6"
+        className={`macroapp no-print mx-auto max-w-2xl px-4 pt-6 lg:max-w-3xl lg:px-10 lg:pt-10 ${tab === "vandaag" ? "xl:max-w-5xl" : ""}`}
         style={{ paddingBottom: trainingActive ? "calc(210px + env(safe-area-inset-bottom, 0px))" : "calc(96px + env(safe-area-inset-bottom, 0px))" }}
       >
-        <header className="mb-5 relative pr-10">
-          <div className="text-xs leading-snug whitespace-nowrap overflow-hidden" style={{ textOverflow: "ellipsis" }}>
-            <NexaMark size={13} />{" "}
-            <span className="font-bold" style={{ color: C.ink, letterSpacing: "0.01em" }}>
-              Nexa
-            </span>
-            <span style={{ color: C.muted }}> · Your personal performance coach</span>
+        <header className="mb-6 relative">
+          <div className="only-mobile flex items-center justify-between gap-2 mb-3">
+            <div className="text-xs leading-snug whitespace-nowrap overflow-hidden flex items-center gap-1.5" style={{ textOverflow: "ellipsis" }}>
+              <NexaMark size={14} />
+              <span className="font-semibold" style={{ color: C.ink, letterSpacing: "0.01em" }}>
+                Nexa
+              </span>
+            </div>
+            <div className="flex items-center gap-1 -mr-2 -my-2">
+              <button onClick={() => setPaletteOpen(true)} className="tap icon-btn" aria-label="Zoeken en opdrachten">
+                <Icon name="zoek" size={20} />
+              </button>
+              <button
+                onClick={() => setTab(tab === "profiel" ? "vandaag" : "profiel")}
+                className="tap icon-btn"
+                style={tab === "profiel" ? { color: C.accent, background: "var(--accent-soft)" } : undefined}
+                aria-label={tab === "profiel" ? "Profiel sluiten" : "Profiel en instellingen"}
+                aria-current={tab === "profiel" ? "page" : undefined}
+              >
+                <Icon name="profiel" size={21} />
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => setTab(tab === "profiel" ? "vandaag" : "profiel")}
-            className="tap absolute flex items-center justify-center"
-            style={{ top: -6, right: -8, width: 40, height: 40, borderRadius: 20, color: tab === "profiel" ? C.accent : C.muted, background: tab === "profiel" ? C.surface2 : "transparent" }}
-            aria-label={tab === "profiel" ? "Profiel sluiten" : "Profiel en instellingen"}
-            aria-current={tab === "profiel" ? "page" : undefined}
-          >
-            <Icon name="profiel" size={22} />
-          </button>
-          <div className="flex items-end justify-between gap-3 mt-0.5">
-          <h1 className="disp text-4xl font-bold uppercase leading-none tracking-tight">
+          <div className="flex items-end justify-between gap-3">
+          <h1 className="page-title">
             {(TABS.find((t) => t.id === tab) || TABS[0]).title}
           </h1>
           {(tab === "vandaag" || tab === "eten") && (
@@ -13684,7 +14040,8 @@ function MacroApp() {
         <TeamNotice team={team} onOpenClient={setClientOpen} />
 
         {tab === "vandaag" && (
-          <>
+          <div className="today-grid">
+            <div>
             {loaded && storeMode === "memory" && (
               <div className="mb-4 px-4 py-3 relative overflow-hidden" style={{ background: C.warnBg, borderRadius: R.card }}>
                 <span className="rail" style={{ background: C.train }} />
@@ -13942,6 +14299,77 @@ function MacroApp() {
               );
             })()}
 
+            {/* ---------------- snel wegen ---------------- */}
+            {loaded && onboarding === null && (
+              <div className="card mb-3 px-4 py-3" aria-label="Gewicht vandaag">
+                {weigh.today == null || quickWeight !== "" ? (
+                  <form
+                    className="flex items-center gap-3"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      saveQuickWeight();
+                    }}
+                  >
+                    <label htmlFor="quick-weight" className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold">Gewicht vandaag</span>
+                      <span className="block text-xs truncate" style={{ color: C.muted }}>
+                        {weigh.last
+                          ? `${weigh.last.daysAgo === 1 ? "Gisteren" : fmtDay(dayNum(weigh.last.date))} ${nlNum(weigh.last.weight)} kg${weigh.streak >= 3 ? ` · ${weigh.streak} dagen op rij` : ""}`
+                          : "Elke ochtend wegen maakt het bijsturen betrouwbaar."}
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <input
+                        id="quick-weight"
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={quickWeight}
+                        onChange={(e) => setQuickWeight(e.target.value.replace(/[^0-9.,]/g, ""))}
+                        placeholder={weigh.last ? nlNum(weigh.last.weight) : "kg"}
+                        className="w-20 px-2 py-2 text-sm text-right tnum"
+                        style={inputStyle}
+                        aria-label="Gewicht vandaag in kilo"
+                      />
+                      <span className="text-xs" style={{ color: C.muted }}>
+                        kg
+                      </span>
+                    </div>
+                    <TBtn small type="submit" disabled={quickWeight === ""}>
+                      Opslaan
+                    </TBtn>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-xs" style={{ color: C.muted }}>
+                        Gewicht vandaag
+                      </span>
+                      <span className="flex items-baseline gap-2 tnum">
+                        <span className="disp text-2xl font-bold">{nlNum(weigh.today)}</span>
+                        <span className="text-xs" style={{ color: C.muted }}>
+                          kg
+                        </span>
+                        {weigh.weekDelta != null && (
+                          <span className="text-xs font-semibold" style={{ color: Math.abs(weigh.weekDelta) < 0.05 ? C.muted : (effGoal === "bulk" ? weigh.weekDelta > 0 : effGoal === "cut" ? weigh.weekDelta < 0 : false) ? "var(--success)" : C.muted }}>
+                            {signed(weigh.weekDelta)} kg in een week
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <button className="link" onClick={() => setQuickWeight(String(weigh.today).replace(".", ","))}>
+                      Wijzigen
+                    </button>
+                    <button className="link link-accent" onClick={() => goSection("plan", "Gewicht en bijsturen")}>
+                      Verloop
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            </div>
+            <div>
             {/* ---------------- voeding vandaag (samenvatting; alles bij Eten) ---------------- */}
             {(() => {
               const dp = dayPlan.all[todayIdx];
@@ -14002,7 +14430,8 @@ function MacroApp() {
                 </div>
               );
             })()}
-          </>
+            </div>
+          </div>
         )}
         {tab === "training" && bill.locked && <CoachPaywall bill={bill} feature="training" onStart={startCoach} />}
         {tab === "training" && !bill.locked && !T.active && !savedLift() && <TeamSwitcher team={team} onOpenClient={setClientOpen} />}
@@ -17034,51 +17463,30 @@ function MacroApp() {
         {team.msgOpen && <MessagesSheet link={team.msgOpen} team={team} onClose={() => team.setMsgOpen(null)} />}
       </TrainingBoundary>
 
-      {/* ---------------- tabbalk ---------------- */}
+      </div>
+      {/* ---------------- tabbalk (telefoon en tablet) ---------------- */}
       <nav
-        className="no-print fixed left-0 right-0 bottom-0 z-40"
-        style={{
-          background: C.panel,
-          borderTop: `1px solid ${C.line}`,
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          boxShadow: "0 -8px 24px -18px rgba(0,0,0,.35)",
-        }}
+        className="bottom-nav no-print fixed left-0 right-0 bottom-0 z-40"
+        style={{ background: C.panel, borderTop: `1px solid ${C.line}`, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="Hoofdnavigatie"
       >
         <div className="mx-auto max-w-2xl grid grid-cols-4">
           {NAV_TABS.map((t) => {
             const on = tab === t.id;
-            const badge =
-              !on &&
-              ((t.id === "vandaag" && !!planUpdate) ||
-                (t.id === "eten" && warnings.length > 0) ||
-                (t.id === "training" && (trainingActive || (!!D.fatigue && !T.block.deloadFrom))));
+            const badge = navBadge(t.id);
             return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className="tap relative flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5"
-                style={{ color: on ? C.accent : C.muted }}
+                style={{ color: on ? C.accent : C.muted, minHeight: 56 }}
                 aria-current={on ? "page" : undefined}
                 aria-label={t.label}
               >
-                <span
-                  className="absolute top-0 rounded-full"
-                  style={{
-                    height: 3,
-                    width: on ? 28 : 0,
-                    background: C.accent,
-                    transition: "width .25s cubic-bezier(.22,1,.36,1)",
-                  }}
-                />
+                <span className="absolute top-0 rounded-full" style={{ height: 3, width: on ? 28 : 0, background: C.accent, transition: "width .25s var(--ease)" }} />
                 <span className="relative">
                   <Icon name={t.id} />
-                  {badge && (
-                    <span
-                      className="absolute rounded-full"
-                      style={{ top: -1, right: -3, width: 8, height: 8, background: C.train, border: `2px solid ${C.panel}` }}
-                    />
-                  )}
+                  {badge && <span className="absolute rounded-full" style={{ top: -1, right: -3, width: 8, height: 8, background: C.train, border: `2px solid ${C.panel}` }} />}
                   {bill.locked && ["training", "eten", "plan"].includes(t.id) && (
                     <svg className="absolute" style={{ top: -3, right: -7 }} width="11" height="12" viewBox="0 0 11 12" aria-hidden="true">
                       <rect x="1" y="5" width="9" height="6.5" rx="1.5" fill="currentColor" />
@@ -17094,6 +17502,8 @@ function MacroApp() {
           })}
         </div>
       </nav>
+      {paletteOpen && <CommandPalette commands={commands()} onClose={() => setPaletteOpen(false)} />}
+      <Toaster />
     </div>
   );
 }
@@ -17103,4 +17513,4 @@ function MacroApp() {
    dus een "export" vóór een functie zou daar breken. Alle kleuren lopen via
    CSS-variabelen, zodat deze onderdelen in Hybrid vanzelf de Hybrid-kleuren
    krijgen. */
-export { STYLE, C, R, Section, Row, Seg, Sheet, TBtn, Reveal, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur, EXERCISES, MUSCLES, calcBMR, recommendedProtein, ACTIVITY, activityFactorOf, stepsOf, DecimalField, toNum };
+export { STYLE, C, R, Section, Row, Seg, Sheet, TBtn, Reveal, toast, Toaster, ConsentSheet, AccountForm, AccountSection, useNexaSync, eur, EXERCISES, MUSCLES, calcBMR, recommendedProtein, ACTIVITY, activityFactorOf, stepsOf, DecimalField, toNum };
