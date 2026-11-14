@@ -2451,8 +2451,6 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 @keyframes sweep { from { transform: translate3d(-110%,0,0); } to { transform: translate3d(320%,0,0); } }
 @keyframes grow { from { transform: scaleY(.04); } to { transform: scaleY(1); } }
 
-.reveal { opacity: 0; will-change: transform, opacity; }
-.reveal.in { animation: rise .5s cubic-bezier(.22,1,.36,1) both; }
 .hero-in { animation: pop .5s cubic-bezier(.22,1,.36,1) both; }
 .bar-fill { transition: width .55s cubic-bezier(.22,1,.36,1); }
 .wk-bar { transform-origin: bottom; animation: grow .5s cubic-bezier(.22,1,.36,1) both; }
@@ -2464,6 +2462,8 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 .page-title { font-family: 'Barlow Condensed', 'Barlow', sans-serif; font-weight: 700; font-size: 34px; line-height: 1; letter-spacing: -0.01em; text-transform: uppercase; }
 .sec-title { font-family: 'Barlow Condensed', 'Barlow', sans-serif; font-weight: 600; font-size: 22px; line-height: 1.15; letter-spacing: -0.005em; text-transform: none; }
 .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.group-label { font: 600 12px/1 Barlow, ui-sans-serif, system-ui, sans-serif !important; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 28px 0 12px; }
+.group-label:first-child { margin-top: 0; }
 
 /* Vensters: onderaan op een telefoon, gecentreerd vanaf een tablet. */
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -2567,30 +2567,11 @@ const R = { card: 14, field: 10 };
 /* Het heropaneel is in beide modi donker, dus deze drie kleuren staan vast. */
 const DK = { pro: "#8FA3FF", carb: "#3BE0A8", fat: "#FFC44D" };
 
-function Reveal({ children, delay = 0 }) {
-  const ref = useRef(null);
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    if (seen) return;
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") return setSeen(true);
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setSeen(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: "0px 0px -6% 0px" }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, [seen]);
-  return (
-    <div ref={ref} className={seen ? "reveal in" : "reveal"} style={{ animationDelay: `${delay}ms` }}>
-      {children}
-    </div>
-  );
+/* Was een infade bij het in beeld scrollen. Weggehaald: inhoud hoort er
+   meteen te staan (ook bij snel scrollen en afdrukken). De naam blijft
+   bestaan voor de onderdelen die hem gebruiken. */
+function Reveal({ children }) {
+  return <div>{children}</div>;
 }
 
 /* Telt naar de nieuwe waarde zonder React-state per frame: schrijft
@@ -2644,37 +2625,56 @@ function Section({ title, sub, children, accent, collapsible = false, defaultOpe
       {title}
     </h2>
   );
+  const chevron = (
+    <svg className="shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: C.muted, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s var(--ease)" }}>
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+  // ingeklapt: één rij met titel en samenvatting (zoals een instellingenlijst)
+  if (collapsible && !open)
+    return (
+      <section className="mb-3" data-section={typeof title === "string" ? title : undefined}>
+        <h2 style={{ font: "inherit" }}>
+          <button onClick={() => setOpen(true)} className="card row-tap w-full text-left px-4 py-3 flex items-center gap-3" aria-expanded={false}>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[15px] font-semibold" style={{ color: C.ink }}>
+                {title}
+              </span>
+              {summary && (
+                <span className="block text-xs mt-0.5 truncate" style={{ color: C.muted }}>
+                  {summary}
+                </span>
+              )}
+            </span>
+            {chevron}
+          </button>
+        </h2>
+      </section>
+    );
   return (
     <Reveal>
-      <section className="mb-8" data-section={typeof title === "string" ? title : undefined}>
+      <section className={collapsible ? "mb-6" : "mb-8"} data-section={typeof title === "string" ? title : undefined}>
         <div className="flex items-center gap-2 mb-2 min-h-[28px]">
           {collapsible ? (
-            <button onClick={() => setOpen((v) => !v)} className="tap flex items-center gap-2 text-left flex-1 min-w-0" aria-expanded={open}>
+            <button onClick={() => setOpen(false)} className="tap flex items-center gap-2 text-left flex-1 min-w-0" aria-expanded={true}>
               {head}
-              <svg className="ml-auto shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ color: C.muted, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s var(--ease)" }}>
-                <path d="M6 9l6 6 6-6" />
-              </svg>
+              <span className="ml-auto">{chevron}</span>
             </button>
           ) : (
             head
           )}
-          {long && open && (
+          {long && (
             <button onClick={() => setWhy((v) => !v)} className="link ml-auto shrink-0" aria-expanded={why}>
               {why ? "Minder" : "Waarom?"}
             </button>
           )}
         </div>
-        {sub && open && (!long || why) && (
+        {sub && (!long || why) && (
           <p className="text-sm mb-3 leading-relaxed" style={{ color: C.muted, maxWidth: "62ch" }}>
             {sub}
           </p>
         )}
-        {!open && summary && (
-          <p className="text-sm leading-relaxed" style={{ color: C.muted, maxWidth: "62ch" }}>
-            {summary}
-          </p>
-        )}
-        {open && <div className="card overflow-hidden">{children}</div>}
+        <div className="card overflow-hidden">{children}</div>
       </section>
     </Reveal>
   );
@@ -14702,7 +14702,7 @@ function MacroApp() {
           <div className="px-3 py-4">
             {events.map((e, i) =>
               e.kind === "train" ? (
-                <div key={`t${i}`} className="flex gap-3 py-2 reveal in" style={{ animationDelay: `${i * 60}ms` }}>
+                <div key={`t${i}`} className="flex gap-3 py-2">
                   <div className="w-11 disp text-base font-semibold tnum pt-0.5" style={{ color: C.train }}>
                     {toHHMM(e.time)}
                   </div>
@@ -14715,7 +14715,7 @@ function MacroApp() {
                   </div>
                 </div>
               ) : (
-                <div key={`m${i}`} className="flex gap-3 py-2 reveal in" style={{ animationDelay: `${i * 60}ms` }}>
+                <div key={`m${i}`} className="flex gap-3 py-2">
                   <div className="w-11 disp text-base font-semibold tnum pt-0.5" style={{ color: C.muted }}>
                     {toHHMM(e.time)}
                   </div>
@@ -15413,7 +15413,12 @@ function MacroApp() {
         {/* ---------------- variatie deze week ---------------- */}
         <Section
           title="Variatie deze week"
-          accent={C.carb}
+          collapsible
+          defaultOpen={false}
+          summary={(() => {
+            const okN = ["protein", "carb", "veg", "fruit"].filter((k) => weekVariety[k].length >= 4).length;
+            return okN === 4 ? "Alle vier de groepen zijn gevarieerd genoeg." : `${okN} van 4 groepen gevarieerd genoeg; tik voor de details.`;
+          })()}
           sub="Minstens vier verschillende bronnen per groep. Afwisseling maakt een schema beter vol te houden en spreidt de micronutriënten."
         >
           {[
@@ -15450,7 +15455,7 @@ function MacroApp() {
         </Section>
 
         {/* ---------------- boodschappenlijst ---------------- */}
-        <Section title="Boodschappen voor de week" sub="De porties van alle zeven dagen bij elkaar opgeteld.">
+        <Section title="Boodschappen voor de week" sub="De porties van alle zeven dagen bij elkaar opgeteld." collapsible defaultOpen={false} summary="De porties van alle zeven dagen bij elkaar opgeteld.">
           <div className="px-3 py-3 flex items-center justify-between gap-3">
             <div className="text-sm">Lijst berekenen</div>
             <Seg
@@ -15485,7 +15490,9 @@ function MacroApp() {
         {/* ---------------- bewaarde maaltijden ---------------- */}
         <Section
           title="Mijn maaltijden"
-          accent={C.carb}
+          collapsible
+          defaultOpen={false}
+          summary={savedMeals.length ? `${savedMeals.length} bewaarde ${savedMeals.length === 1 ? "maaltijd" : "maaltijden"}` : "Bewaar een samenstelling die u vaker eet."}
           sub="Bewaar een samenstelling die u vaker eet. Bij invoegen schaalt de app het hele recept naar het doel van dat maaltijdmoment, met de onderlinge verhoudingen intact."
         >
           {savedMeals.length === 0 ? (
@@ -15559,6 +15566,9 @@ function MacroApp() {
         {/* ---------------- eigen producten ---------------- */}
         <Section
           title="Eigen producten"
+          collapsible
+          defaultOpen={false}
+          summary={customFoods.length ? `${customFoods.length} eigen ${customFoods.length === 1 ? "product" : "producten"}` : "Voeg een product toe vanaf het etiket of met een foto."}
           sub="Neem de waarden per 100 g van het etiket over. Uw producten verschijnen bovenaan in elke keuzelijst en blijven bewaard."
         >
           <div
@@ -16935,18 +16945,188 @@ function MacroApp() {
         )}
         {tab === "profiel" && (
           <>
-        <Section title="Uw sport" sub="Bepaalt welk schema Training toont. Wisselen kan altijd.">
-          <div className="px-4 pt-3">
-            <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} startOpen />
-          </div>
+        <h2 className="group-label">Over u</h2>
+        <Section title="Lichaamsgegevens" collapsible defaultOpen={false} summary={`${f.sex === "vrouw" ? "Vrouw" : "Man"} · ${f.age} jaar · ${f.height} cm · ${String(f.weight).replace(".", ",")} kg`}>
+          <Row label="Geslacht">
+            <Seg
+              value={f.sex}
+              onChange={(v) => set("sex", v)}
+              options={[
+                { value: "man", label: "Man" },
+                { value: "vrouw", label: "Vrouw" },
+              ]}
+            />
+          </Row>
+          <Row label="Leeftijd">
+            <Num value={f.age} onChange={(v) => set("age", v)} min={14} max={90} suffix="jr" />
+          </Row>
+          <Row label="Lengte">
+            <Num value={f.height} onChange={(v) => set("height", v)} min={130} max={220} suffix="cm" />
+          </Row>
+          <Row label="Gewicht">
+            <Num value={f.weight} onChange={(v) => set("weight", v)} step={0.5} min={35} max={250} suffix="kg" />
+          </Row>
+          <Row
+            label="Vetpercentage gebruiken"
+            hint="Nauwkeuriger bij een hoog of juist laag vetpercentage, omdat eiwit en rustmetabolisme dan op vetvrije massa worden berekend."
+          >
+            <Seg
+              value={f.useBodyFat}
+              onChange={(v) => set("useBodyFat", v)}
+              options={[
+                { value: true, label: "Ja" },
+                { value: false, label: "Nee" },
+              ]}
+            />
+          </Row>
+          {f.useBodyFat && (
+            <Row label="Vetpercentage">
+              <Num
+                value={f.bodyFat}
+                onChange={(v) => setF((s) => ({ ...s, bodyFat: v, bodyFatSex: s.sex }))}
+                step={0.5}
+                min={4}
+                max={60}
+                suffix="%"
+              />
+            </Row>
+          )}
+          {f.useBodyFat && f.bodyFatSex && f.bodyFatSex !== f.sex && (
+            <div className="px-4 py-3 relative" style={{ background: C.warnBg }}>
+              <span className="rail" style={{ background: C.warn }} />
+              <p className="text-xs leading-relaxed mb-2" style={{ color: C.warn }}>
+                Uw vetpercentage van {num(f.bodyFat, 0)} procent is ingevuld voor{" "}
+                {f.bodyFatSex === "man" ? "een man" : "een vrouw"}. Doordat vrouwen ongeveer 8 procentpunt meer
+                essentieel vetweefsel hebben, betekent hetzelfde getal een heel andere conditie. Vergelijkbaar is nu
+                ongeveer {convertBf(num(f.bodyFat, 20), f.bodyFatSex, f.sex)} procent.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() =>
+                    setF((s) => ({ ...s, bodyFat: convertBf(num(s.bodyFat, 20), s.bodyFatSex, s.sex), bodyFatSex: s.sex }))
+                  }
+                  className="tap px-3 py-1.5 text-sm"
+                  style={{ background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600 }}
+                >
+                  Omrekenen
+                </button>
+                <button
+                  onClick={() => setF((s) => ({ ...s, bodyFatSex: s.sex }))}
+                  className="tap px-3 py-1.5 text-sm"
+                  style={{ border: `1px solid ${C.line}`, color: C.muted, borderRadius: R.field }}
+                >
+                  Laten staan
+                </button>
+              </div>
+            </div>
+          )}
         </Section>
-        <TeamSection nx={nx} team={team} onOpenClient={setClientOpen} mySettings={perfData.plan ? perfData.plan.settings : null} />
-        {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
-        <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
-        <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
-        <PrivacySection s={nx} />
-        {/* ---------------- invoer ---------------- */}
-        <Section title="Weekschema" sub={discipline === "bodybuilding" ? "Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen." : "Uw trainingen komen uit uw schema in Training en sturen de voeding per dag. Pas ze daar aan; wijzigingen hier worden overschreven."}>
+        <Section title="Dagelijkse activiteit" collapsible defaultOpen={false} summary={`± ${stepsLabel(stepsNow.steps)} stappen per dag${stepsNow.est ? " (schatting)" : ""}`} sub="Alles buiten uw trainingen om: werk, huishouden, wandelen.">
+          <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
+            <StepsPicker f={f} setF={setF} />
+          </div>
+          <Row label="Opstaan">
+            <input
+              type="time"
+              value={f.wake}
+              onChange={(e) => set("wake", e.target.value)}
+              className="px-2 py-1.5 text-sm tnum" data-field
+              style={{ border: `1px solid ${C.line}`, background: C.surface2, color: C.ink, borderRadius: R.field }}
+            />
+          </Row>
+          <Row label="Naar bed">
+            <input
+              type="time"
+              value={f.sleep}
+              onChange={(e) => set("sleep", e.target.value)}
+              className="px-2 py-1.5 text-sm tnum" data-field
+              style={{ border: `1px solid ${C.line}`, background: C.surface2, color: C.ink, borderRadius: R.field }}
+            />
+          </Row>
+          <Row label="Aantal maaltijden" stack hint="Drie tot zes maaltijden geeft de gelijkmatigste eiwitinname.">
+            <Slide value={f.meals} onChange={(v) => set("meals", v)} min={2} max={7} step={1} format={(v) => `${v}`} />
+          </Row>
+          <Row
+            label="Hongerigste moment"
+            stack
+            hint="Die maaltijd krijgt structureel meer koolhydraten en wat meer vet. In een surplus gaat bovendien het grootste deel van de extra koolhydraten daarnaartoe, zodat een verhoging voelbaar op één moment landt."
+          >
+            <Pick
+              value={f.hungerMoment || "geen"}
+              onChange={(v) => set("hungerMoment", v)}
+              options={Object.entries(HUNGER_MOMENTS).map(([id, h]) => ({ id, label: h.label }))}
+            />
+          </Row>
+          <Row
+            label="Koolhydraten cycleren"
+            hint={
+              f.cycling
+                ? "Aan: trainingsdagen krijgen hun eigen verbruik terug plus een opslag, rustdagen leveren dat in. Het weekgemiddelde blijft gelijk."
+                : "Uit: elke dag exact dezelfde calorieën en macro's, ook op trainingsdagen. Het tekort of surplus valt dan groter uit op de dagen dat u traint."
+            }
+          >
+            <Seg
+              value={f.cycling}
+              onChange={(v) => set("cycling", v)}
+              options={[
+                { value: true, label: "Aan" },
+                { value: false, label: "Uit" },
+              ]}
+            />
+          </Row>
+        </Section>
+        <Section title="Doel" collapsible defaultOpen={false} summary={planNow.active ? "Volgt uw meerwekenplan" : f.goal === "onderhoud" ? "Onderhoud" : `${f.goal === "cut" ? "Vetverlies" : "Opbouwen"} · ${String(Math.abs(Number(f.rate))).replace(".", ",")}% per week`}>
+          {planNow.active && (
+            <div className="px-4 py-3 relative" style={{ background: C.surface2, borderBottom: `1px solid ${C.lineSoft}` }}>
+              <span className="rail" style={{ background: PHASE_COLOR[planNow.row.phase] }} />
+              <p className="text-xs leading-relaxed">
+                <strong>Uw actieve plan bepaalt nu het doel:</strong> week {planNow.week + 1} van {planNow.total},{" "}
+                {PHASE_LABEL[planNow.row.phase]}, {planNow.row.rate > 0 ? "+" : ""}
+                {planNow.row.rate.toFixed(2)} procent per week. Wat u hieronder instelt, geldt pas weer als het plan stopt
+                of afloopt.
+              </p>
+            </div>
+          )}
+          <Row label="Richting" stack hint={goalSinceHint}>
+            <Seg
+              value={f.goal}
+              onChange={(v) => {
+                const r = RATES[v][v === "onderhoud" ? 0 : 1].v;
+                setF((s) => ({ ...s, goal: v, rate: r }));
+              }}
+              options={[
+                { value: "cut", label: "Vetverlies" },
+                { value: "onderhoud", label: "Onderhoud" },
+                { value: "bulk", label: "Opbouw" },
+              ]}
+            />
+          </Row>
+          {f.goal === "bulk" && (
+            <Row
+              label="Trainingservaring"
+              stack
+              hint={`Bepaalt hoe snel u zinvol kunt aankomen. Advies: ${EXPERIENCE.find((e) => e.id === f.experience).rate} procent per week.`}
+            >
+              <Pick value={f.experience} onChange={(v) => setF((s) => ({ ...s, experience: v, rate: EXPERIENCE.find((e) => e.id === v).rate }))} options={EXPERIENCE} />
+            </Row>
+          )}
+          {f.goal !== "onderhoud" && (
+            <Row label="Tempo" stack hint="Percentage van uw lichaamsgewicht per week.">
+              <Pick value={f.rate} onChange={(v) => set("rate", Number(v))} options={RATES[f.goal].map((r) => ({ v: r.v, label: r.label }))} />
+            </Row>
+          )}
+          {f.goal === "bulk" && Number(f.rate) > EXPERIENCE.find((e) => e.id === f.experience).rate && (
+            <div className="px-4 py-3 relative" style={{ background: C.warnBg }}>
+              <span className="rail" style={{ background: C.warn }} />
+              <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
+                Dit tempo ligt boven wat bij uw trainingservaring past. Het overschot komt dan grotendeels als vet
+                binnen en kost u later dieettijd. Uw spieren groeien niet sneller dan hun eigen tempo, hoeveel u er ook
+                bovenop legt.
+              </p>
+            </div>
+          )}
+        </Section>
+        <Section title="Weekschema" collapsible defaultOpen={false} summary={`${wk.filter((d) => d.session).length} ${wk.filter((d) => d.session).length === 1 ? "trainingsdag" : "trainingsdagen"} per week`} sub={discipline === "bodybuilding" ? "Per dag uw training en eventuele uitzonderingen. Tik op een dag om die aan te passen." : "Uw trainingen komen uit uw schema in Training en sturen de voeding per dag. Pas ze daar aan; wijzigingen hier worden overschreven."}>
           {week.map((d, i) => (
             <div key={i} style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
               <button onClick={() => setEditDay(editDay === i ? null : i)} className="w-full px-3 py-3 flex items-center justify-between gap-3 text-left">
@@ -17096,190 +17276,6 @@ function MacroApp() {
             )}
           </div>
         </Section>
-
-        <Section title="Lichaamsgegevens">
-          <Row label="Geslacht">
-            <Seg
-              value={f.sex}
-              onChange={(v) => set("sex", v)}
-              options={[
-                { value: "man", label: "Man" },
-                { value: "vrouw", label: "Vrouw" },
-              ]}
-            />
-          </Row>
-          <Row label="Leeftijd">
-            <Num value={f.age} onChange={(v) => set("age", v)} min={14} max={90} suffix="jr" />
-          </Row>
-          <Row label="Lengte">
-            <Num value={f.height} onChange={(v) => set("height", v)} min={130} max={220} suffix="cm" />
-          </Row>
-          <Row label="Gewicht">
-            <Num value={f.weight} onChange={(v) => set("weight", v)} step={0.5} min={35} max={250} suffix="kg" />
-          </Row>
-          <Row
-            label="Vetpercentage gebruiken"
-            hint="Nauwkeuriger bij een hoog of juist laag vetpercentage, omdat eiwit en rustmetabolisme dan op vetvrije massa worden berekend."
-          >
-            <Seg
-              value={f.useBodyFat}
-              onChange={(v) => set("useBodyFat", v)}
-              options={[
-                { value: true, label: "Ja" },
-                { value: false, label: "Nee" },
-              ]}
-            />
-          </Row>
-          {f.useBodyFat && (
-            <Row label="Vetpercentage">
-              <Num
-                value={f.bodyFat}
-                onChange={(v) => setF((s) => ({ ...s, bodyFat: v, bodyFatSex: s.sex }))}
-                step={0.5}
-                min={4}
-                max={60}
-                suffix="%"
-              />
-            </Row>
-          )}
-          {f.useBodyFat && f.bodyFatSex && f.bodyFatSex !== f.sex && (
-            <div className="px-4 py-3 relative" style={{ background: C.warnBg }}>
-              <span className="rail" style={{ background: C.warn }} />
-              <p className="text-xs leading-relaxed mb-2" style={{ color: C.warn }}>
-                Uw vetpercentage van {num(f.bodyFat, 0)} procent is ingevuld voor{" "}
-                {f.bodyFatSex === "man" ? "een man" : "een vrouw"}. Doordat vrouwen ongeveer 8 procentpunt meer
-                essentieel vetweefsel hebben, betekent hetzelfde getal een heel andere conditie. Vergelijkbaar is nu
-                ongeveer {convertBf(num(f.bodyFat, 20), f.bodyFatSex, f.sex)} procent.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() =>
-                    setF((s) => ({ ...s, bodyFat: convertBf(num(s.bodyFat, 20), s.bodyFatSex, s.sex), bodyFatSex: s.sex }))
-                  }
-                  className="tap px-3 py-1.5 text-sm"
-                  style={{ background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600 }}
-                >
-                  Omrekenen
-                </button>
-                <button
-                  onClick={() => setF((s) => ({ ...s, bodyFatSex: s.sex }))}
-                  className="tap px-3 py-1.5 text-sm"
-                  style={{ border: `1px solid ${C.line}`, color: C.muted, borderRadius: R.field }}
-                >
-                  Laten staan
-                </button>
-              </div>
-            </div>
-          )}
-        </Section>
-
-        <Section title="Dagelijkse activiteit" sub="Alles buiten uw trainingen om: werk, huishouden, wandelen.">
-          <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.lineSoft}` }}>
-            <StepsPicker f={f} setF={setF} />
-          </div>
-          <Row label="Opstaan">
-            <input
-              type="time"
-              value={f.wake}
-              onChange={(e) => set("wake", e.target.value)}
-              className="px-2 py-1.5 text-sm tnum" data-field
-              style={{ border: `1px solid ${C.line}`, background: C.surface2, color: C.ink, borderRadius: R.field }}
-            />
-          </Row>
-          <Row label="Naar bed">
-            <input
-              type="time"
-              value={f.sleep}
-              onChange={(e) => set("sleep", e.target.value)}
-              className="px-2 py-1.5 text-sm tnum" data-field
-              style={{ border: `1px solid ${C.line}`, background: C.surface2, color: C.ink, borderRadius: R.field }}
-            />
-          </Row>
-          <Row label="Aantal maaltijden" stack hint="Drie tot zes maaltijden geeft de gelijkmatigste eiwitinname.">
-            <Slide value={f.meals} onChange={(v) => set("meals", v)} min={2} max={7} step={1} format={(v) => `${v}`} />
-          </Row>
-          <Row
-            label="Hongerigste moment"
-            stack
-            hint="Die maaltijd krijgt structureel meer koolhydraten en wat meer vet. In een surplus gaat bovendien het grootste deel van de extra koolhydraten daarnaartoe, zodat een verhoging voelbaar op één moment landt."
-          >
-            <Pick
-              value={f.hungerMoment || "geen"}
-              onChange={(v) => set("hungerMoment", v)}
-              options={Object.entries(HUNGER_MOMENTS).map(([id, h]) => ({ id, label: h.label }))}
-            />
-          </Row>
-          <Row
-            label="Koolhydraten cycleren"
-            hint={
-              f.cycling
-                ? "Aan: trainingsdagen krijgen hun eigen verbruik terug plus een opslag, rustdagen leveren dat in. Het weekgemiddelde blijft gelijk."
-                : "Uit: elke dag exact dezelfde calorieën en macro's, ook op trainingsdagen. Het tekort of surplus valt dan groter uit op de dagen dat u traint."
-            }
-          >
-            <Seg
-              value={f.cycling}
-              onChange={(v) => set("cycling", v)}
-              options={[
-                { value: true, label: "Aan" },
-                { value: false, label: "Uit" },
-              ]}
-            />
-          </Row>
-        </Section>
-
-        <Section title="Doel">
-          {planNow.active && (
-            <div className="px-4 py-3 relative" style={{ background: C.surface2, borderBottom: `1px solid ${C.lineSoft}` }}>
-              <span className="rail" style={{ background: PHASE_COLOR[planNow.row.phase] }} />
-              <p className="text-xs leading-relaxed">
-                <strong>Uw actieve plan bepaalt nu het doel:</strong> week {planNow.week + 1} van {planNow.total},{" "}
-                {PHASE_LABEL[planNow.row.phase]}, {planNow.row.rate > 0 ? "+" : ""}
-                {planNow.row.rate.toFixed(2)} procent per week. Wat u hieronder instelt, geldt pas weer als het plan stopt
-                of afloopt.
-              </p>
-            </div>
-          )}
-          <Row label="Richting" stack hint={goalSinceHint}>
-            <Seg
-              value={f.goal}
-              onChange={(v) => {
-                const r = RATES[v][v === "onderhoud" ? 0 : 1].v;
-                setF((s) => ({ ...s, goal: v, rate: r }));
-              }}
-              options={[
-                { value: "cut", label: "Vetverlies" },
-                { value: "onderhoud", label: "Onderhoud" },
-                { value: "bulk", label: "Opbouw" },
-              ]}
-            />
-          </Row>
-          {f.goal === "bulk" && (
-            <Row
-              label="Trainingservaring"
-              stack
-              hint={`Bepaalt hoe snel u zinvol kunt aankomen. Advies: ${EXPERIENCE.find((e) => e.id === f.experience).rate} procent per week.`}
-            >
-              <Pick value={f.experience} onChange={(v) => setF((s) => ({ ...s, experience: v, rate: EXPERIENCE.find((e) => e.id === v).rate }))} options={EXPERIENCE} />
-            </Row>
-          )}
-          {f.goal !== "onderhoud" && (
-            <Row label="Tempo" stack hint="Percentage van uw lichaamsgewicht per week.">
-              <Pick value={f.rate} onChange={(v) => set("rate", Number(v))} options={RATES[f.goal].map((r) => ({ v: r.v, label: r.label }))} />
-            </Row>
-          )}
-          {f.goal === "bulk" && Number(f.rate) > EXPERIENCE.find((e) => e.id === f.experience).rate && (
-            <div className="px-4 py-3 relative" style={{ background: C.warnBg }}>
-              <span className="rail" style={{ background: C.warn }} />
-              <p className="text-xs leading-relaxed" style={{ color: C.warn }}>
-                Dit tempo ligt boven wat bij uw trainingservaring past. Het overschot komt dan grotendeels als vet
-                binnen en kost u later dieettijd. Uw spieren groeien niet sneller dan hun eigen tempo, hoeveel u er ook
-                bovenop legt.
-              </p>
-            </div>
-          )}
-        </Section>
-
         <div className="mb-8">
           <button onClick={() => setShowAdvanced((v) => !v)} className="text-sm underline" style={{ color: C.muted }}>
             {showAdvanced ? "Geavanceerde instellingen verbergen" : "Geavanceerde instellingen tonen"}
@@ -17362,6 +17358,39 @@ function MacroApp() {
             </div>
           )}
         </div>
+        <h2 className="group-label">Training</h2>
+        <Section title="Uw sport" sub="Bepaalt welk schema Training toont. Wisselen kan altijd.">
+          <div className="px-4 pt-3">
+            <SportPicker value={discipline} onChange={(v) => perfStore[1].setDiscipline(v)} startOpen />
+          </div>
+        </Section>
+        {(discipline !== "bodybuilding" || stravaNotice) && <PerfProfile store={perfStore} nx={nx} stravaKey={stravaKey} notice={stravaNotice} />}
+        <h2 className="group-label">Account</h2>
+        <AccountSection s={nx} onConsent={() => setConsentOpen(true)} />
+        <SubscriptionSection bill={bill} onStart={() => setPaywallOpen("profiel")} />
+        <TeamSection nx={nx} team={team} onOpenClient={setClientOpen} mySettings={perfData.plan ? perfData.plan.settings : null} />
+        <PrivacySection s={nx} />
+        <h2 className="group-label">App</h2>
+        <Section title="Weergave">
+          <Row label="Thema" hint="Systeem volgt de instelling van uw apparaat.">
+            <Seg
+              label="Thema"
+              value={theme}
+              onChange={setTheme}
+              options={[
+                { value: "system", label: "Systeem" },
+                { value: "light", label: "Licht" },
+                { value: "dark", label: "Donker" },
+              ]}
+            />
+          </Row>
+          <Row label="Zoeken en sneltoetsen" hint="Ctrl of ⌘ + K (of /) opent zoeken; 1 tot en met 4 wisselt van scherm.">
+            <TBtn small kind="ghost" onClick={() => setPaletteOpen(true)}>
+              Zoeken
+            </TBtn>
+          </Row>
+        </Section>
+
 
         <footer className="text-xs leading-relaxed pt-4" style={{ color: C.muted, borderTop: `1px solid ${C.line}` }}>
           <p className="mb-2 tnum">

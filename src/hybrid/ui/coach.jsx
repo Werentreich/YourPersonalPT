@@ -236,7 +236,7 @@ export function CoachCard({ data, api, nx, acc }) {
               className="flex-1 px-3 py-2 text-sm"
               style={{ borderRadius: R.field, border: `1px solid ${C.line}`, background: C.panel, color: C.ink, resize: "none" }}
             />
-            <TBtn disabled={!q.trim() || !!busy}>Stuur</TBtn>
+            <TBtn type="submit" disabled={!q.trim() || !!busy}>Stuur</TBtn>
           </form>
           <div className="flex items-center justify-between gap-3">
             <span className="text-[11px]" style={{ color: C.muted }}>
