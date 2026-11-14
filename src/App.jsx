@@ -2479,6 +2479,7 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
   .dialog { max-width: 34rem; max-height: min(86vh, 760px); border-radius: var(--r-xl); border: 1px solid var(--line); animation-name: dialog-pop; animation-duration: .22s; padding-bottom: 0; }
   .dialog-grip { display: none; }
 }
+button { min-height: 24px; }
 .icon-btn { width: 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; }
 @media (hover: hover) { .icon-btn:hover { background: var(--hover); color: var(--ink); filter: none !important; } }
 
@@ -2680,6 +2681,13 @@ function Section({ title, sub, children, accent, collapsible = false, defaultOpe
   );
 }
 
+/* Het label van een rij is ook de naam van het veld erin (schermlezers). */
+const RowLabel = React.createContext(null);
+const useRowLabel = (own) => {
+  const ctx = React.useContext(RowLabel);
+  return own || (typeof ctx === "string" ? ctx : undefined);
+};
+
 function Row({ label, hint, children, stack }) {
   return (
     <div
@@ -2696,14 +2704,17 @@ function Row({ label, hint, children, stack }) {
           </div>
         )}
       </div>
-      <div className={stack ? "" : "shrink-0"}>{children}</div>
+      <div className={stack ? "" : "shrink-0"}>
+        <RowLabel.Provider value={label}>{children}</RowLabel.Provider>
+      </div>
     </div>
   );
 }
 
 function Seg({ options, value, onChange, label }) {
+  const name = useRowLabel(label);
   return (
-    <div className="seg" role="group" aria-label={label}>
+    <div className="seg" role="group" aria-label={name}>
       {options.map((o) => (
         <button key={String(o.value)} onClick={() => onChange(o.value)} aria-pressed={o.value === value}>
           {o.label}
@@ -2716,8 +2727,9 @@ function Seg({ options, value, onChange, label }) {
 /* Tijdens het typen blijft de tekst staan zoals ingetypt; alleen een
    waarde binnen het bereik gaat meteen door. Pas bij het verlaten van het
    veld wordt begrensd. Anders wordt de 2 van "20" direct het minimum. */
-function Num({ value, onChange, step = 1, min, max, suffix }) {
+function Num({ value, onChange, step = 1, min, max, suffix, label }) {
   const [draft, setDraft] = useState(null);
+  const name = useRowLabel(label);
   const inRange = (n) => Number.isFinite(n) && (min == null || n >= min) && (max == null || n <= max);
   return (
     <div className="flex items-center gap-1">
@@ -2725,6 +2737,7 @@ function Num({ value, onChange, step = 1, min, max, suffix }) {
         type="text"
         inputMode="decimal"
         autoComplete="off"
+        aria-label={name ? (suffix ? `${name} (${suffix})` : name) : undefined}
         value={draft ?? value ?? ""}
         onChange={(e) => {
           const t = e.target.value.replace(/[^0-9.,-]/g, "");
@@ -2753,9 +2766,11 @@ function Num({ value, onChange, step = 1, min, max, suffix }) {
   );
 }
 
-function Pick({ value, onChange, options }) {
+function Pick({ value, onChange, options, label }) {
+  const name = useRowLabel(label);
   return (
     <select
+      aria-label={name}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className="w-full px-2 py-2 text-sm"
@@ -2770,7 +2785,8 @@ function Pick({ value, onChange, options }) {
   );
 }
 
-function Slide({ value, onChange, min, max, step, format }) {
+function Slide({ value, onChange, min, max, step, format, label }) {
+  const name = useRowLabel(label);
   /* Een ontbrekende of ongeldige waarde mag de app nooit laten vallen:
      val is altijd een getal binnen het bereik. */
   const n = Number(value);
@@ -2779,6 +2795,7 @@ function Slide({ value, onChange, min, max, step, format }) {
     <div className="flex items-center gap-3">
       <input
         type="range"
+        aria-label={name}
         min={min}
         max={max}
         step={step}
@@ -7615,6 +7632,7 @@ function PlanBuilder({ T, setT, D, week, setWeek, onDone }) {
       <Row label="Hoe laat traint u meestal?" stack>
         <input
           type="time"
+          aria-label="Hoe laat traint u meestal?"
           value={start}
           onChange={(e) => setStart(e.target.value)}
           className="px-3 py-2 text-sm"
@@ -13830,6 +13848,7 @@ function MacroApp() {
                     <ObRow label="Rond welk tijdstip">
                       <input
                         type="time"
+                        aria-label="Rond welk tijdstip traint u"
                         value={obTrain.start}
                         onChange={(ev) => {
                           const v = ev.target.value;
@@ -13889,6 +13908,7 @@ function MacroApp() {
                     <ObRow label="Opstaan">
                       <input
                         type="time"
+                        aria-label="Opstaan"
                         value={f.wake}
                         onChange={(ev) => set("wake", ev.target.value)}
                         className="w-full px-2 py-2 text-sm tnum" data-field
@@ -13898,6 +13918,7 @@ function MacroApp() {
                     <ObRow label="Naar bed">
                       <input
                         type="time"
+                        aria-label="Naar bed"
                         value={f.sleep}
                         onChange={(ev) => set("sleep", ev.target.value)}
                         className="w-full px-2 py-2 text-sm tnum" data-field
@@ -15697,6 +15718,7 @@ function MacroApp() {
               type="text"
               value={newFood.label}
               onChange={(ev) => setNewFood((s) => ({ ...s, label: ev.target.value }))}
+              aria-label="Naam van het product"
               placeholder="bijvoorbeeld Whey vanille van uw merk"
               className="w-full px-2 py-1.5 text-sm mb-2" data-field
               style={{ border: `1px solid ${C.line}`, background: C.surface2, color: C.ink, borderRadius: R.field }}
@@ -15705,6 +15727,7 @@ function MacroApp() {
               Soort bron
             </div>
             <Pick
+              label="Soort bron"
               value={newFood.cat}
               onChange={(v) => setNewFood((s) => ({ ...s, cat: v }))}
               options={[
@@ -16048,6 +16071,7 @@ function MacroApp() {
               <input
                 type="date"
                 value={newEntry.date}
+                aria-label="Datum van de meting"
                 onChange={(e) => setNewEntry((s) => ({ ...s, date: e.target.value }))}
                 className="w-full px-2 py-1.5 text-sm tnum" data-field
                 style={{ border: `1px solid ${C.line}`, background: C.surface2, color: C.ink, borderRadius: R.field }}
@@ -16057,7 +16081,7 @@ function MacroApp() {
               <div className="text-xs mb-1" style={{ color: C.muted }}>
                 Gewicht
               </div>
-              <Num value={newEntry.weight} onChange={(v) => setNewEntry((s) => ({ ...s, weight: v }))} step={0.1} suffix="kg" />
+              <Num label="Gewicht" value={newEntry.weight} onChange={(v) => setNewEntry((s) => ({ ...s, weight: v }))} step={0.1} suffix="kg" />
             </div>
             <button onClick={addEntry} className="tap px-3 py-1.5 text-sm" style={{ background: C.accent, color: C.onAccent, borderRadius: R.field, fontWeight: 600 }}>
               Toevoegen
@@ -17029,6 +17053,7 @@ function MacroApp() {
           <Row label="Opstaan">
             <input
               type="time"
+              aria-label="Opstaan"
               value={f.wake}
               onChange={(e) => set("wake", e.target.value)}
               className="px-2 py-1.5 text-sm tnum" data-field
@@ -17038,6 +17063,7 @@ function MacroApp() {
           <Row label="Naar bed">
             <input
               type="time"
+              aria-label="Naar bed"
               value={f.sleep}
               onChange={(e) => set("sleep", e.target.value)}
               className="px-2 py-1.5 text-sm tnum" data-field
@@ -17165,6 +17191,7 @@ function MacroApp() {
                         </div>
                         <input
                           type="time"
+                          aria-label="Starttijd van de training"
                           value={d.session.start}
                           onChange={(e) => setDay(i, { session: { ...d.session, start: e.target.value } })}
                           className="px-2 py-1.5 text-sm tnum w-full" data-field
@@ -17204,6 +17231,7 @@ function MacroApp() {
                           </div>
                           <input
                             type="time"
+                            aria-label="Opstaan"
                             value={dayCfg(i).wake}
                             onChange={(ev) => setDay(i, { wake: ev.target.value })}
                             className="px-2 py-1.5 text-sm tnum w-full" data-field
@@ -17216,6 +17244,7 @@ function MacroApp() {
                           </div>
                           <input
                             type="time"
+                            aria-label="Naar bed"
                             value={dayCfg(i).sleep}
                             onChange={(ev) => setDay(i, { sleep: ev.target.value })}
                             className="px-2 py-1.5 text-sm tnum w-full" data-field
