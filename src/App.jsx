@@ -2419,8 +2419,8 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
 /* Segmentkeuze (Seg): rustige baan met een verhoogde keuze. */
 .seg { display: inline-flex; padding: 3px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); gap: 2px; max-width: 100%; }
 .seg > button { min-height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; color: var(--muted); border-radius: 7px; white-space: nowrap; transition: background-color var(--t-fast) ease, color var(--t-fast) ease, box-shadow var(--t-fast) ease; }
-.seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(11,13,17,.12), 0 0 0 1px var(--line); }
-@media (hover: hover) { .seg > button:hover:not([aria-pressed="true"]) { color: var(--ink); } }
+.seg > button[aria-pressed="true"], .seg > button[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(11,13,17,.12), 0 0 0 1px var(--line); }
+@media (hover: hover) { .seg > button:hover:not([aria-pressed="true"]):not([aria-selected="true"]) { color: var(--ink); } }
 .seg-full { display: flex; width: 100%; }
 .seg-full > button { flex: 1; min-width: 0; padding: 0 4px; }
 
@@ -2479,7 +2479,7 @@ html, body { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; text-siz
   .dialog { max-width: 34rem; max-height: min(86vh, 760px); border-radius: var(--r-xl); border: 1px solid var(--line); animation-name: dialog-pop; animation-duration: .22s; padding-bottom: 0; }
   .dialog-grip { display: none; }
 }
-.icon-btn { width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; }
+.icon-btn { width: 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0; }
 @media (hover: hover) { .icon-btn:hover { background: var(--hover); color: var(--ink); filter: none !important; } }
 
 /* Meldingen (toasts) */
@@ -9819,7 +9819,7 @@ function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSumma
   if (T.active) return <LiveWorkout T={T} setT={setT} D={D} bw={bw} onFinish={(s) => setSummary(s)} />;
   return (
     <>
-      <div className="flex gap-1 p-1 mb-5" style={{ background: C.surface2, border: `1px solid ${C.line}`, borderRadius: 999 }} role="tablist">
+      <div className="seg seg-full mb-5" role="tablist">
         {TRAIN_VIEWS.map((v) => {
           const on = view === v.id;
           return (
@@ -9828,8 +9828,6 @@ function TrainingTab({ T, setT, D, bw, week, setWeek, onStart, summary, setSumma
               role="tab"
               aria-selected={on}
               onClick={() => go(v.id)}
-              className="tap flex-1 py-1.5 text-sm rounded-full"
-              style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
             >
               {v.label}
             </button>
@@ -16894,8 +16892,11 @@ function MacroApp() {
             />
           </Row>
 
+        </Section>
+
+        <Section title="Slaaptips" collapsible defaultOpen={false} summary="Voeding, ritme en wat weinig bewijs heeft.">
           {SLEEP_GUIDE.map((g, i) => (
-            <div key={i} className="px-4 py-3 relative" style={{ borderTop: `1px solid ${C.lineSoft}` }}>
+            <div key={i} className="px-4 py-3 relative" style={{ borderTop: i ? `1px solid ${C.lineSoft}` : "none" }}>
               <span className="rail" style={{ background: g.col }} />
               <div className="disp text-lg font-bold uppercase leading-none mb-1.5" style={{ color: g.col }}>
                 {g.title}

@@ -3,12 +3,13 @@
    4 px afgeronde top en 2 px ruimte tussen segmenten, terughoudend raster,
    tekst in teksttokens, legenda bij twee of meer reeksen, tooltip bij hover
    en aanraken, en altijd een tabelweergave. */
-import React, { useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { C, R } from "../../App.jsx";
 import { K } from "../theme.js";
 import { dateLabel } from "./kit.jsx";
 
-const W = 340;
+const BASE_W = 340;
+const MAX_W = 760;
 const fmt = (v) => String(Math.round(v)).replace("-", "−");
 
 function Legend({ items }) {
@@ -37,12 +38,24 @@ function Tooltip({ x, children }) {
   );
 }
 
-/* Index onder de aanwijzer (muis of vinger) binnen een SVG van breedte W. */
+/* Index onder de aanwijzer (muis of vinger), plus de tekenbreedte W: de
+   grafiek volgt de breedte van de kaart, zodat tekst en lijnen op een breed
+   scherm niet meeschalen. */
 function useHover(n, padL, padR) {
-  const ref = useRef(null);
+  const [el, setEl] = useState(null);
+  const [W, setW] = useState(BASE_W);
   const [i, setI] = useState(null);
+  useEffect(() => {
+    if (!el) return;
+    const upd = () => setW(Math.round(Math.min(MAX_W, Math.max(BASE_W, el.clientWidth || BASE_W))));
+    upd();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(upd);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
   const at = (clientX) => {
-    const r = ref.current && ref.current.getBoundingClientRect();
+    const r = el && el.getBoundingClientRect();
     if (!r || n < 1) return;
     const x = ((clientX - r.left) / r.width) * W;
     const k = Math.round(((x - padL) / (W - padL - padR)) * (n - 1));
@@ -53,7 +66,7 @@ function useHover(n, padL, padR) {
     onPointerDown: (e) => at(e.clientX),
     onPointerLeave: () => setI(null),
   };
-  return [ref, i, handlers];
+  return [setEl, i, handlers, W];
 }
 
 function TableView({ caption, head, rows }) {
@@ -99,7 +112,7 @@ export function FitnessChart({ series }) {
     padT = 10,
     padB = 22;
   const n = series.length;
-  const [ref, hi, on] = useHover(n, padL, padR);
+  const [ref, hi, on, W] = useHover(n, padL, padR);
   if (n < 2) return null;
   const max = Math.max(10, ...series.map((p) => Math.max(p.ctl, p.atl))) * 1.1;
   const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
@@ -168,7 +181,7 @@ export function FormChart({ series }) {
     padT = 8,
     padB = 8;
   const n = series.length;
-  const [ref, hi, on] = useHover(n, padL, padR);
+  const [ref, hi, on, W] = useHover(n, padL, padR);
   if (n < 2) return null;
   const ext = Math.max(10, ...series.map((p) => Math.abs(p.tsb))) * 1.1;
   const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
@@ -208,7 +221,7 @@ export function WeekBars({ weeks }) {
     padT = 10,
     padB = 22;
   const n = weeks.length;
-  const [ref, hi, on] = useHover(n, padL + 12, padR + 12);
+  const [ref, hi, on, W] = useHover(n, padL + 12, padR + 12);
   const max = Math.max(100, ...weeks.map((w) => w.total)) * 1.1;
   const slot = (W - padL - padR) / n;
   const bw = Math.min(26, slot * 0.6);

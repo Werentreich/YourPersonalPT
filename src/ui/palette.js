@@ -51,6 +51,6 @@ export function groupCommands(list) {
    (data-section); een titel die met … eindigt is een begin (voorvoegsel). */
 export const SECTIONS = {
   eten: ["Dagindeling…", "Variatie deze week", "Boodschappen voor de week", "Mijn maaltijden", "Eigen producten"],
-  plan: ["Gewicht en bijsturen", "Wekelijkse check-in", "Lichaamssamenstelling", "Meerwekenplan", "Wanneer welke fase", "Hormonale gezondheid", "Slaap", "Micronutriënten per dag"],
+  plan: ["Gewicht en bijsturen", "Wekelijkse check-in", "Lichaamssamenstelling", "Meerwekenplan", "Wanneer welke fase", "Hormonale gezondheid", "Slaap", "Slaaptips", "Micronutriënten per dag"],
   profiel: ["Uw sport", "Weergave", "Account", "Gezin en coaching", "Weekschema", "Lichaamsgegevens", "Dagelijkse activiteit", "Doel", "Handmatig bijstellen", "Privacy en gegevens"],
 };

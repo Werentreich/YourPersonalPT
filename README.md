@@ -67,6 +67,35 @@ verplaatst of ingeklapt:
 - Coachtekst in gewone taal: "U valt sneller af dan gepland" in plaats van
   "onder het geplande tempo".
 
+## Ontwerp en bediening (herontwerp, november 2026)
+
+Het ontwerp volgt één design system: zie `docs/DESIGN-SYSTEM.md` (tokens,
+typografie, componenten, schermgrootten, toegankelijkheid). In het kort:
+
+- **Schil**: telefoon en tablet houden de tabbalk onderaan; vanaf 1024 px
+  staat de navigatie in een vaste zijbalk (`.side`) en vervalt de tabbalk.
+  Vanaf 1280 px toont Vandaag twee kolommen (`.today-grid`).
+- **Zoeken en opdrachten** (`src/ui/CommandPalette.jsx`, logica in
+  `src/ui/palette.js`): Ctrl/⌘+K of `/`. Vindt schermen, secties (ook
+  ingeklapte; die klappen open via het event `nexa:open-section`) en
+  acties zoals wegen, check-in en thema. Toetsen `1` tot `4` wisselen van
+  tab. Nieuwe sectie? Zet de titel in `SECTIONS`.
+- **Snel wegen** op Vandaag (`src/ui/weigh.js`): gewicht invullen zonder
+  naar Voortgang te gaan; de melding biedt "Ongedaan maken".
+- **Meldingen**: `toast(tekst, { action, onAction })`; `Toaster` staat één
+  keer in de app.
+- **Vensters** (`Sheet`): blad van onder op de telefoon, gecentreerd vanaf
+  640 px; focus blijft in het venster, Escape sluit.
+- **Thema**: Profiel, Weergave: Systeem, Licht of Donker (`nexa:theme`).
+- **Profiel** is geordend in Over u, Training, Account en App; secundaire
+  secties (ook bij Eten en Voortgang) zijn ingeklapt met een samenvatting.
+- **Grafieken** volgen de kaartbreedte (`useChartW`, en `useHover` in
+  `src/hybrid/ui/charts.jsx`).
+- `TBtn` is standaard `type="button"`. Een verzendknop in een formulier
+  krijgt uitdrukkelijk `type="submit"`.
+
+Tests: `tests/ui-test.mjs` (zoeken en weegsamenvatting).
+
 ## Nexa Hybrid (opgegaan in Nexa)
 
 Sinds oktober 2026 zit alles van Hybrid in Nexa zelf: Training heeft een sportkeuze (bodybuilding, kracht, hybride, hardlopen, conditie) via `src/perf/`; /hybrid stuurt door naar /app. Zie `docs/hybrid/05-NEXA-COMPLEET.md`.

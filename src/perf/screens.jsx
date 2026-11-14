@@ -286,15 +286,14 @@ export function PerfSchema({ data, api, goals, nbase, onLog, onGuide, onOpenSess
   return (
     <>
       <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex p-0.5 rounded-full" style={{ background: C.surface2, border: `1px solid ${C.line}` }}>
+        <div className="seg" role="group">
           {WEEK_OPTS.map((o) => {
             const on = o.value === offset;
             return (
               <button
                 key={o.value}
                 onClick={() => setOffset(o.value)}
-                className="tap px-3 py-1 text-sm rounded-full"
-                style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+                aria-pressed={on}
               >
                 {o.label}
               </button>
@@ -463,15 +462,14 @@ export function UnifiedLog({ data, bbLog = [], onAdd, onOpen, onOpenBodybuilding
   return (
     <>
       <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex p-0.5 rounded-full" style={{ background: C.surface2, border: `1px solid ${C.line}` }}>
+        <div className="seg" role="group">
           {KIND_FILTERS.map((o) => {
             const on = o.value === filter;
             return (
               <button
                 key={o.value}
                 onClick={() => setFilter(o.value)}
-                className="tap px-3 py-1 text-sm rounded-full"
-                style={{ background: on ? C.accent : "transparent", color: on ? C.onAccent : C.muted, fontWeight: on ? 600 : 500 }}
+                aria-pressed={on}
               >
                 {o.label}
               </button>
