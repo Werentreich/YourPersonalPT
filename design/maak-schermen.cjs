@@ -7,7 +7,7 @@
 const { chromium } = require("playwright");
 const path = require("path");
 const OUT = path.join(__dirname, "..", "landing", "img");
-const BASE = "http://localhost:8765";
+const BASE = process.env.NEXA_BASE || "http://localhost:8765";
 const NOW = new Date("2026-09-24T08:40:00");
 const DAY = 864e5;
 const iso = (d) => new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10);
@@ -33,7 +33,9 @@ async function seedTraining(page) {
   // schema aanmaken via de app zelf, daarna zes weken voorbeeldtrainingen toevoegen
   await page.getByRole("button", { name: "Training", exact: true }).last().click();
   await page.waitForTimeout(300);
-  await page.getByText("Schema aanmaken").click();
+  await page.getByRole("button", { name: "Maak mijn schema" }).click();
+  await page.waitForTimeout(1000);
+  await page.getByRole("button", { name: /schema gebruiken/i }).first().click();
   await page.waitForTimeout(1200);
   await page.evaluate(({ now, day }) => {
     const K = "macroverdeling:training:v1";
@@ -106,6 +108,7 @@ async function shoot(scheme) {
   await ctx.addInitScript((seed) => {
     if (!localStorage.getItem("macroverdeling:v1")) {
       localStorage.setItem("macroverdeling:v1", seed);
+      localStorage.setItem("macroverdeling:hybrid:v1", JSON.stringify({ discipline: "bodybuilding" }));
       localStorage.setItem("nexa:account-hint", "1");
     }
     localStorage.setItem("nexa:checkin-later", String(Date.now()));
@@ -134,10 +137,11 @@ async function shoot(scheme) {
     await loc.evaluate((el) => el.scrollIntoView({ block: "start" }));
     await page.evaluate((o) => window.scrollBy(0, -o), offset);
   };
-  await toTop(page.getByText(/^Dagindeling /).first(), 24);
+  await tab("Eten");
+  await toTop(page.getByText(/^Dagindeling /).first(), 104); // onder de vaste dagbalk
   await snap("maaltijden");
-  await tab("Plan");
-  await toTop(page.getByText("Lichaamssamenstelling", { exact: true }), 24);
+  await tab("Voortgang");
+  await toTop(page.getByText("Lichaamssamenstelling", { exact: true }).first(), 24);
   await snap("samenstelling");
   await tab("Training");
   await page.getByRole("tab", { name: "Inzichten" }).click();
